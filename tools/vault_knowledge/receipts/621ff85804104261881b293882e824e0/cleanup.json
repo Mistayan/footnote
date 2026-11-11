@@ -1,0 +1,8 @@
+{
+  "pid": 22248,
+  "port": 56139,
+  "process_exited": true,
+  "port_closed": true,
+  "returncode": 1,
+  "shutdown": "owned Popen terminate/wait; no other PID touched"
+}

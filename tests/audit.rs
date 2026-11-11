@@ -1,0 +1,254 @@
+//! Audit-log integration tests: chain integrity, MAC binding, tamper detection
+//! and fail-closed behaviour. These drive the real binary.
+use assert_cmd::Command;
+use serde_json::{Value, json};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Output,
+};
+
+const KEY_HEX: &str = "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4";
+const WRONG_KEY_HEX: &str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+
+fn bin() -> Command {
+    Command::new(assert_cmd::cargo::cargo_bin!("borg-knowledge"))
+}
+
+fn tmp() -> tempfile::TempDir {
+    tempfile::tempdir_in(
+        std::env::var("TMPDIR").unwrap_or_else(|_| std::env::temp_dir().to_string_lossy().into()),
+    )
+    .unwrap()
+}
+
+fn fixture(t: &tempfile::TempDir) -> PathBuf {
+    let root = t.path().join("notes");
+    fs::create_dir(&root).unwrap();
+    fs::write(
+        root.join("sqlite.md"),
+        "# SQLite\n## WAL\nCheckpoint latency is amortized by batching writes.\n",
+    )
+    .unwrap();
+    let db = t.path().join("k.db");
+    bin()
+        .arg("--db")
+        .arg(&db)
+        .args(["index", "--root"])
+        .arg(&root)
+        .arg("--allow")
+        .arg(&root)
+        .assert()
+        .success();
+    db
+}
+
+fn key_file(t: &tempfile::TempDir, name: &str, hex: &str) -> PathBuf {
+    let path = t.path().join(name);
+    fs::write(&path, hex).unwrap();
+    path
+}
+
+/// Run one MCP session with auditing enabled and return raw stdout.
+fn serve_audited(db: &Path, audit: &Path, key: Option<&Path>, lines: &[Value]) -> (Output, String) {
+    let input: String = lines
+        .iter()
+        .map(|v| format!("{v}\n"))
+        .collect::<Vec<_>>()
+        .concat();
+    let mut cmd = bin();
+    cmd.arg("--db")
+        .arg(db)
+        .args(["serve", "--mcp", "--audit"])
+        .arg(audit);
+    if let Some(k) = key {
+        cmd.arg("--mac-key").arg(k);
+    }
+    let out = cmd.write_stdin(input).output().unwrap();
+    let stdout = String::from_utf8(out.stdout.clone()).unwrap();
+    (out, stdout)
+}
+
+fn two_calls() -> Vec<Value> {
+    vec![
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"borg_stats","arguments":{}}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"borg_recall","arguments":{"query":"checkpoint","limit":1}}}),
+    ]
+}
+
+fn verify(audit: &Path, key: Option<&Path>, expect_last: Option<&str>) -> Output {
+    let mut cmd = bin();
+    cmd.args(["audit", "verify", "--file"]).arg(audit);
+    if let Some(k) = key {
+        cmd.arg("--mac-key").arg(k);
+    }
+    if let Some(head) = expect_last {
+        cmd.arg("--expect-last").arg(head);
+    }
+    cmd.output().unwrap()
+}
+
+fn verify_ok(audit: &Path, key: Option<&Path>) -> Value {
+    let out = verify(audit, key, None);
+    assert!(out.status.success(), "verify failed: {out:?}");
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+fn audit_lines(audit: &Path) -> Vec<Value> {
+    fs::read_to_string(audit)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn every_tool_call_is_logged_chained_and_bound_to_its_response() {
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    let key = key_file(&t, "key.txt", KEY_HEX);
+
+    let (out, stdout) = serve_audited(&db, &audit, Some(&key), &two_calls());
+    assert!(out.status.success(), "serve failed: {out:?}");
+
+    // Responses carry a _meta.borg binding to the audit line.
+    let mut seqs = Vec::new();
+    for line in stdout.lines().filter(|l| !l.trim().is_empty()) {
+        let response: Value = serde_json::from_str(line).unwrap();
+        let meta = &response["result"]["_meta"]["borg"];
+        assert_eq!(meta["mac"].as_str().map(|m| m.len()), Some(64));
+        seqs.push(meta["seq"].as_u64().unwrap());
+    }
+    assert_eq!(seqs, vec![1, 2]);
+
+    let entries = audit_lines(&audit);
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0]["tool"], "borg_stats");
+    assert_eq!(entries[1]["tool"], "borg_recall");
+    // Queries are hashed, never stored verbatim.
+    assert!(entries[1]["args_sha256"].as_str().unwrap().len() == 64);
+    assert!(!fs::read_to_string(&audit).unwrap().contains("checkpoint"));
+
+    let report = verify_ok(&audit, Some(&key));
+    assert_eq!(report["entries"], 2);
+    assert_eq!(report["mac"], "verified");
+    assert_eq!(report["head"], "not_checked");
+}
+
+#[test]
+fn a_modified_entry_breaks_the_chain() {
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    serve_audited(&db, &audit, None, &two_calls());
+    let original = fs::read_to_string(&audit).unwrap();
+    fs::write(&audit, original.replace("\"ok\":true", "\"ok\":false")).unwrap();
+
+    let out = verify(&audit, None, None);
+    assert!(!out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("hash mismatch"), "{stdout}");
+}
+
+#[test]
+fn a_wrong_mac_key_is_rejected() {
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    let key = key_file(&t, "key.txt", KEY_HEX);
+    let wrong = key_file(&t, "wrong.txt", WRONG_KEY_HEX);
+    serve_audited(&db, &audit, Some(&key), &two_calls());
+
+    let out = verify(&audit, Some(&wrong), None);
+    assert!(!out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("MAC mismatch"), "{stdout}");
+}
+
+#[test]
+fn dropping_an_entry_is_detected_as_a_sequence_gap() {
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    serve_audited(&db, &audit, None, &two_calls());
+    let lines = fs::read_to_string(&audit).unwrap();
+    let second = lines.lines().nth(1).unwrap();
+    fs::write(&audit, format!("{second}\n")).unwrap();
+
+    let out = verify(&audit, None, None);
+    assert!(!out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("sequence gap"), "{stdout}");
+}
+
+/// Documents the known limit of a bare hash chain: truncating the tail still
+/// verifies, so the head must be pinned out of band.
+#[test]
+fn tail_truncation_only_shows_up_against_a_pinned_head() {
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    serve_audited(&db, &audit, None, &two_calls());
+    let report = verify_ok(&audit, None);
+    let pinned = report["last_hash"].as_str().unwrap().to_string();
+
+    let content = fs::read_to_string(&audit).unwrap();
+    let first = content.lines().next().unwrap();
+    fs::write(&audit, format!("{first}\n")).unwrap();
+
+    // Without a pinned head the shortened log looks valid.
+    let unpinned = verify(&audit, None, None);
+    assert!(unpinned.status.success());
+    assert_eq!(
+        serde_json::from_slice::<Value>(&unpinned.stdout).unwrap()["entries"],
+        1
+    );
+
+    // With the pinned head it fails closed.
+    let pinned_out = verify(&audit, None, Some(&pinned));
+    assert!(!pinned_out.status.success());
+    let stdout = String::from_utf8(pinned_out.stdout).unwrap();
+    assert!(stdout.contains("audit head mismatch"), "{stdout}");
+}
+
+#[test]
+fn a_corrupt_log_refuses_to_serve() {
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    serve_audited(&db, &audit, None, &two_calls());
+    let content = fs::read_to_string(&audit).unwrap();
+    fs::write(&audit, content.replace("\"ok\":true", "\"ok\":false")).unwrap();
+
+    let out = bin()
+        .arg("--db")
+        .arg(&db)
+        .args(["serve", "--mcp", "--audit"])
+        .arg(&audit)
+        .write_stdin("")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(stderr.contains("refusing to serve"), "{stderr}");
+}
+
+#[test]
+fn a_mac_key_without_an_audit_log_is_rejected() {
+    let t = tmp();
+    let db = fixture(&t);
+    let key = key_file(&t, "key.txt", KEY_HEX);
+    let out = bin()
+        .arg("--db")
+        .arg(&db)
+        .args(["serve", "--mcp", "--mac-key"])
+        .arg(&key)
+        .write_stdin("")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(stderr.contains("--mac-key requires --audit"), "{stderr}");
+}

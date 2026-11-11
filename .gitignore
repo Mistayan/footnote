@@ -1,0 +1,34 @@
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*
+/target/
+/.venv/
+/artifacts/
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+*.pyo
+
+# Research bulk: vendored environments, package caches, model weights.
+# These are reproducible from the pinned locks, not source.
+tools/artifacts/
+uv-cache/
+site-packages/
+/tools/support_verification_probe/model/
+*.onnx
+*.safetensors
+*.pt
+*.pth
+*.gguf
+*.bin
+
+# Local scratch / editor
+.obsidian/
+.scratch/
+*.log
+*.tmp

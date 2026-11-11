@@ -1,0 +1,1 @@
+https://qdrant.tech/documentation/tutorials-search-engineering/using-multivector-representations/

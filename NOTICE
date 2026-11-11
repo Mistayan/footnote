@@ -1,0 +1,18 @@
+BorgKnowledge
+Copyright 2026 Johan P
+
+This product includes software developed by third parties:
+
+- PDFium (rendering, text extraction), BSD-3-Clause style license,
+  https://pdfium.googlesource.com/pdfium/
+- pypdfium2 (Python bindings to PDFium), Apache-2.0 / BSD-3-Clause,
+  https://github.com/pypdfium2-team/pypdfium2
+- SQLite, public domain, https://sqlite.org/
+- rusqlite, MIT, https://github.com/rusqlite/rusqlite
+- RapidOCR, Apache-2.0, https://github.com/RapidAI/RapidOCR
+- ONNX Runtime, MIT, https://github.com/microsoft/onnxruntime
+
+Note: PyMuPDF (AGPL-3.0) was used in earlier prototypes and has been removed
+from the extraction path. The Docling pilot artifacts under tools/artifacts/
+were evaluation-only and are not part of the distributed source; Docling is
+MIT-licensed, but its downloaded model weights carry their own terms.

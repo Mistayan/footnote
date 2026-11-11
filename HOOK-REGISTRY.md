@@ -1,0 +1,1 @@
+D:/Second Brain/AI-Agents/_shared/hook-registry.md
