@@ -1,0 +1,81 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-12T06:21:55+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "syntec",
+    "split": "test",
+    "pin": {
+      "sha256": {
+        "documents.json": "0b899775cbeb3484f8f2b333581e4d792d301e0320d44ab495a593a6025203b8",
+        "queries.json": "c7d922ae47eb90c8c4ad93f8e84d1bb8c82397f1cae4385541027a129f49ca97"
+      },
+      "converted_sha256": null,
+      "source": "lyon-nlp/mteb-fr-retrieval-syntec-s2p"
+    },
+    "documents": 90,
+    "queries": 100
+  },
+  "engine": {
+    "id": "shipped-lexical",
+    "config": {
+      "query": "AND of all whitespace tokens (as shipped)",
+      "tokenizer": "unicode61 remove_diacritics 2",
+      "ranking": "bm25()",
+      "stemming": null,
+      "chunk_chars": 2000,
+      "k": 20,
+      "query_clip_bytes": 500
+    },
+    "versions": {
+      "binary_sha256": "cde0e0604bc89de8ba971f3c90507b8b8a4348f09aee39ccd79b02b966f4ce0b",
+      "python_sqlite": "3.49.1",
+      "binary_sqlite": "3.51.1"
+    }
+  },
+  "code": {
+    "commit": "6f733554812ce839262142e89fd240c11f4ff392",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "5c3528cfbfcf064405868a36c55ab26cc63e13dc956631a4b143e57310dfd433"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "exe_sha256": "cde0e0604bc89de8ba971f3c90507b8b8a4348f09aee39ccd79b02b966f4ce0b",
+    "documents": 90,
+    "build_ms": 70.40850003249943,
+    "embed_ms": null,
+    "disk_bytes": 532480,
+    "chunks": 109,
+    "sources": 90,
+    "reused": false
+  },
+  "metrics": {
+    "ndcg@10": 0.665939,
+    "recall@5": 0.73,
+    "recall@10": 0.84,
+    "recall@20": 0.91,
+    "mrr@10": 0.611968,
+    "queries_scored": 100,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "fresh CLI process per query (includes process spawn)",
+    "p50": 9.99,
+    "p95": 15.43,
+    "mean": 17.82,
+    "queries": 100
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 100,
+    "identical_rankings": true,
+    "rankings_sha256": "0bbeb28649a4701fbc6988f949973dc185c67e75f95f68b6a03bd3724747a317"
+  }
+}
