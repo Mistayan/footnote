@@ -39,3 +39,11 @@ Next: tag `bench-v1` (needs a commit, not authorized yet), copy tagged receipts 
 - Cache-key bug fixed 2026-11-12 (chunked and whole texts shared an embedding cache key); `run_lme.py` no longer fails on lab engines.
 - Port the winners into the Rust core: BM25 OR + stemming, resident encoder in the daemon, model choice, fusion weights.
 - Database bake-off (sqlite-vec, Tantivy+USearch, LanceDB, Qdrant Edge) after the pipeline is fixed: the DB changes speed and operations, not exact-search precision.
+
+## Rust port (started 2026-11-12)
+
+1. DONE: lexical queries use OR (`app::match_expr`), tests updated (`tests/context.rs`). Product lexical: SciFact 0.017 -> 0.663, NFCorpus 0.189 -> 0.297, Syntec 0.000 -> 0.666, Alloprof -> 0.328, LongMemEval-S 0.015 -> 0.879. Receipts committed; Rust source is NOT committed (it shares files with the earlier hardening edits).
+2. TODO: fusion = convex combination (z-score, alpha 0.55) instead of RRF, exact vectors in memory (`semantic.rs`).
+3. TODO: Tantivy lexical layer (en_stem, derived index rebuilt from SQLite).
+4. TODO: resident Rust encoder (`ort` + `tokenizers`, bekko-a8m, hash-locked) replacing `tools/embed.py` per-query helper (~1 s).
+Gate for every step: product receipts through `bench/run.py` against the lab numbers in `DECISION.md`.
