@@ -1,0 +1,7 @@
+{"model": "minilm-l12-multi", "dataset": "syntec", "ndcg@10": 0.62838, "published": 0.65543, "delta": -0.02705, "tolerance": 0.03, "pass": true, "max_len": 128, "seconds": 1.3, "embed_ms": 1028}
+{"model": "e5-small-multi", "dataset": "syntec", "ndcg@10": 0.75195, "published": 0.73459, "delta": 0.01736, "tolerance": 0.03, "pass": true, "max_len": 512, "seconds": 2.4, "embed_ms": 2094}
+{"model": "bekko-a8m", "dataset": "syntec", "ndcg@10": 0.81159, "published": 0.80308, "delta": 0.00851, "tolerance": 0.03, "pass": true, "max_len": 512, "seconds": 6.3, "embed_ms": 6070}
+{"model": "bekko-a25m", "dataset": "syntec", "ndcg@10": 0.82313, "published": 0.81607, "delta": 0.00706, "tolerance": 0.03, "pass": true, "max_len": 512, "seconds": 9.2, "embed_ms": 8684}
+{"model": "e5-base-multi", "dataset": "syntec", "ndcg@10": 0.77924, "published": 0.82862, "delta": -0.04938, "tolerance": 0.03, "pass": false, "max_len": 512, "seconds": 14.3, "embed_ms": 13808}
+{"model": "granite-97m-multi", "dataset": "syntec", "ndcg@10": 0.77095, "published": null, "delta": null, "tolerance": 0.03, "pass": false, "max_len": 512, "seconds": 3.6, "embed_ms": 3163}
+{"model": "bge-m3", "dataset": "syntec", "ndcg@10": 0.85671, "published": null, "delta": null, "tolerance": 0.03, "pass": false, "max_len": 512, "seconds": 28.0, "embed_ms": 26561}

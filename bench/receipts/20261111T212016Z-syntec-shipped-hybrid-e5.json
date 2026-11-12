@@ -1,0 +1,86 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-11T21:20:16+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "syntec",
+    "split": "test",
+    "sha256": {
+      "documents.json": "0b899775cbeb3484f8f2b333581e4d792d301e0320d44ab495a593a6025203b8",
+      "queries.json": "c7d922ae47eb90c8c4ad93f8e84d1bb8c82397f1cae4385541027a129f49ca97"
+    },
+    "converted_sha256": null,
+    "url": "lyon-nlp/mteb-fr-retrieval-syntec-s2p",
+    "documents": 90,
+    "queries": 100
+  },
+  "engine": {
+    "id": "shipped-hybrid-e5",
+    "config": {
+      "lexical": "AND (as shipped), top 20",
+      "dense": "multilingual-e5-small int8 384d (query:/passage: prefixes), brute-force cosine",
+      "fusion": "RRF k=60",
+      "model_max_tokens": 512,
+      "chunk_chars": 2000,
+      "k": 20,
+      "process": "fresh process per query (Python helper loads the model each time)",
+      "query_clip_bytes": 500
+    },
+    "versions": {
+      "binary_sha256": "dca4d004260234dc6d08b821322554ccd9f41473dc9bf45f1235e68fac90828c",
+      "python_sqlite": "3.49.1",
+      "binary_sqlite": "3.51.1",
+      "model_repository": "Xenova/multilingual-e5-small",
+      "model_revision": "761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+      "model_files_sha256": {
+        "tokenizer.json": "0b44a9d7b51c3c62626640cda0e2c2f70fdacdc25bbbd68038369d14ebdf4c39",
+        "model.onnx": "f80102d3f2a1229f387d3c81909990d8945513e347b0eab049f7de3c6f98c193"
+      }
+    }
+  },
+  "code": {
+    "commit": "2076568fa52395709a978b7f37ad9d57390d3030",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "fc9a5ff5c1dfccd2540292ca9c1213c2433f1a5a3c86364c0b837f9b453ed49b"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "exe_sha256": "dca4d004260234dc6d08b821322554ccd9f41473dc9bf45f1235e68fac90828c",
+    "documents": 90,
+    "build_ms": 7319.5801000110805,
+    "embed_ms": 7264.79169994127,
+    "disk_bytes": 1478656,
+    "chunks": 109,
+    "sources": 90,
+    "reused": false
+  },
+  "metrics": {
+    "ndcg@10": 0.779903,
+    "recall@5": 0.92,
+    "recall@10": 0.96,
+    "recall@20": 0.97,
+    "mrr@10": 0.721,
+    "queries_scored": 100,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "fresh CLI process per query (includes process spawn and model load in the Python helper)",
+    "p50": 932.06,
+    "p95": 1108.11,
+    "mean": 966.74,
+    "queries": 100
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 100,
+    "identical_rankings": true,
+    "rankings_sha256": "2affc655a81717b499ce80ff99507d83c2f8e2b045e6dcd0b81a1c937ff3f07e"
+  }
+}

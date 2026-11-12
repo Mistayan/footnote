@@ -1,0 +1,86 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-11T23:59:51+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "alloprof",
+    "split": "test",
+    "pin": {
+      "sha256": {
+        "corpus/test-00000-of-00001.parquet": "d4cc3f31c740d08f5e1bef9d83188da42f5ae07fdb2be920bd2f54754d05a09a",
+        "qrels/test-00000-of-00001.parquet": "f3c0cefa3e200f89f432981069b0d1f841d92e8653a96040d3ac67089db4d387",
+        "queries/test-00000-of-00001.parquet": "0706659a4b9cfc45d6e6eb97458edb37ca7609c96493c9b64de538ab65a5f5d3"
+      },
+      "converted_sha256": {
+        "corpus.jsonl": "0e9da1b2cb4e37da8f286158a0f086f81e558f477187e48ea28434a3ca51a72e",
+        "qrels.tsv": "26432b9a22c46e1d19d08f6cb2fd63086d6f605c9566a38ce5895fb5c326bdce",
+        "queries.jsonl": "27f1e33d57d01694c4166be767b387e2aa2a56384a3dcd8dd0f62ecd22010eaf"
+      },
+      "source": "mteb/AlloprofRetrieval"
+    },
+    "documents": 2556,
+    "queries": 2316
+  },
+  "engine": {
+    "id": "bm25-or-lexical",
+    "config": {
+      "query": "OR of all whitespace tokens",
+      "tokenizer": "unicode61 remove_diacritics 2",
+      "ranking": "bm25() default k1=1.2 b=0.75, equal column weights",
+      "stemming": null,
+      "chunk_chars": 2000,
+      "k": 20,
+      "query_clip_bytes": 500
+    },
+    "versions": {
+      "binary_sha256": "dca4d004260234dc6d08b821322554ccd9f41473dc9bf45f1235e68fac90828c",
+      "python_sqlite": "3.49.1",
+      "binary_sqlite": "3.51.1"
+    }
+  },
+  "code": {
+    "commit": "2076568fa52395709a978b7f37ad9d57390d3030",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "5c3528cfbfcf064405868a36c55ab26cc63e13dc956631a4b143e57310dfd433"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "exe_sha256": "dca4d004260234dc6d08b821322554ccd9f41473dc9bf45f1235e68fac90828c",
+    "documents": 2556,
+    "build_ms": 1421.228100080043,
+    "embed_ms": null,
+    "disk_bytes": 33976320,
+    "chunks": 5850,
+    "sources": 2556,
+    "reused": true
+  },
+  "metrics": {
+    "ndcg@10": 0.328185,
+    "recall@5": 0.393782,
+    "recall@10": 0.483161,
+    "recall@20": 0.559154,
+    "mrr@10": 0.279696,
+    "queries_scored": 2316,
+    "queries_empty": 1
+  },
+  "latency_ms": {
+    "scope": "in-process SQLite query on the product index (no process spawn): NOT comparable with CLI engines",
+    "p50": 16.43,
+    "p95": 70.09,
+    "mean": 24.2,
+    "queries": 2316
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 200,
+    "identical_rankings": true,
+    "rankings_sha256": "4f6b9e4f908f3224d7d53a1408931cadf49d90c4ee32e599d33ff18b7d3ea562"
+  }
+}

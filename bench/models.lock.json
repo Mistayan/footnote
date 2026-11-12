@@ -1,0 +1,178 @@
+{
+  "bekko-a25m": {
+    "files": {
+      "model.onnx": {
+        "bytes": 199300251,
+        "sha256": "d676a3d4f769e63de4bf6778068761eced1721f29b1b6909e94b3f9544e2edd3",
+        "source": "onnx/model.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 34363442,
+        "sha256": "8bd47075711f75a143d1b78e01a41cc65c1c591b00d3cfeffc23db07adce1392",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "hotchpotch/bekko-embedding-v1-a25m",
+    "revision": "44f0b8af0f487acd0ccf1a7cb7ae7a29a6dfc09c"
+  },
+  "bekko-a8m": {
+    "files": {
+      "model.onnx": {
+        "bytes": 130099079,
+        "sha256": "96d8cc6199e96357b21b2fb12f6d7ffd2d4abc7b182fe94b5468fbd6dc819af7",
+        "source": "onnx/model.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 34363442,
+        "sha256": "8bd47075711f75a143d1b78e01a41cc65c1c591b00d3cfeffc23db07adce1392",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "hotchpotch/bekko-embedding-v1-a8m",
+    "revision": "c721113d59a1d91b447450324f51c4b3332c924a"
+  },
+  "bge-m3": {
+    "files": {
+      "model.onnx": {
+        "bytes": 568479395,
+        "sha256": "2237f770aad5c71bbc1fc2d361a57f9a37400574cc9eff32626f0cdb49234730",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 17082799,
+        "sha256": "249df0778f236f6ece390de0de746838ef25b9d6954b68c2ee71249e0a9d8fd4",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "onnx-community/bge-m3-ONNX",
+    "revision": "25b9af8e87a38eb120cfe87125383677b9cd309e"
+  },
+  "bge-reranker-v2-m3": {
+    "files": {
+      "model.onnx": {
+        "bytes": 570727094,
+        "sha256": "912fc1215c2dbff6499700534bd8d31253af01573861abbfc43afd1fab6cce5d",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 17082900,
+        "sha256": "8bf8afbfd11306bd872018c53bfdf2e160a56f8edbcf49933324404791c148d3",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "onnx-community/bge-reranker-v2-m3-ONNX",
+    "revision": "6f5ff65298512715a1e669753bc754d2bc8f367b"
+  },
+  "bge-small-en": {
+    "files": {
+      "model.onnx": {
+        "bytes": 34014426,
+        "sha256": "6c9c6101a956d62dfb5e7190c538226c0c5bb9cb27b651234b6df063ee7dbfe4",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 711396,
+        "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "Xenova/bge-small-en-v1.5",
+    "revision": "ea104dacec62c0de699686887e3f920caeb4f3e3"
+  },
+  "e5-base-multi": {
+    "files": {
+      "model.onnx": {
+        "bytes": 278647662,
+        "sha256": "df7a9a29309e3ad491e1783adf8baee710262cc06079c7cbab63c630277fac94",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 17082660,
+        "sha256": "62c24cdc13d4c9952d63718d6c9fa4c287974249e16b7ade6d5a85e7bbb75626",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "Xenova/multilingual-e5-base",
+    "revision": "1ec9243030a27d1a115d5c340572074c125b58b2"
+  },
+  "granite-97m-multi": {
+    "files": {
+      "model.onnx": {
+        "bytes": 98247878,
+        "sha256": "a6022dd8220ea6f6595562a1328ee216f4a94faa55362f2f4747c80f1e78772e",
+        "source": "onnx/model_quint8_avx2.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 25301672,
+        "sha256": "4f2842d568e2724370aec203652a42ac783c7937f8347a1a2cc7506d71f1582f",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "ibm-granite/granite-embedding-97m-multilingual-r2",
+    "revision": "835ad14087e140460703cf0fae09f97d469d65c2"
+  },
+  "gte-small": {
+    "files": {
+      "model.onnx": {
+        "bytes": 34014426,
+        "sha256": "18dec105109b6004369799ca4761fb8fb413c64172c02147bcfac186b5c5f6cb",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 711661,
+        "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "Xenova/gte-small",
+    "revision": "5927d1727bb12db490052a1b33265ad78058de08"
+  },
+  "minilm-l6-en": {
+    "files": {
+      "model.onnx": {
+        "bytes": 22972370,
+        "sha256": "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 711661,
+        "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "Xenova/all-MiniLM-L6-v2",
+    "revision": "751bff37182d3f1213fa05d7196b954e230abad9"
+  },
+  "mmarco-mminilm": {
+    "files": {
+      "model.onnx": {
+        "bytes": 118620016,
+        "sha256": "6c2513767fb63d008a4377bef7a7a3555433d9436342bb53e35a3a72ffc52d4b",
+        "source": "onnx/model_quint8_avx2.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 17082660,
+        "sha256": "62c24cdc13d4c9952d63718d6c9fa4c287974249e16b7ade6d5a85e7bbb75626",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+    "revision": "1427fd652930e4ba29e8149678df786c240d8825"
+  },
+  "mxbai-xsmall": {
+    "files": {
+      "model.onnx": {
+        "bytes": 87245802,
+        "sha256": "15ef19a6de90be7d52b627f2c784107bd806e64826450f41fb75fa4f0179ab30",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 8649139,
+        "sha256": "305674b4d785287feecfb5f73f24aa75e9b57c87c579cfe24fbd207987d4b4c4",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "mixedbread-ai/mxbai-rerank-xsmall-v1",
+    "revision": "b5c6e9da73abc3711f593f705371cdbe9e0fe422"
+  }
+}

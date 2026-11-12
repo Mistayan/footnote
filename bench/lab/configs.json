@@ -1,0 +1,105 @@
+{
+  "bm25-product-like": {
+    "dense": {
+      "on": false
+    },
+    "fusion": {
+      "kind": "lexical"
+    }
+  },
+  "dense-e5-small": {
+    "lexical": {
+      "on": false
+    },
+    "dense": {
+      "model": "e5-small-multi"
+    },
+    "fusion": {
+      "kind": "dense"
+    }
+  },
+  "hybrid-e5-rrf-or": {
+    "dense": {
+      "model": "e5-small-multi"
+    },
+    "fusion": {
+      "kind": "rrf"
+    }
+  },
+  "en-bge-small": {
+    "lexical": {
+      "k1": 1.5,
+      "tokenizer": {
+        "stem": "en"
+      }
+    },
+    "fusion": {
+      "kind": "cc",
+      "norm": "zscore",
+      "alpha": 0.55
+    },
+    "chunker": {
+      "kind": "whole"
+    },
+    "dense": {
+      "model": "bge-small-en"
+    }
+  },
+  "en-gte-small": {
+    "lexical": {
+      "k1": 1.5,
+      "tokenizer": {
+        "stem": "en"
+      }
+    },
+    "fusion": {
+      "kind": "cc",
+      "norm": "zscore",
+      "alpha": 0.55
+    },
+    "chunker": {
+      "kind": "whole"
+    },
+    "dense": {
+      "model": "gte-small"
+    }
+  },
+  "ml-bekko-a8m": {
+    "lexical": {
+      "k1": 1.5,
+      "tokenizer": {
+        "stem": "en"
+      }
+    },
+    "fusion": {
+      "kind": "cc",
+      "norm": "zscore",
+      "alpha": 0.55
+    },
+    "chunker": {
+      "kind": "whole"
+    },
+    "dense": {
+      "model": "bekko-a8m"
+    }
+  },
+  "ml-bekko-a25m": {
+    "lexical": {
+      "k1": 1.5,
+      "tokenizer": {
+        "stem": "en"
+      }
+    },
+    "fusion": {
+      "kind": "cc",
+      "norm": "zscore",
+      "alpha": 0.55
+    },
+    "chunker": {
+      "kind": "whole"
+    },
+    "dense": {
+      "model": "bekko-a25m"
+    }
+  }
+}

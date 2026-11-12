@@ -1,0 +1,97 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-11T21:28:33+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "scifact",
+    "split": "test",
+    "pin": {
+      "sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+      "converted_sha256": null,
+      "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
+    },
+    "documents": 5183,
+    "queries": 300
+  },
+  "engine": {
+    "id": "lab:bm25-product-like",
+    "config": {
+      "chunker": {
+        "kind": "chars",
+        "size": 2000,
+        "overlap": 0,
+        "title_prefix": false
+      },
+      "lexical": {
+        "on": true,
+        "tokenizer": {
+          "accents": "strip",
+          "stem": "none"
+        },
+        "k1": 1.2,
+        "b": 0.75
+      },
+      "dense": {
+        "on": false,
+        "model": "e5-small-multi",
+        "max_len": null
+      },
+      "fusion": {
+        "kind": "lexical",
+        "k": 60,
+        "alpha": 0.5,
+        "norm": "minmax",
+        "pool": 100
+      }
+    },
+    "versions": {
+      "numpy": "2.3.4",
+      "onnxruntime": "1.23.2",
+      "tokenizers": "0.22.1",
+      "python_stem": "snowballstemmer"
+    }
+  },
+  "code": {
+    "commit": "2076568fa52395709a978b7f37ad9d57390d3030",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "849cce772e4393f93de43f95129fb0c914ea4569ea2179bb267a402563f14e9d"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 5183,
+    "chunks": 5954,
+    "build_ms": 635.7900999719277,
+    "embed_ms": 0.0,
+    "disk_bytes": 0,
+    "index_bytes_in_memory": 0
+  },
+  "metrics": {
+    "ndcg@10": 0.660898,
+    "recall@5": 0.720944,
+    "recall@10": 0.783278,
+    "recall@20": 0.827556,
+    "mrr@10": 0.626381,
+    "queries_scored": 300,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "in-process, resident model, numpy brute force (no process spawn): NOT comparable with CLI engines",
+    "p50": 0.41,
+    "p95": 0.56,
+    "mean": 0.41,
+    "queries": 300
+  },
+  "determinism": {
+    "checked": false,
+    "queries_checked": 0,
+    "identical_rankings": null,
+    "rankings_sha256": "5a1887eebdb079a67c7e818b274307fd1b3859b89c1e8ccb5dadd053b7ae3f7e"
+  }
+}

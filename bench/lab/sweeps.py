@@ -1,0 +1,89 @@
+"""Named configuration families. Each returns [(label, config)] for a dataset. Keep them small and meaningful: every row costs minutes."""
+from __future__ import annotations
+
+EN_MODELS = ["bge-small-en", "gte-small", "minilm-l6-en"]
+ML_MODELS = ["minilm-l12-multi", "e5-small-multi", "bekko-a8m", "bekko-a25m", "granite-97m-multi"]
+DENSE_ONLY = {"lexical": {"on": False}, "fusion": {"kind": "dense"}, "chunker": {"kind": "whole"}}
+
+
+def models(ds: str, base: dict):
+    """Dense-only, whole documents (the cleanest model comparison; matches how MTEB scores are produced)."""
+    return [(f"dense:{m}", {**DENSE_ONLY, "dense": {"model": m}}) for m in EN_MODELS + ML_MODELS]
+
+
+def lexical(ds: str, base: dict):
+    """BM25 tokenization and parameters on whole documents."""
+    out = []
+    for stem in ("none", "en", "fr", "both"):
+        out.append((f"bm25:stem={stem}", {"dense": {"on": False}, "fusion": {"kind": "lexical"}, "chunker": {"kind": "whole"},
+                                          "lexical": {"tokenizer": {"accents": "strip", "stem": stem}}}))
+    for k1, b in ((0.9, 0.4), (1.2, 0.75), (1.5, 0.75), (2.0, 0.75), (1.2, 0.9)):
+        out.append((f"bm25:stem=both,k1={k1},b={b}", {"dense": {"on": False}, "fusion": {"kind": "lexical"}, "chunker": {"kind": "whole"},
+                                                       "lexical": {"k1": k1, "b": b, "tokenizer": {"accents": "strip", "stem": "both"}}}))
+    return out
+
+
+def fusion(ds: str, base: dict):
+    """Fusion of BM25 and dense over the base config's model/tokenizer: single signals, RRF constants, interpolation weights."""
+    def v(label, **over):
+        from lab import merge  # noqa: PLC0415
+        return label, merge(base, over)
+    out = [v("dense-only", fusion={"kind": "dense"}), v("lexical-only", fusion={"kind": "lexical"})]
+    for k in (10, 60):
+        out.append(v(f"rrf k={k}", fusion={"kind": "rrf", "k": k}))
+    for norm in ("minmax", "zscore"):
+        for a in (0.5, 0.6, 0.7, 0.8, 0.9):
+            out.append(v(f"cc {norm} alpha={a}", fusion={"kind": "cc", "norm": norm, "alpha": a}))
+    return out
+
+
+def chunking(ds: str, base: dict):
+    """Chunk strategy and size, plus the encoder's token window. Documents shorter than the size are unaffected by design."""
+    from lab import merge  # noqa: PLC0415
+    out = [("whole", merge(base, {"chunker": {"kind": "whole"}}))]
+    for kind in ("chars", "sent", "para"):
+        for size in (500, 1000, 2000):
+            if kind == "para" and size == 500:
+                continue
+            out.append((f"{kind} {size}", merge(base, {"chunker": {"kind": kind, "size": size, "overlap": 0}})))
+    out.append(("chars 1000 overlap 200", merge(base, {"chunker": {"kind": "chars", "size": 1000, "overlap": 200}})))
+    out.append(("sent 1000 +title", merge(base, {"chunker": {"kind": "sent", "size": 1000, "title_prefix": True}})))
+    for ml in (128, 256, 512):
+        out.append((f"sent 1000 max_len={ml}", merge(base, {"chunker": {"kind": "sent", "size": 1000}, "dense": {"max_len": ml}})))
+    return out
+
+
+def rerank(ds: str, base: dict):
+    """Second-stage cross-encoder over the top pool: quality gain versus the cost in candidates scored."""
+    from lab import merge  # noqa: PLC0415
+    out = [("no rerank", merge(base, {"rerank": {"on": False}}))]
+    for model in ("mxbai-xsmall", "mmarco-mminilm", "bge-reranker-v2-m3"):
+        for pool in (5, 10, 20):
+            out.append((f"{model} pool={pool}", merge(base, {"rerank": {"on": True, "model": model, "pool": pool}})))
+    return out
+
+
+def lexical_lang(ds: str, base: dict):
+    """Stemming policy on French / mixed text: none, one fixed language, or the language detected for each text."""
+    out = []
+    for stem in ("none", "en", "fr", "auto"):
+        for k1 in (1.2, 1.5):
+            out.append((f"bm25 stem={stem} k1={k1}", {"dense": {"on": False}, "fusion": {"kind": "lexical"}, "chunker": {"kind": "whole"},
+                                                      "lexical": {"k1": k1, "tokenizer": {"accents": "strip", "stem": stem}}}))
+    return out
+
+
+def crowding(ds: str, base: dict):
+    """Mixed-language index: does removing each language's mean embedding offset (dense.center = lang) reduce cross-language crowding?"""
+    from lab import merge  # noqa: PLC0415
+    out = []
+    for center in ("none", "lang"):
+        out.append((f"dense-only center={center}", merge(base, {"fusion": {"kind": "dense"}, "dense": {"center": center}})))
+        out.append((f"hybrid center={center}", merge(base, {"dense": {"center": center}})))
+    for stem in ("none", "both", "auto"):
+        out.append((f"hybrid stem={stem}", merge(base, {"lexical": {"tokenizer": {"accents": "strip", "stem": stem}}})))
+    return out
+
+
+SWEEPS = {"crowding": crowding, "models": models, "lexical": lexical, "fusion": fusion, "chunking": chunking, "rerank": rerank,
+          "lexical_lang": lexical_lang}

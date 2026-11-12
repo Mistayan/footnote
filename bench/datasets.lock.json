@@ -1,0 +1,70 @@
+{
+  "alloprof": {
+    "converted_sha256": {
+      "corpus.jsonl": "0e9da1b2cb4e37da8f286158a0f086f81e558f477187e48ea28434a3ca51a72e",
+      "qrels.tsv": "26432b9a22c46e1d19d08f6cb2fd63086d6f605c9566a38ce5895fb5c326bdce",
+      "queries.jsonl": "27f1e33d57d01694c4166be767b387e2aa2a56384a3dcd8dd0f62ecd22010eaf"
+    },
+    "files": {
+      "corpus/test-00000-of-00001.parquet": {
+        "bytes": 4956766,
+        "sha256": "d4cc3f31c740d08f5e1bef9d83188da42f5ae07fdb2be920bd2f54754d05a09a",
+        "url": "https://huggingface.co/datasets/mteb/AlloprofRetrieval/resolve/96a52a1744e2d1981a66d93ff3b5a595f9a150d5/corpus/test-00000-of-00001.parquet"
+      },
+      "qrels/test-00000-of-00001.parquet": {
+        "bytes": 75940,
+        "sha256": "f3c0cefa3e200f89f432981069b0d1f841d92e8653a96040d3ac67089db4d387",
+        "url": "https://huggingface.co/datasets/mteb/AlloprofRetrieval/resolve/96a52a1744e2d1981a66d93ff3b5a595f9a150d5/qrels/test-00000-of-00001.parquet"
+      },
+      "queries/test-00000-of-00001.parquet": {
+        "bytes": 274160,
+        "sha256": "0706659a4b9cfc45d6e6eb97458edb37ca7609c96493c9b64de538ab65a5f5d3",
+        "url": "https://huggingface.co/datasets/mteb/AlloprofRetrieval/resolve/96a52a1744e2d1981a66d93ff3b5a595f9a150d5/queries/test-00000-of-00001.parquet"
+      }
+    },
+    "kind": "mteb_parquet",
+    "repo": "mteb/AlloprofRetrieval",
+    "rev": "96a52a1744e2d1981a66d93ff3b5a595f9a150d5"
+  },
+  "longmemeval_s": {
+    "files": {
+      "longmemeval_s_cleaned.json": {
+        "bytes": 277383467,
+        "sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+        "url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json"
+      }
+    },
+    "kind": "longmemeval",
+    "repo": "xiaowu0162/longmemeval-cleaned",
+    "rev": "98d7416c24c778c2fee6e6f3006e7a073259d48f"
+  },
+  "nfcorpus": {
+    "bytes": 2448432,
+    "kind": "beir",
+    "sha256": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+    "url": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/nfcorpus.zip"
+  },
+  "scifact": {
+    "bytes": 2816079,
+    "kind": "beir",
+    "sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+    "url": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
+  },
+  "syntec": {
+    "files": {
+      "documents.json": {
+        "bytes": 155675,
+        "sha256": "0b899775cbeb3484f8f2b333581e4d792d301e0320d44ab495a593a6025203b8",
+        "url": "https://huggingface.co/datasets/lyon-nlp/mteb-fr-retrieval-syntec-s2p/resolve/19661ccdca4dfc2d15122d776b61685f48c68ca9/documents.json"
+      },
+      "queries.json": {
+        "bytes": 12192,
+        "sha256": "c7d922ae47eb90c8c4ad93f8e84d1bb8c82397f1cae4385541027a129f49ca97",
+        "url": "https://huggingface.co/datasets/lyon-nlp/mteb-fr-retrieval-syntec-s2p/resolve/19661ccdca4dfc2d15122d776b61685f48c68ca9/queries.json"
+      }
+    },
+    "kind": "syntec",
+    "repo": "lyon-nlp/mteb-fr-retrieval-syntec-s2p",
+    "rev": "19661ccdca4dfc2d15122d776b61685f48c68ca9"
+  }
+}

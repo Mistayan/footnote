@@ -1,0 +1,4 @@
+{"model": "bge-small-en", "dataset": "scifact", "queries": 200, "encode_ms_p50": 2.24, "encode_ms_p95": 2.8, "search_total_ms_p50": 3.48, "search_total_ms_p95": 4.39, "model_mb": 34.0, "index_mb_per_1000_chunks": 1.54}
+{"model": "gte-small", "dataset": "scifact", "queries": 200, "encode_ms_p50": 1.89, "encode_ms_p95": 2.6, "search_total_ms_p50": 3.28, "search_total_ms_p95": 4.19, "model_mb": 34.0, "index_mb_per_1000_chunks": 1.54}
+{"model": "bekko-a8m", "dataset": "scifact", "queries": 200, "encode_ms_p50": 0.92, "encode_ms_p95": 1.41, "search_total_ms_p50": 2.22, "search_total_ms_p95": 2.9, "model_mb": 130.1, "index_mb_per_1000_chunks": 1.54}
+{"model": "bekko-a25m", "dataset": "scifact", "queries": 200, "encode_ms_p50": 3.38, "encode_ms_p95": 4.58, "search_total_ms_p50": 4.73, "search_total_ms_p95": 5.99, "model_mb": 199.3, "index_mb_per_1000_chunks": 1.54}
