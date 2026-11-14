@@ -125,9 +125,10 @@ class CliEngine:
         self.db = base / "k.db"
         meta = base / "build.json"
         exe_hash = sha256_file(EXE)
+        helper_hash = sha256_file(REPO / "tools" / "embed.py")  # the binary runs this file: a change must rebuild too
         if meta.exists() and self.db.exists():
             m = json.loads(meta.read_text())
-            if m.get("exe_sha256") == exe_hash and m.get("documents") == len(corpus):
+            if m.get("exe_sha256") == exe_hash and m.get("helper_sha256") == helper_hash and m.get("documents") == len(corpus):
                 m["reused"] = True
                 m.update(self.footprint())
                 return m
@@ -144,7 +145,7 @@ class CliEngine:
             run_cli(self.db, "rebuild-embeddings", *models)
             embed_ms = (time.perf_counter() - e) * 1000
         stats = run_cli(self.db, "stats")
-        info = {"exe_sha256": exe_hash, "documents": len(corpus), "build_ms": (time.perf_counter() - t) * 1000,
+        info = {"exe_sha256": exe_hash, "helper_sha256": helper_hash, "documents": len(corpus), "build_ms": (time.perf_counter() - t) * 1000,
                 "embed_ms": embed_ms, "disk_bytes": self.db.stat().st_size, "chunks": stats["chunks"],
                 "sources": stats["sources"], "reused": False}
         info.update(self.footprint())

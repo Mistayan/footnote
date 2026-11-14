@@ -227,6 +227,22 @@
     "repo": "Xenova/gte-small",
     "revision": "5927d1727bb12db490052a1b33265ad78058de08"
   },
+  "gte-small-fp32": {
+    "files": {
+      "model.onnx": {
+        "bytes": 133093490,
+        "sha256": "398a29991324e0b383afa13375d681ced3079c83e097fb1ebd9290d7498523b3",
+        "source": "onnx/model.onnx"
+      },
+      "tokenizer.json": {
+        "bytes": 711661,
+        "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "Xenova/gte-small",
+    "revision": "5927d1727bb12db490052a1b33265ad78058de08"
+  },
   "harrier-270m": {
     "files": {
       "model.onnx": {

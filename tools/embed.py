@@ -8,6 +8,7 @@ the recipe check happen before the first answer; a request never selects a diffe
 """
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -39,10 +40,17 @@ class Embedder:
         if pad_id is None:
             raise ValueError("pad token not in vocabulary: " + pad_token)
         self.tokenizer.enable_padding(pad_id=pad_id, pad_token=pad_token)
+        self.session = self._session(model, 2)  # queries: one short text, two threads keep latency low and steady
+        # Documents: same graph, batches and order, more threads (half the logical CPUs; all of them was slower). Vectors are
+        # identical to the two-thread session; 2.2x (gte-small) and 2.9x (bekko-a8m) faster (bench/experiments/BUILD-SPEED.md).
+        self.bulk = self._session(model, max(2, (os.cpu_count() or 4) // 2))
+
+    @staticmethod
+    def _session(model, threads):
         options = ort.SessionOptions()
-        options.intra_op_num_threads = 2
+        options.intra_op_num_threads = threads
         options.inter_op_num_threads = 1
-        self.session = ort.InferenceSession(str(model / "model.onnx"), sess_options=options, providers=["CPUExecutionProvider"])
+        return ort.InferenceSession(str(model / "model.onnx"), sess_options=options, providers=["CPUExecutionProvider"])
 
     def encode(self, request):
         texts, kind = request["texts"], request["kind"]
@@ -60,7 +68,8 @@ class Embedder:
             mask = np.asarray([t.attention_mask for t in tokens], dtype=np.int64)
             truncated += int((mask.sum(axis=1) >= m["max_length"]).sum())
             inputs = {"input_ids": ids, "attention_mask": mask, "token_type_ids": np.zeros_like(ids)}
-            output = self.session.run(None, {i.name: inputs[i.name] for i in self.session.get_inputs()})[0]
+            session = self.bulk if kind == "passage" else self.session
+            output = session.run(None, {i.name: inputs[i.name] for i in session.get_inputs()})[0]
             vectors = (output * mask[:, :, None]).sum(axis=1) / mask.sum(axis=1)[:, None]
             vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12)
             if vectors.shape[1] != m["dimension"] or not np.isfinite(vectors).all():

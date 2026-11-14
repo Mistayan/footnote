@@ -28,6 +28,9 @@ MODELS: dict[str, dict] = {
                      "max_len": 512, "q": Q_BGE, "p": "", "mteb": "BAAI__bge-small-en-v1.5", "lang": "en"},
     "gte-small": {"repo": "Xenova/gte-small", "onnx": "onnx/model_quantized.onnx", "pooling": "mean", "max_len": 512,
                   "q": "", "p": "", "mteb": "thenlper__gte-small", "lang": "en"},
+    # Same model and revision, unquantized: build-speed test 1 (bench/experiments/BUILD-SPEED.md).
+    "gte-small-fp32": {"repo": "Xenova/gte-small", "onnx": "onnx/model.onnx", "pooling": "mean", "max_len": 512,
+                       "q": "", "p": "", "mteb": "thenlper__gte-small", "lang": "en"},
     "minilm-l6-en": {"repo": "Xenova/all-MiniLM-L6-v2", "onnx": "onnx/model_quantized.onnx", "pooling": "mean",
                      "max_len": 256, "q": "", "p": "", "mteb": "sentence-transformers__all-MiniLM-L6-v2", "lang": "en"},
     # multilingual candidates

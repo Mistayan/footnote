@@ -1,109 +1,101 @@
 # DESIGN
-Last reviewed: 2026-11-12 · Approved by: pending human approval · Status: draft
+Last reviewed: 2026-11-14 · Direction locked by Johan in the Design Studio on 2026-11-14 · **Status: WIP**
 
-> Footnote looks like a well-set technical document, not like a dashboard. Paper, ink, one proof-reader's red, and a raised numeral
-> that means the same thing everywhere: *this claim has a source you can check.*
+> **Work in progress.** The direction, palette, type and shape below are locked choices. The logo and product marks, the glass treatment and the motion are a decent first pass that will need deeper work: treat them as provisional, not final artwork.
+
+Footnote is transparent for your team: set it up, and what comes into focus is your company's data and knowledge. The page shows that literally: data flowing in the background, liquid glass that brings part of it into focus, and the product answering with its sources.
 
 ## 1. Tokens source
-Hand-written for Footnote on 2026-11-12. Contrast values measured with the WCAG 2.x formula the same day. Nothing extracted from another site.
+Hand-written, then tuned and locked in the Design Studio on 2026-11-14 (base direction D2 "Afterglow"). Contrast values measured by the studio at the lock. Studio page: https://claude.ai/artifact/9nnqR2T6Z78NUwADRSXWxB; work files in `.design-studio/`.
 
 ## 2. References
 | # | Product or source | URL | Date viewed | Evidence type | Borrowed | Rejected and why |
 |---|---|---|---|---|---|---|
-| 1 | Stripe documentation | https://stripe.com/docs | 2026-11-12 | live pages | restraint, long reading measure, code beside prose | gradient mesh and glossy cards: ornament without information |
-| 2 | Tufte CSS (sidenotes, tables as the hero) | https://edwardtufte.github.io/tufte-css/ | 2026-11-12 | published CSS | margin notes, rules instead of boxes | a body column too narrow for a product page |
-| 3 | Linear marketing pages | https://linear.app | 2026-11-12 | live pages | dense factual hero, one accent | dark glass cards and glow: the AI-product look we avoid |
-Blocked access: none recorded.
+| 1 | Raycast | https://www.raycast.com | 2026-11-14 | live page | dark ground, short centred headline, the product shown as a command palette | the shader sculpture standing in for the product |
+| 2 | LangChain | https://www.langchain.com | 2026-11-14 | live page | a field of flowing dots as the background (data in motion) | blue accent, logo wall |
+| 3 | Mode | https://mode.com | 2026-11-14 | live page | large rounded blocks that interlock around content | stock photography, lime and forest palette |
+| 4 | Fabric | https://www.fabric.vc/portfolio | 2026-11-14 | live page | card grid with category tags and card motion | orange line-field header |
+| 5 | Zed | https://zed.dev | 2026-11-14 | live page | the real product filling the hero | (direction D1, not chosen) |
+| 6 | Warp | https://www.warp.dev | 2026-11-14 | live page | captioned live figure with a legend | (not used) |
+| 7 | mem0 | https://mem0.ai | 2026-11-14 | live page | category baseline to differ from | centred SaaS hero, purple, code block as the product |
+Structure, layout and motion patterns only: no brand names, logos, copy, imagery or proprietary fonts are copied. Blocked access: none.
 
 ## 3. Color roles
-| Role | Light | Dark | Contrast vs surface (light / dark) |
-|---|---|---|---|
-| surface (paper / ink ground) | #F4EFE6 | #14120F | - |
-| surface-raised | #FBF8F2 | #1D1A16 | - |
-| text-primary | #1B1915 | #EFE8DA | 15.3 / 15.3 |
-| text-muted | #625A4E | #A89F90 | 5.9 / 7.2 |
-| accent (proof red) | #A8281C | #F2705A | 6.1 / 6.5 |
-| success | #2F6B3A | #7FC48B | 5.6 / 9.1 |
-| warning | #8A5A00 | #E3B341 | 5.2 / 9.6 |
-| danger | #B3261E | #FF8A7A | 5.7 / 8.2 |
-| focus ring | #1B1915 | #EFE8DA | 15.3 / 15.3 |
+Dark-first. A light theme is not designed yet (WIP); until it is, the page commits to dark and sets every color explicitly.
 
-Rule: the accent marks sources, actions, and Footnote results in benchmark charts (footnote numerals, links, the primary button, the focus underline, and Footnote bars and values). It never fills a section. No violet, no blue-to-purple gradient, anywhere. Primary button: paper text on accent, 6.6:1 (light); ink text on accent, 6.5:1 (dark).
+| Role | Dark | Contrast |
+|---|---|---|
+| background | #09120B | - |
+| surface (blocks, cards) | #121C15 | - |
+| line (hairlines, borders) | #29332C | - |
+| text | #EAF0EB | 16.47:1 on background, 15.1:1 on surface |
+| muted text | #A2AFA5 | 8.35:1 on background |
+| accent (teal) | #2B9185 | 4.98:1 on background (UI) |
+| button text on accent | #101114 | 4.94:1 |
+| glow (data dots, marks in lenses) | #5FD3C3 | decorative and marks only |
+| mint block (statements, results) | #D7EFE8 with ink #0B1A12, muted #3D5A4D | pale contrast blocks, added 2026-11-14 |
+| success / warning (freshness: current, stale) | #7FD39A / #F2B84B | from D2, to re-measure |
+
+Rule: the accent marks actions, Footnote's own results in charts, and sources. No violet, no blue-to-purple gradient.
 
 ## 4. Typography
-- Families: Newsreader (variable, optical size; text and display) and IBM Plex Mono (code, numerals, labels). Both SIL OFL, **self-hosted**: no font request leaves the page, consistent with a local-first product.
-- Scale:
+- Families: **Plus Jakarta Sans** 600 (display, chosen by Johan) and **Hanken Grotesk** (body); JetBrains Mono for paths, hashes, commands and numbers in tables. Self-hosted in the final build (local-first: no font request leaves the page).
+- Scale (ratio 1.335, density 1.05):
 
-| Name | Size | Line height | Weight | Use |
-|---|---|---|---|---|
-| caption | 0.8125rem | 1.45 | 450 | footnotes, table notes, labels (Plex Mono) |
-| body | 1.125rem | 1.6 | 400 | prose, 62ch measure |
-| title | clamp(1.5rem, 2.4vw, 2rem) | 1.2 | 560 | section headings |
-| display | clamp(2.75rem, 7vw, 6rem) | 1.02 | 520 (optical size 72) | hero statement |
+| Name | Size | Use |
+|---|---|---|
+| small | 12 px | captions, meta rows (11 px floor for functional text) |
+| body | 16 to 18 px | prose, 60 to 70 characters per line |
+| h3 | 29 px | block titles |
+| h2 | 38 px | section titles |
+| h1 | 68 px | hero statement |
 
-- Tabular numerals: yes, wherever numbers are compared (benchmarks, latencies, install steps).
-- Footnote numerals are real superscripts (`<sup>`), accent colour, never images.
+- Tabular numerals wherever numbers are compared.
 
 ## 5. Space and shape
-- Base unit: 8 px. Allowed steps: 4, 8, 16, 24, 32, 48, 64, 96, 128.
-- Radii: 0 and 2 px only. Paper does not have rounded corners.
-- Borders and elevation: 1 px hairline rules in muted text at 35% opacity; no shadows, no blurs, no glass. Depth comes from a change of ground (paper to raised paper) and from rules.
-- Icon set: none decorative. Real product marks only for the harnesses Footnote installs into (their own colours); UI glyphs are typographic.
+- Spacing steps (from the lock): 4, 8, 13, 17, 25, 34, 50, 67 px.
+- Radius: 21 px for blocks and cards; full round for pills and lenses.
+- Elevation: **slight liquid glass** on chosen elements only (the logo lens, the product palette, one or two hero panels): translucent fill, specular rim, refraction of the moving data behind. Everything else is flat surface + hairline. Never glass on every card.
+- Icons: thin outline, 1.6 stroke on a 24-unit grid, round joins.
 
 ## 6. Layout and density
-- Grid: 12 columns, max content width 1160 px; prose column 62ch with a marginal column (evidence, notes) at 280 px from 1100 px up.
-- Minimum window size: 390 x 844 (phone) for the page; design reviewed at 1440 x 900.
-- Resize behaviour: the marginal column folds under its paragraph as an indented note below 1100 px; tables scroll inside their own frame, never the page.
-- Density: marketing page, one idea per screen, 60 to 80 words per screen outside tables.
+- Max content width 1120 to 1200 px; 16 px minimum side gutter; works at 390 px.
+- Rounded blocks that interlock (reference 3) for the sections after the hero.
+- Marketing density: one idea per screen.
 
-## 7. Components and states
-| Component | Default | Hover | Active | Focus | Disabled | Loading | Error |
-|---|---|---|---|---|---|---|---|
-| Primary button | accent fill, paper text | fill darkens 8%, underline draws | presses 1 px down | 2 px offset ring in focus colour | 50% opacity | n/a (links) | n/a |
-| Text link | accent, underline offset 3 px | underline thickens | - | ring | - | - | - |
-| Footnote marker | accent superscript | its marginal note highlights, no layout shift | - | ring | - | - | - |
-| Code block | raised paper, Plex Mono, copy button | copy button visible | copy confirms with "Copied" | ring | - | - | copy blocked: "Select and copy" |
-| Table row | hairline above | raised paper background | - | - | - | - | - |
+## 7. Logo and product marks (WIP)
+Concept A, "the lens numeral": the word **Footnote** is the family; a small glass lens takes the place of the footnote number and carries the product's mark. Everyone reads Footnote as the family and the mark as the product.
 
-Anything not in this table needs a decision-log entry first.
+| Product | Mark in the lens | Status |
+|---|---|---|
+| Footnote (umbrella) | the numeral 1 | provisional |
+| Footnote Library | database cylinder: L1 plain, or L2 with lines of text | open, not chosen |
+| Footnote Memory | wireframe brain: M1 plain, or M2 with connected nodes | open, not chosen |
+| Footnote Code | `{x}` (Johan) | chosen, drawing provisional |
 
-## 8. Screen states
-| Screen type | Empty copy and action | Loading | Error copy and recovery | Partial | Heavy data |
-|---|---|---|---|---|---|
-| Landing page | n/a | static HTML, no spinner | n/a (no network use) | chart is an SVG with a text table as fallback | tables scroll inside their frame |
-| Code sample | n/a | n/a | clipboard blocked: select-all hint | n/a | long lines scroll horizontally |
+Sketches: `.design-studio/logo/index.html` (concepts A, B, C), `.design-studio/logo/v2.html` (marks). Still to do: final SVG geometry, a still version for places without motion, an app icon (concept B, the focus tile, is the candidate), and a pass by someone with real logo skills.
 
-Long strings: code never wraps, it scrolls; prose wraps; hashes truncate in the middle with the full value in the title attribute.
+## 8. Motion (WIP)
+- Level: lively, with meaning. Durations 160 to 320 ms, ease-out, transform and opacity only.
+- Background: a slow field of dots flowing in bands (the company's data), paused under reduced motion.
+- The lens drifts slightly over the data, as if reading it.
+- Cards rise and reveal on entry and hover (reference 4); content is visible at rest and never waits at opacity 0.
+- Never: numbers counting up, parallax on text, motion that implies a result the tool did not measure.
 
-## 9. Motion
-- Duration range: 120-320 ms; the hero entrance up to 640 ms once.
-- Easing tokens: `out` = cubic-bezier(0.2, 0.7, 0.2, 1); `in-out` = cubic-bezier(0.6, 0, 0.2, 1).
-- Reduced motion: every animation is replaced by its end state; no content depends on motion to appear.
-- May animate: the hero entrance, underline draws, footnote markers settling into place, benchmark bars growing once as they enter the viewport, link hover.
-- Must never animate: body text on scroll, numbers counting up, parallax, anything that implies a result the tool did not measure.
+## 9. Copy rules
+- Every number carries its dataset and split; every claim links to a receipt.
+- Footnote Code is shown as "soon" until it ships.
+- Banned words: "supercharge", "unlock", "seamless", "next-generation", "revolutionize"; no fake testimonials, logo walls or invented customer counts.
 
-## 10. Keyboard and desktop
-- Shortcuts: none required; Tab order is reading order; skip link first.
-- Focus order and Escape: no modals; install instructions are sections, not a widget.
-- OS theme: follows the system.
-
-## 11. Banned list
-- Never a gradient mesh, glow, glass card or blurred blob.
-- Never violet, lavender or blue-to-purple anywhere.
-- Never a stock photo, an AI-generated image or a decorative illustration.
-- Never a number without its dataset and split next to it.
-- Never "supercharge", "unlock", "seamless", "next-generation", "revolutionize" or a robot emoji.
-- Never a fake testimonial, logo wall or invented customer count.
-- Never a third-party request (fonts, analytics, CDN) from the page.
-
-## 12. Decision log
+## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
-| 2026-11-12 | The raised numeral (footnote marker) is the brand device | It is what the product does: every answer carries a checkable source | A generic brain, chip or spark icon |
-| 2026-11-12 | Self-host Newsreader and IBM Plex Mono | A local-first, no-telemetry product must not call Google Fonts | Google Fonts, system serif only |
-| 2026-11-12 | Paper and ink palette with one red | Reads as a document of record; high contrast; distinct from the dark-neon AI tool look | Dark mode with a neon accent |
-| 2026-11-12 | Benchmarks as a table first, a chart second | Numbers must be readable and copyable; the chart is a summary | Chart-only hero |
-
-| 2026-11-12 | Compare memory products by use, updates and deployment; separate measured search-engine results | Readers can choose between distinct memory models without mistaking component timings for product benchmarks | An unsupported winner or a feature checklist with unverified absences |
-
-| 2026-11-12 | Use the proof-red accent for Footnote bars and values in benchmark charts | Make our results recognizable alongside published alternatives, as requested | Identical colors that make the product difficult to find |
+| 2026-11-14 | Base direction D2 "Afterglow", tuned: green-black ground, teal accent, Jakarta + Hanken, radius 21, lively motion | Johan's pick in the Design Studio; D1, D3 and D4 looked too similar to each other | D1 Workbench, D3 Living memory, D4 Paper |
+| 2026-11-14 | Slight liquid glass over a data-flow background | Johan's note: Footnote is transparent, the company's knowledge comes into focus | Flat dark cards only; glass everywhere |
+| 2026-11-14 | Logo concept A (lens numeral), mark becomes the product | The family stays legible (Footnote) and each product is one glyph | B focus tile as the main logo (kept as the app-icon candidate), C mark system |
+| 2026-11-14 | Footnote stays the umbrella name: Library, Memory, Code | Johan's decision after the naming brainstorm | Cairn, Gloss |
+| 2026-11-14 | Page v2: stream into a glass lens (hero), interlocking mint blocks, staggered product cards, orbit beside a bleeding glass panel | Johan found v1 too plain; v2 takes structure and motion from LangChain, Mode and Fabric. Johan: "more bold, I like it" | v1 centred hero with flat cards |
+| 2026-11-14 | Design status WIP | Johan: decent, will need deeper work later | Treating the first pass as final |
+| 2026-11-12 | (superseded 2026-11-14) Paper and ink palette with one proof red, Newsreader, radii 0 and 2 px, no glass | Was the first draft; replaced by the studio lock | |
+| 2026-11-12 | (kept) Benchmarks as a table first, a chart second | Numbers must be readable and copyable | Chart-only hero |
+| 2026-11-12 | (kept) Self-host fonts | A local-first, no-telemetry product must not call font CDNs | Google Fonts at runtime |
