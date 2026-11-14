@@ -48,6 +48,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# Windows: run helpers without a console window (a worker with no console would make each child open a visible one).
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 MAX_SEGMENT = 40_000  # characters of new conversation sent to the extractor per run
 KINDS = ("preference", "fact", "fix", "session")
 
@@ -152,7 +154,7 @@ def codex_transcript(session: str) -> str:
 def project_of(cwd: str) -> str:
     """Repository name, else folder name: the scope of project memories."""
     try:
-        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True, timeout=5).stdout.strip()
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True, timeout=5, creationflags=NO_WINDOW).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         top = ""
     return Path(top or cwd).name.lower()
@@ -165,7 +167,7 @@ def is_local(endpoint: str) -> bool:
 # --- footnote ---------------------------------------------------------------------------------------------------------
 
 def footnote(s: dict, args: list[str], stdin: str | None = None) -> dict:
-    out = subprocess.run([s["footnote"], "--db", s["db"], *args], input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=120)
+    out = subprocess.run([s["footnote"], "--db", s["db"], *args], input=stdin, capture_output=True, text=True, encoding="utf-8", timeout=120, creationflags=NO_WINDOW)
     v = json.loads(out.stdout or "{}")
     if out.returncode != 0 or "error" in v:
         raise RuntimeError(f"footnote {args[0]}: {v.get('error', out.stderr.strip())}")
@@ -242,7 +244,7 @@ def call_llm(ext: dict, prompt: str) -> str:
         # Run from an empty folder with no settings: the worker loads no hooks (so it never triggers this hook) and no MCP server.
         work = hook_dir() / "worker"
         work.mkdir(exist_ok=True)
-        out = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=300, cwd=work,
+        out = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8", timeout=300, cwd=work, creationflags=NO_WINDOW,
                              env={**os.environ, "MAX_THINKING_TOKENS": "0"})
         if out.returncode != 0:
             raise RuntimeError(f"claude: {out.stderr.strip()[:300]}")
@@ -354,7 +356,7 @@ def extract_locked(session: str, transcript: str, cwd: str) -> None:
 def spawn_extract(session: str, transcript: str, cwd: str) -> None:
     """Run the extraction in the background so the session never waits for the LLM."""
     args = [sys.executable, "-I", str(Path(__file__).resolve()), "extract", session, transcript, cwd]
-    flags = (0x00000008 | 0x00000200) if os.name == "nt" else 0  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    flags = (NO_WINDOW | 0x00000200) if os.name == "nt" else 0  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: hidden, own group
     subprocess.Popen(args, creationflags=flags, start_new_session=os.name != "nt",
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -397,7 +399,8 @@ def handle(event: dict) -> None:
             spawn_extract(session, st["transcript"], e["cwd"])
         if Path(s["db"]).exists() and prompt.strip() and not prompt.startswith("/"):
             # shortcut: lexical recall only (milliseconds); hybrid needs the resident model daemon, not one process per prompt.
-            hits = footnote(s, ["memory-recall", prompt[:500], "--project", project, "--limit", str(s["recall_limit"])])["memories"]
+            # "--" ends the options: a prompt starting with "-" ("- fix the bug") is a query, not a flag.
+            hits = footnote(s, ["memory-recall", "--project", project, "--limit", str(s["recall_limit"]), "--", prompt[:500]])["memories"]
             context(name, render(hits, "Possibly relevant memories"))
     elif name == "Stop":
         append_journal(session, "assistant", e["answer"])

@@ -94,10 +94,15 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
         patch.contains("@deepseek-ai/dsh-hooks-claude-code")
             && patch.contains("@deepseek-ai/dsh-mcp-client")
     );
+    let dsh = read(&home.join(".dsh/footnote-memory-hooks.json"));
     assert!(
-        read(&home.join(".dsh/footnote-memory-hooks.json"))["hooks"]["SessionStart"]
+        dsh["hooks"]["SessionStart"]
             .to_string()
             .contains("memory_hook.py")
+    );
+    assert!(
+        dsh["hooks"].get("SessionEnd").is_none(),
+        "the DeepSeek bridge drops SessionEnd"
     );
 
     // Settings point the hook at this binary and database.

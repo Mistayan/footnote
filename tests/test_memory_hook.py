@@ -109,6 +109,11 @@ class EndToEnd(unittest.TestCase):
                 env={**os.environ, "FOOTNOTE_STATE_DIR": d})
             ctx = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
             self.assertIn("relative % gaps", ctx)
+            # A prompt that starts with "-" is a query, never a command-line option (found in real use, 2026-11-14).
+            out = subprocess.run([sys.executable, "-I", str(ROOT / "tools/memory_hook.py")], input=json.dumps(
+                {"hook_event_name": "UserPromptSubmit", "cwd": str(ROOT), "session_id": "s2", "prompt": "- benchmark tables with relative % gaps"}),
+                capture_output=True, text=True, env={**os.environ, "FOOTNOTE_STATE_DIR": d})
+            self.assertIn("relative % gaps", json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"])
 
     def test_journal_when_no_transcript_is_readable(self):
         """Grok-style: no readable transcript, the hook journals prompts and final answers, and catches up at next start."""

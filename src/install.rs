@@ -483,12 +483,16 @@ pub fn memory(dry_run: bool) -> Result<Value> {
     if patch.exists() {
         // DeepSeek Harness: its Claude Code hooks bridge runs a dedicated hooks file (not all of Claude's hooks),
         // and an mcp-client entry serves the memory database.
+        // Its bridge runs only SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop and the subagent events;
+        // as with Codex, what is left at the end is extracted at the next session start. The bridge package itself
+        // (@deepseek-ai/dsh-hooks-claude-code, pinned to the app's version) is installed with DeepSeek's plugin manager.
         let hooks = home.join(".dsh").join("footnote-memory-hooks.json");
+        let events = [("SessionStart", 15), ("UserPromptSubmit", 10), ("Stop", 5)];
         add(
             "deepseek-harness",
             "hooks",
             &hooks,
-            add_hooks(&hooks, &claude_events, &command, dry_run),
+            add_hooks(&hooks, &events, &command, dry_run),
         )?;
         let block = format!(
             "# Footnote agent memory (footnote install --memory)\n- insert:\n    - id: {MEMORY_SERVER}-hooks\n      name: \"@deepseek-ai/dsh-hooks-claude-code\"\n      config:\n        configPath: \"{}\"\n    - id: {MEMORY_SERVER}-mcp\n      name: \"@deepseek-ai/dsh-mcp-client\"\n      config:\n        transport: stdio\n        serverName: {MEMORY_SERVER}\n        command: \"{}\"\n        args: [\"--db\", \"{}\", \"mcp\"]\n        env: {{}}\n        cwd: \"{}\"\n        toolCallTimeoutMs: 60000\n        closeTimeoutMs: 5000\n        expandTemplates: false\n        failOnStartupError: false\n",
