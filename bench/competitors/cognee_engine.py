@@ -8,12 +8,17 @@ Setup follows bench/research/competitors.md and Cognee 1.6.8's own source: `get_
 `cognee.run_custom_pipeline`, documents added as `DataItem`s with pinned ids, search with `SearchType.CHUNKS` (dense, LanceDB) or `CHUNKS_LEXICAL`
 (Cognee's in-process lexical scorer). What this does NOT exercise: Cognee's knowledge graph and LLM summaries, which are what Cognee is known for.
 Cognee does not fuse its dense and lexical results, so each is reported as its own system. Telemetry is off, keys are removed from the environment.
+
+Built indexes are cached under bench/work/cognee-index/<dataset>-<key>, keyed by Cognee/fastembed/LanceDB versions, embedder, chunking and the exact
+documents. `cognee` and `cognee-lexical` therefore share one index. A reused index reports the build time and sizes of its original build, with
+`reused_index: true`. Delete the folder to force a fresh build.
 """
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import importlib.metadata as md
+import json
 import os
 import shutil
 import tempfile
@@ -24,6 +29,16 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 WORK = HERE.parent / "work"
 NS = uuid.UUID("00000000-0000-0000-0000-00000000b0b0")
+# shortcut: bump by hand when prepare()'s build steps change; upgrade to hashing the build code if it changes often
+BUILD_RECIPE = "cognee-index-v1"
+
+
+def index_key(versions: dict, embedder: str, chunk_tokens: int, corpus: dict) -> str:
+    """Cache key for a built index: what decides its content, not how it is searched, so dense and lexical share one."""
+    h = hashlib.sha256(json.dumps([BUILD_RECIPE, versions, embedder, chunk_tokens]).encode())
+    for doc_id in sorted(corpus):
+        h.update(json.dumps([doc_id, *corpus[doc_id]], ensure_ascii=False).encode("utf-8"))
+    return h.hexdigest()[:20]
 
 
 def _bytes(path: Path) -> int:
@@ -53,10 +68,15 @@ class CogneeEngine:
                 "embedder": self.embedder, "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
 
     def prepare(self, dataset: str, corpus: dict) -> dict:
-        self.root = WORK / dataset / self.id
-        if self.root.exists():
-            shutil.rmtree(self.root)
-        self.root.mkdir(parents=True)
+        pins = {p: md.version(p) for p in ("cognee", "fastembed", "lancedb")}
+        key = index_key(pins, self.embedder, self.chunk_tokens, corpus)
+        self.root = WORK / "cognee-index" / f"{dataset}-{key}"
+        done = self.root / "complete.json"
+        reuse = done.exists()
+        if not reuse:  # absent or left incomplete by a crash: build from scratch
+            if self.root.exists():
+                shutil.rmtree(self.root)
+            self.root.mkdir(parents=True)
         for v in ("LLM_API_KEY", "OPENAI_API_KEY"):
             os.environ.pop(v, None)
         os.environ.update({"AUTO_FEEDBACK": "false", "TELEMETRY_DISABLED": "true",
@@ -76,6 +96,9 @@ class CogneeEngine:
             self.by_hash[hashlib.md5(body.encode("utf-8")).hexdigest()] = doc_id
             items.append(DataItem(data=body, label=doc_id, data_id=uuid.uuid5(NS, doc_id), literal_text=True))
         self.by_uuid = {str(uuid.uuid5(NS, d)): d for d in corpus}
+        if reuse:  # same versions, model, chunking and documents: the stored index is the one this build would produce
+            stats = json.loads(done.read_text(encoding="utf-8"))
+            return {**stats, "reused_index": True, "index_key": key}
         t = time.perf_counter()
 
         async def build():
@@ -87,10 +110,12 @@ class CogneeEngine:
         system, data = self.root / "system", self.root / "data"
         lance = next((p for p in system.rglob("*.lance") if p.is_dir()), None)
         cache = Path(os.environ.get("FASTEMBED_CACHE_PATH", Path(tempfile.gettempdir()) / "fastembed_cache"))
-        return {"documents": len(corpus), "skipped_empty": skipped, "build_ms": build_ms, "embed_ms": None,
-                "disk_bytes": _bytes(system) + _bytes(data), "store_bytes": _bytes(system) + _bytes(data),
-                "system_bytes": _bytes(system), "raw_copy_bytes": _bytes(data),
-                "lancedb_bytes": _bytes(lance.parent) if lance else None, "model_cache_bytes": _bytes(cache), "chunks": None}
+        stats = {"documents": len(corpus), "skipped_empty": skipped, "build_ms": build_ms, "embed_ms": None,
+                 "disk_bytes": _bytes(system) + _bytes(data), "store_bytes": _bytes(system) + _bytes(data),
+                 "system_bytes": _bytes(system), "raw_copy_bytes": _bytes(data),
+                 "lancedb_bytes": _bytes(lance.parent) if lance else None, "model_cache_bytes": _bytes(cache), "chunks": None}
+        done.write_text(json.dumps(stats), encoding="utf-8")  # written last: only a finished build is ever reused
+        return {**stats, "reused_index": False, "index_key": key}
 
     def _doc(self, hit: dict) -> str | None:
         if hit.get("document_id") in self.by_uuid:

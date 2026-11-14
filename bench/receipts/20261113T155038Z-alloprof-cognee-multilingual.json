@@ -1,0 +1,93 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-13T15:50:38+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "alloprof",
+    "split": "test",
+    "pin": {
+      "sha256": {
+        "corpus/test-00000-of-00001.parquet": "d4cc3f31c740d08f5e1bef9d83188da42f5ae07fdb2be920bd2f54754d05a09a",
+        "qrels/test-00000-of-00001.parquet": "f3c0cefa3e200f89f432981069b0d1f841d92e8653a96040d3ac67089db4d387",
+        "queries/test-00000-of-00001.parquet": "0706659a4b9cfc45d6e6eb97458edb37ca7609c96493c9b64de538ab65a5f5d3"
+      },
+      "converted_sha256": {
+        "corpus.jsonl": "0e9da1b2cb4e37da8f286158a0f086f81e558f477187e48ea28434a3ca51a72e",
+        "qrels.tsv": "26432b9a22c46e1d19d08f6cb2fd63086d6f605c9566a38ce5895fb5c326bdce",
+        "queries.jsonl": "27f1e33d57d01694c4166be767b387e2aa2a56384a3dcd8dd0f62ecd22010eaf"
+      },
+      "source": "mteb/AlloprofRetrieval"
+    },
+    "documents": 2556,
+    "queries": 2316
+  },
+  "engine": {
+    "id": "cognee-multilingual",
+    "config": {
+      "product": "cognee",
+      "pipeline": "get_indexing_tasks via run_custom_pipeline (classify, chunk, embed), no LLM",
+      "search": "SearchType.CHUNKS",
+      "embedder": "fastembed sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2, 384d",
+      "vector_store": "LanceDB (default)",
+      "chunking": "Cognee TextChunker, 512 tokens",
+      "k": 20,
+      "query_clip_bytes": 500,
+      "caveat": "the knowledge graph and LLM summaries are not built or searched; no fusion of dense and lexical in Cognee"
+    },
+    "versions": {
+      "cognee": "1.6.8",
+      "fastembed": "0.9.1",
+      "lancedb": "0.39.0",
+      "embedder": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+      "adapter_sha256": "43944c049b46ed16a066b234456efddcc2c09198a8ba8c5ab7e314d1c7c49d2b"
+    }
+  },
+  "code": {
+    "commit": "93ff017ca1686daf160d51ad7b59a518c34343b0",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "33f2db3fbfc9044f6351e730d007bd2c384c8dda95bec3f34740894d23bf3add"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 2556,
+    "skipped_empty": 0,
+    "build_ms": 1841212.9752999172,
+    "embed_ms": null,
+    "disk_bytes": 1227438815,
+    "store_bytes": 1227438815,
+    "system_bytes": 1218167275,
+    "raw_copy_bytes": 9271540,
+    "lancedb_bytes": 944681451,
+    "model_cache_bytes": 957297859,
+    "chunks": null
+  },
+  "metrics": {
+    "ndcg@10": 0.29661,
+    "recall@5": 0.370035,
+    "recall@10": 0.468048,
+    "recall@20": 0.56304,
+    "mrr@10": 0.243365,
+    "queries_scored": 2316,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "in-process Python call to cognee.search (async, one event loop for the run; embedder loaded once; no LLM)",
+    "p50": 473.49,
+    "p95": 514.59,
+    "mean": 483.99,
+    "queries": 2316
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 200,
+    "identical_rankings": true,
+    "rankings_sha256": "7b650261fe7bbfd51d15ec3bd3b2c8f6deb9cd5664f588c7a3c1043fe8bd7beb"
+  }
+}

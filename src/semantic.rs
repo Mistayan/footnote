@@ -77,7 +77,7 @@ impl Drop for Worker {
 }
 static WORKERS: OnceLock<Mutex<HashMap<PathBuf, Worker>>> = OnceLock::new();
 
-fn python() -> PathBuf {
+pub(crate) fn python() -> PathBuf {
     crate::state::env("FOOTNOTE_PYTHON", "BORG_KNOWLEDGE_PYTHON")
         .map(PathBuf::from)
         .unwrap_or_else(|| {

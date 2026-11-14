@@ -47,6 +47,27 @@ fn backup(path: &Path) -> Result<()> {
 }
 
 fn write_json(path: &Path, entry: &Value, dry_run: bool) -> Result<&'static str> {
+    merge_json(path, dry_run, |root| {
+        let servers = root
+            .entry("mcpServers".to_string())
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .with_context(|| format!("{}: mcpServers is not an object", path.display()))?;
+        if servers.get(SERVER).is_some() {
+            return Ok(false);
+        }
+        servers.insert(SERVER.to_string(), entry.clone());
+        Ok(true)
+    })
+}
+
+/// Read a JSON object file (missing or empty: `{}`), let `change` edit it, and write it back only when it changed,
+/// with a one-time backup and an atomic replace.
+fn merge_json(
+    path: &Path,
+    dry_run: bool,
+    change: impl FnOnce(&mut serde_json::Map<String, Value>) -> Result<bool>,
+) -> Result<&'static str> {
     let stamp = file_stamp(path);
     let mut root: Value = if path.exists() {
         let raw =
@@ -63,16 +84,9 @@ fn write_json(path: &Path, entry: &Value, dry_run: bool) -> Result<&'static str>
     let object = root
         .as_object_mut()
         .with_context(|| format!("{} is not a JSON object", path.display()))?;
-    let servers = object
-        .entry("mcpServers".to_string())
-        .or_insert_with(|| json!({}));
-    let servers = servers
-        .as_object_mut()
-        .with_context(|| format!("{}: mcpServers is not an object", path.display()))?;
-    if servers.get(SERVER).is_some() {
+    if !change(object)? {
         return Ok("already registered");
     }
-    servers.insert(SERVER.to_string(), entry.clone());
     if !dry_run {
         backup(path)?;
         if let Some(parent) = path.parent()
@@ -121,20 +135,30 @@ fn replace_atomically(
 }
 
 fn write_codex_toml(path: &Path, db: &Path, dry_run: bool) -> Result<&'static str> {
+    codex_server(path, SERVER, db, dry_run)
+}
+
+fn codex_server(path: &Path, name: &str, db: &Path, dry_run: bool) -> Result<&'static str> {
     let exe = std::env::current_exe().context("locate this executable")?;
+    let header = format!("[mcp_servers.{name}]");
+    let block = format!(
+        "\n{header}\ncommand = \"{}\"\nargs = [\"--db\", \"{}\", \"mcp\"]\n",
+        portable(&exe),
+        portable(db)
+    );
+    append_once(path, &header, &block, dry_run)
+}
+
+/// Append `block` to a text file unless `marker` is already in it (creating the file and its folder if needed).
+fn append_once(path: &Path, marker: &str, block: &str, dry_run: bool) -> Result<&'static str> {
     let existing = if path.exists() {
         std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?
     } else {
         String::new()
     };
-    if existing.contains("[mcp_servers.footnote]") {
+    if existing.contains(marker) {
         return Ok("already registered");
     }
-    let block = format!(
-        "\n[mcp_servers.footnote]\ncommand = \"{}\"\nargs = [\"--db\", \"{}\", \"mcp\"]\n",
-        portable(&exe),
-        portable(db)
-    );
     if !dry_run {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -144,7 +168,7 @@ fn write_codex_toml(path: &Path, db: &Path, dry_run: bool) -> Result<&'static st
         if !text.is_empty() && !text.ends_with('\n') {
             text.push('\n');
         }
-        text.push_str(&block);
+        text.push_str(block);
         std::fs::write(path, text)?;
     }
     Ok("registered")
@@ -256,5 +280,246 @@ pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
         "targets": report,
         "daemon": register_daemon(&db, dry_run),
         "note": "each agent runs `footnote --db <DB> mcp`; the daemon, token and audit log are automatic. An entry named `borg` from before the rename still points at the old executable: delete it from the agent config",
+    }))
+}
+
+const MEMORY_SERVER: &str = "footnote-memory";
+const HOOK_MARK: &str = "memory_hook.py";
+
+/// Add an MCP server entry under `mcpServers`, leaving an existing entry of that name untouched.
+fn add_server(path: &Path, name: &str, entry: &Value, dry_run: bool) -> Result<&'static str> {
+    merge_json(path, dry_run, |root| {
+        let servers = root
+            .entry("mcpServers".to_string())
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .with_context(|| format!("{}: mcpServers is not an object", path.display()))?;
+        if servers.contains_key(name) {
+            return Ok(false);
+        }
+        servers.insert(name.to_string(), entry.clone());
+        Ok(true)
+    })
+}
+
+/// Add the memory hook command to every listed event of a Claude-format `hooks` object, once.
+fn add_hooks(
+    path: &Path,
+    events: &[(&str, u64)],
+    command: &str,
+    dry_run: bool,
+) -> Result<&'static str> {
+    merge_json(path, dry_run, |root| {
+        let hooks = root
+            .entry("hooks".to_string())
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .with_context(|| format!("{}: hooks is not an object", path.display()))?;
+        let mut changed = false;
+        for (event, timeout) in events {
+            let list = hooks
+                .entry(event.to_string())
+                .or_insert_with(|| json!([]))
+                .as_array_mut()
+                .with_context(|| format!("{}: hooks.{event} is not an array", path.display()))?;
+            if !list.iter().any(|g| g.to_string().contains(HOOK_MARK)) {
+                list.push(
+                    json!({"hooks": [{"type": "command", "command": command, "timeout": timeout}]}),
+                );
+                changed = true;
+            }
+        }
+        Ok(changed)
+    })
+}
+
+/// Quote a path only when it must be: an unquoted command runs the same under bash (Claude Code), PowerShell (Grok) and cmd.
+fn shell_word(path: &Path, warnings: &mut Vec<String>) -> String {
+    let p = portable(path);
+    if p.contains(' ') {
+        warnings.push(format!(
+            "{p} contains a space: the hook command is quoted for bash; Grok runs hooks under PowerShell, so set GROK_SHELL=bash for it"
+        ));
+        format!("\"{p}\"")
+    } else {
+        p
+    }
+}
+
+/// `install --memory`: one agent memory database for every detected agent, its MCP server, the memory hook and a
+/// /remember command. Claude Code's files also serve Grok, which reads ~/.claude.json and ~/.claude/settings.json.
+pub fn memory(dry_run: bool) -> Result<Value> {
+    let home = home()?;
+    let state = crate::state::state_dir()?;
+    let db = state.join("memory.db");
+    let exe = std::env::current_exe().context("locate this executable")?;
+    let python = crate::semantic::python();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tools")
+        .join(HOOK_MARK);
+    for (what, p) in [("Python interpreter", &python), ("memory hook", &script)] {
+        if !p.is_file() {
+            bail!(
+                "{what} not found at {} (set FOOTNOTE_PYTHON to a Python 3.10+ interpreter)",
+                p.display()
+            );
+        }
+    }
+    let mut warnings = Vec::new();
+    let command = format!(
+        "{} -I {}",
+        shell_word(&python, &mut warnings),
+        shell_word(&script, &mut warnings)
+    );
+    let entry = json!({"command": portable(&exe), "args": ["--db", portable(&db), "mcp"]});
+    let claude_events = [
+        ("SessionStart", 15),
+        ("UserPromptSubmit", 10),
+        ("Stop", 5),
+        ("PreCompact", 15),
+        ("SessionEnd", 15),
+    ];
+    let remember = "Memory extraction for this session has started in the background (Footnote). Confirm in one short sentence and continue.\n";
+    let mut report: Vec<Value> = Vec::new();
+    let mut add =
+        |agent: &str, what: &str, path: &Path, status: Result<&'static str>| -> Result<()> {
+            report.push(
+                json!({"agent": agent, "what": what, "path": portable(path), "status": status?}),
+            );
+            Ok(())
+        };
+
+    if !dry_run {
+        crate::state::ensure_private_dir(&state)?;
+        if !db.exists() {
+            drop(crate::app::open(&db, true)?); // empty memory database, so read tools work before the first memory
+        }
+    }
+    let settings = state.join("memory.json");
+    let defaults = json!({"footnote": portable(&exe), "db": portable(&db)});
+    add(
+        "all",
+        "settings",
+        &settings,
+        merge_json(&settings, dry_run, |root| {
+            let mut changed = false;
+            for (k, v) in defaults.as_object().into_iter().flatten() {
+                if !root.contains_key(k) {
+                    root.insert(k.clone(), v.clone());
+                    changed = true;
+                }
+            }
+            Ok(changed)
+        }),
+    )?;
+
+    let claude = home.join(".claude");
+    let grok = home.join(".grok");
+    if claude.exists() || grok.exists() {
+        let agent = match (claude.exists(), grok.exists()) {
+            (true, true) => "claude-code + grok",
+            (true, false) => "claude-code",
+            _ => "grok (through Claude Code files)",
+        };
+        let mcp = home.join(".claude.json");
+        add(
+            agent,
+            "mcp server",
+            &mcp,
+            add_server(&mcp, MEMORY_SERVER, &entry, dry_run),
+        )?;
+        let hooks = claude.join("settings.json");
+        add(
+            agent,
+            "hooks",
+            &hooks,
+            add_hooks(&hooks, &claude_events, &command, dry_run),
+        )?;
+        let cmd = claude.join("commands").join("remember.md");
+        add(
+            agent,
+            "/remember",
+            &cmd,
+            append_once(&cmd, "Footnote", remember, dry_run),
+        )?;
+    }
+    if grok.exists() {
+        // Grok lists only its own config.toml servers; same TOML keys as Codex. Its hooks come from ~/.claude/settings.json.
+        let config = grok.join("config.toml");
+        add(
+            "grok",
+            "mcp server",
+            &config,
+            codex_server(&config, MEMORY_SERVER, &db, dry_run),
+        )?;
+    }
+    let codex = home.join(".codex");
+    if codex.exists() {
+        let config = codex.join("config.toml");
+        add(
+            "codex",
+            "mcp server",
+            &config,
+            codex_server(&config, MEMORY_SERVER, &db, dry_run),
+        )?;
+        // Codex has no PreCompact or SessionEnd: what is left is extracted at the next session start.
+        let hooks = codex.join("hooks.json");
+        let events = [("SessionStart", 15), ("UserPromptSubmit", 10), ("Stop", 5)];
+        add(
+            "codex",
+            "hooks",
+            &hooks,
+            add_hooks(&hooks, &events, &command, dry_run),
+        )?;
+        let prompt = codex.join("prompts").join("remember.md");
+        add(
+            "codex",
+            "/remember",
+            &prompt,
+            append_once(&prompt, "Footnote", remember, dry_run),
+        )?;
+    }
+    let patch = home.join(".dsh/profiles/desktop/cordis.patch.yml");
+    if patch.exists() {
+        // DeepSeek Harness: its Claude Code hooks bridge runs a dedicated hooks file (not all of Claude's hooks),
+        // and an mcp-client entry serves the memory database.
+        let hooks = home.join(".dsh").join("footnote-memory-hooks.json");
+        add(
+            "deepseek-harness",
+            "hooks",
+            &hooks,
+            add_hooks(&hooks, &claude_events, &command, dry_run),
+        )?;
+        let block = format!(
+            "# Footnote agent memory (footnote install --memory)\n- insert:\n    - id: {MEMORY_SERVER}-hooks\n      name: \"@deepseek-ai/dsh-hooks-claude-code\"\n      config:\n        configPath: \"{}\"\n    - id: {MEMORY_SERVER}-mcp\n      name: \"@deepseek-ai/dsh-mcp-client\"\n      config:\n        transport: stdio\n        serverName: {MEMORY_SERVER}\n        command: \"{}\"\n        args: [\"--db\", \"{}\", \"mcp\"]\n        env: {{}}\n        cwd: \"{}\"\n        toolCallTimeoutMs: 60000\n        closeTimeoutMs: 5000\n        expandTemplates: false\n        failOnStartupError: false\n",
+            portable(&hooks),
+            portable(&exe),
+            portable(&db),
+            portable(&home)
+        );
+        let marker = format!("id: {MEMORY_SERVER}-hooks");
+        add(
+            "deepseek-harness",
+            "hooks bridge + mcp server",
+            &patch,
+            append_once(&patch, &marker, &block, dry_run),
+        )?;
+    }
+    let gemini = home.join(".gemini/settings.json");
+    if gemini.parent().is_some_and(Path::exists) {
+        add(
+            "gemini-cli",
+            "mcp server",
+            &gemini,
+            add_server(&gemini, MEMORY_SERVER, &entry, dry_run),
+        )?;
+    }
+    Ok(json!({
+        "dry_run": dry_run,
+        "memory_db": portable(&db),
+        "hook": command,
+        "targets": report,
+        "warnings": warnings,
+        "note": "restart each agent to load the hooks; Grok asks once to trust a folder before it runs hooks. Extraction uses your Claude Code CLI by default; change the extractor or list sensitive projects in the settings file",
     }))
 }

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Footnote ranking</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,560&display=swap" rel="stylesheet">
+<style>
+:root {
+  --surface: #F4EFE6; --ink: #1B1915; --muted: #625A4E; --accent: #A8281C;
+  --mem0: #3F5F7F; --cognee: #6E7432; --icm: #7A4E8C;
+  --rule: color-mix(in srgb, var(--muted) 35%, transparent);
+  --track: color-mix(in srgb, var(--muted) 14%, transparent);
+  --serif: "Newsreader", Georgia, serif; --mono: "IBM Plex Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --surface: #14120F; --ink: #EFE8DA; --muted: #A89F90; --accent: #F2705A; --mem0: #8DB0D2; --cognee: #B9C27A; --icm: #C9A2DA; }
+}
+:root[data-theme="dark"] { --surface: #14120F; --ink: #EFE8DA; --muted: #A89F90; --accent: #F2705A; --mem0: #8DB0D2; --cognee: #B9C27A; --icm: #C9A2DA; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface); color: var(--ink); font: 400 1.0625rem/1.55 var(--serif); }
+.wrap { width: min(100% - 32px, 1160px); margin: 48px auto 64px; }
+.eyebrow, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+h1 { font-weight: 560; font-size: clamp(2rem, 4vw, 2.75rem); line-height: 1.1; margin: 0 0 16px; letter-spacing: -.01em; }
+.lede { max-width: 62ch; margin: 0 0 32px; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--rule); margin-bottom: 40px; }
+.summary div { padding: 20px 24px 20px 0; }
+.summary b { display: block; font: 560 2.25rem/1 var(--serif); margin-bottom: 6px; }
+.summary span { font: 400 .8125rem/1.4 var(--mono); color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 24px; font: 400 .8125rem/1 var(--mono); color: var(--muted); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 12px; height: 8px; margin-right: 8px; vertical-align: 1px; }
+.heads { display: grid; grid-template-columns: 180px 1fr 1fr; gap: 0 40px; font: 400 .75rem/1.3 var(--mono); color: var(--muted); padding: 16px 0 8px; border-bottom: 1px solid var(--rule); }
+.heads .axis { display: flex; justify-content: space-between; margin-top: 6px; }
+.corpus { display: grid; grid-template-columns: 180px 1fr 1fr; gap: 0 40px; padding: 20px 0; border-bottom: 1px solid var(--rule); }
+.corpus h2 { font: 560 1.0625rem/1.3 var(--serif); margin: 0; }
+.corpus h2 small { display: block; font: 400 .75rem/1.4 var(--mono); color: var(--muted); margin-top: 4px; }
+.panel { display: grid; gap: 10px; align-content: start; }
+.panel .label { display: none; font: 400 .75rem/1 var(--mono); color: var(--muted); }
+.bar { display: grid; grid-template-columns: 1fr 184px; gap: 12px; align-items: center; }
+.track { height: 10px; background: var(--track); position: relative; }
+.track i { position: absolute; inset: 0 auto 0 0; }
+.val { font: 400 .8125rem/1.2 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.val em { font-style: normal; color: var(--muted); margin-left: 6px; }
+.val.win { font-weight: 500; }
+.val.win::before { content: "●"; color: currentColor; font-size: .6rem; margin-right: 6px; vertical-align: 2px; }
+.who { font: 400 .75rem/1.2 var(--mono); color: var(--muted); }
+.more, .more-spacer { height: 20px; margin-top: -6px; }
+.more { justify-self: start; background: none; border: 0; padding: 0; cursor: pointer; font: 400 .6875rem/20px var(--mono); color: var(--muted); }
+.more:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.more:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.more .arr { display: inline-block; transition: transform 160ms ease; }
+.more[aria-expanded="true"] .arr { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .more .arr { transition: none; } }
+.minor { margin-top: -4px; padding-left: 12px; opacity: .55; }
+.minor .who { font-size: .6875rem; }
+.minor .track { height: 4px; }
+.minor .track i { background: var(--muted); }
+.minor .val { font-size: .75rem; color: var(--muted); }
+.pending .track { background: repeating-linear-gradient(90deg, var(--track) 0 6px, transparent 6px 10px); }
+.flag { color: var(--accent); }
+.notes { font: 400 .8125rem/1.5 var(--mono); color: var(--muted); max-width: 80ch; margin-top: 24px; }
+.notes p { margin: 0 0 10px; }
+@media (max-width: 820px) {
+  .heads { display: none; }
+  .corpus { grid-template-columns: 1fr; gap: 16px; }
+  .panel .label { display: block; margin-bottom: 2px; }
+  .bar { grid-template-columns: 1fr 168px; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <p class="eyebrow">Head-to-head · test split · same documents, queries and scoring</p>
+  <h1>Footnote against mem0, Cognee and ICM</h1>
+  <p class="lede">Each product keeps its own models, chunking and ranking. Each competitor's best variant on that corpus is in colour, the toughest comparison for Footnote; its other variants fold away beneath it. Quality uses a shared 0–1 scale; latency uses a log scale because the gaps span two orders of magnitude.</p>
+
+  <section class="summary" id="summary"></section>
+
+  <div class="legend">
+    <span><i style="background:var(--accent)"></i>Footnote</span>
+    <span><i style="background:var(--mem0)"></i>mem0</span>
+    <span><i style="background:var(--cognee)"></i>Cognee</span>
+    <span><i style="background:var(--icm)"></i>ICM</span>
+    <span>● winner of the metric on that corpus</span>
+  </div>
+  <div class="heads" aria-hidden="true">
+    <div>Corpus</div>
+    <div>nDCG@10, longer is better<div class="axis"><span>0</span><span>0.5</span><span>1</span></div></div>
+    <div>Median query latency, shorter is better<div class="axis"><span>1 ms</span><span>10</span><span>100</span><span>1 s</span></div></div>
+  </div>
+  <div id="chart"></div>
+
+  <div class="notes">
+    <p>Quality Δ is Footnote ÷ competitor − 1, so +42 % means Footnote scores 42 % higher. Latency is the competitor's median time as a multiple of Footnote's.</p>
+    <p>Footnote latency includes its MCP stdio round-trip; mem0 and Cognee are in-process calls. mem0 runs without its LLM extraction; Cognee is measured on its chunk index, not its graph retrieval.</p>
+    <p>Single runs, no confidence intervals yet. The paired bootstrap per corpus follows when the queue finishes; gaps under about 3 % may be ties.</p>
+  </div>
+</main>
+<script>
+const DATA = __DATA__;
+const CORPORA = [["mix-fr-en","Mixed French + English"],["alloprof","Alloprof · French"],["syntec","Syntec · French"],["scifact","SciFact · English"],["nfcorpus","NFCorpus · English"]];
+const VENDORS = [["footnote","Footnote","var(--accent)"],["mem0","mem0","var(--mem0)"],["cognee","Cognee","var(--cognee)"],["icm","ICM","var(--icm)"]];
+const vendorOf = e => e === "shipped-ensemble-mcp" ? "footnote" : e.split("-")[0];
+const variantOf = e => e.includes("-") && !e.startsWith("shipped") ? e.slice(e.indexOf("-") + 1) : "default";
+const logW = ms => Math.max(0, Math.min(1, Math.log10(ms) / 3));  // 1 ms → 0, 1 s → 1
+const pct = x => (x >= 0 ? "+" : "−") + Math.abs(x * 100).toFixed(1) + " %";
+const median = a => { const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+const ratios = { mem0: [], cognee: [], icm: [] }, qgain = { mem0: [], cognee: [], icm: [] };
+let html = "";
+for (const [ds, title] of CORPORA) {
+  const rows = DATA.filter(r => r.ds === ds);
+  const best = {};
+  for (const r of rows) { const v = vendorOf(r.eng); if (!best[v] || r.q > best[v].q) best[v] = r; }
+  const f = best.footnote, present = VENDORS.filter(([v]) => best[v]);
+  const topQ = Math.max(...present.map(([v]) => best[v].q)), topL = Math.min(...present.map(([v]) => best[v].p50));
+  let q = "", l = "";
+  for (const [v, name, color] of VENDORS.filter(([v]) => DATA.some(r => vendorOf(r.eng) === v))) {
+    const r = best[v];
+    const who = `<div class="who">${name}${r && v !== "footnote" ? " · " + variantOf(r.eng) : ""}${r && !r.det ? ' <span class="flag">· not reproducible</span>' : ""}</div>`;
+    if (!r) {
+      const pend = `<div>${who}<div class="bar pending"><div class="track"></div><span class="val"><em>no result</em></span></div></div>`;
+      q += pend; l += pend; continue;
+    }
+    const dq = v === "footnote" ? "" : `<em>Footnote ${pct(f.q / r.q - 1)}</em>`;
+    const ratio = r.p50 / f.p50;
+    const dl = v === "footnote" ? "" : `<em>${ratio >= 1 ? ratio.toFixed(1) + "× slower" : (1 / ratio).toFixed(1) + "× faster"}</em>`;
+    if (v !== "footnote") { ratios[v].push(ratio); qgain[v].push(f.q / r.q - 1); }
+    q += `<div>${who}<div class="bar"><div class="track"><i style="width:${r.q * 100}%;background:${color}"></i></div><span class="val${r.q === topQ ? " win" : ""}">${r.q.toFixed(3)}${dq}</span></div></div>`;
+    l += `<div>${who}<div class="bar"><div class="track"><i style="width:${logW(r.p50) * 100}%;background:${color}"></i></div><span class="val${r.p50 === topL ? " win" : ""}">${r.p50.toFixed(1)} ms${dl}</span></div></div>`;
+    // The vendor's other variants: collapsed behind one toggle, same scales, greyed, value only.
+    const rest = rows.filter(x => vendorOf(x.eng) === v && x !== r), g = `${ds}-${v}`;
+    if (rest.length) {
+      q += `<button class="more" data-g="${g}" aria-expanded="false"><span class="arr">▸</span> ${rest.length} ${name} variant${rest.length > 1 ? "s" : ""} that didn't make the cut${rest.some(o => !o.det) ? ` <span class="flag">· ${rest.filter(o => !o.det).length} not reproducible</span>` : ""}</button>`;
+      l += `<div class="more-spacer"></div>`;
+    }
+    for (const o of rest) {
+      const tag = `<div class="who">${variantOf(o.eng)}${o.det ? "" : ' <span class="flag">· not reproducible</span>'}</div>`;
+      q += `<div class="minor" data-g="${g}" hidden>${tag}<div class="bar"><div class="track"><i style="width:${o.q * 100}%"></i></div><span class="val">${o.q.toFixed(3)}</span></div></div>`;
+      l += `<div class="minor" data-g="${g}" hidden>${tag}<div class="bar"><div class="track"><i style="width:${logW(o.p50) * 100}%"></i></div><span class="val">${o.p50.toFixed(1)} ms</span></div></div>`;
+    }
+  }
+  html += `<section class="corpus"><h2>${title}<small>${f.n.toLocaleString("en")} test queries</small></h2>
+    <div class="panel"><span class="label">nDCG@10, longer is better</span>${q}</div>
+    <div class="panel"><span class="label">Median latency, log scale, shorter is better</span>${l}</div></section>`;
+}
+document.getElementById("chart").innerHTML = html;
+document.getElementById("chart").addEventListener("click", e => {
+  const b = e.target.closest(".more"); if (!b) return;
+  const open = b.getAttribute("aria-expanded") !== "true";
+  b.setAttribute("aria-expanded", open);
+  document.querySelectorAll(`.minor[data-g="${b.dataset.g}"]`).forEach(m => m.hidden = !open);
+});
+const ACTIVE = VENDORS.filter(([v]) => v !== "footnote" && ratios[v].length);
+const times = x => x >= 1 ? (x >= 10 ? x.toFixed(0) : x.toFixed(1)) + "× faster" : (1 / x).toFixed(1) + "× slower";
+document.getElementById("summary").innerHTML = [
+  ...ACTIVE.map(([v, name]) => [times(median(ratios[v])).replace(/ (faster|slower)$/, ""), `${times(median(ratios[v])).split(" ")[1]} than ${name}, median over ${ratios[v].length} corpora`]),
+  ...ACTIVE.map(([v, name]) => [pct(median(qgain[v])), `nDCG@10 against ${name}, median`]),
+].map(([b, s]) => `<div><b>${b}</b><span>${s}</span></div>`).join("");
+</script>
+</body>
+</html>

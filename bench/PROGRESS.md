@@ -1,6 +1,41 @@
 # Bench progress (resume here)
 
-Updated 2026-11-12. The protocol and rules are in `README.md`; this file is the working state.
+Updated 2026-11-13. The protocol and rules are in `README.md`; dated sections below preserve the earlier work.
+
+## Current queue, 2026-11-13
+
+Work is in `D:\Projets\BorgKnowledge`, branch `bench/model-candidates`. The active task is the retrieval comparison and improvements, not the landing page.
+
+1. `run_headtohead.sh` is running the 27 configured Footnote/mem0/Cognee cases. Last inspected at 10:18 local time: twelve complete receipts, Footnote running on SciFact. Eleven completed cases pass their recorded repeat check; Cognee lexical on NFCorpus fails it. Syntec and NFCorpus are finished. Logs: `work/headtohead.log`.
+2. `run_models2.sh` waits for that suite, then runs the four model candidates and the frozen pair on four dev corpora. Logs: `work/models2.log`; append-only results: `sweeps/models2.jsonl`.
+3. `model_latency.py` waits for step 2, then measures resident batch-1 encoding for six models on the same fixed dev queries. Logs: `work/model_latency.log` and `work/model_latency.err.log`.
+4. `run_matched.ps1` waits for step 3. It confirms dev-qualified model configurations on heldout, exports fixed public inputs, runs the four matched backend controls on five corpora, writes reports, runs 100k/1M lexical scale controls, then runs the benchmark and Rust checks. Logs: `work/matched.log`, `work/matched.err.log`; PID: `work/matched.pid`; explicit backend/scale failures: `work/matched-failures.jsonl`.
+
+These processes are already launched. Do not start another heavy benchmark or duplicate these runners. Check their command lines and logs before restarting anything. A `DONE` line is a runner completion marker; results and failure records still need review.
+
+## Current evidence and implementation
+
+- [Competitor report](experiments/HEADTOHEAD.md), with receipt links, missing cases, scopes and storage parts. Regenerate with `rtk proxy python -B bench/experiments/headtohead_table.py --since 20261113T070000Z`.
+- [Interim paired intervals](experiments/HEADTOHEAD-INTERVALS.md). Ten receipt rankings were re-scored and checked against their recorded hashes. NFCorpus Footnote versus mem0 is not resolved by its paired interval.
+- Quality blocker discovered at 10:05 local time: `20261113T083346Z-nfcorpus-cognee-lexical.json` reports different rankings across its two passes, checked on 200 queries. The receipt is retained as failure evidence. The global receipt validation gate fails on this case; its point score must not be treated as a reproducible result. Investigate adapter behavior and tie ordering before attributing the failure to the product.
+- [Matched backend protocol](experiments/LANCEDB-MATCHED.md), frozen before judged-corpus results. Seven backend/export tests pass. These use one model to isolate backend effects; they are not a production-pair comparison.
+- [Environment snapshots](environments/README.md). Competitor model-weight file hashes are still missing from their receipts; version snapshots do not close that reproducibility gap.
+- All four candidate models pass the published-score reproduction gate in `lab/model_checks.jsonl`. The heldout confirmation runner applies the original +0.01 dev bar to both corpora of a language group and never changes product defaults.
+
+At queue completion, the reports include `HEADTOHEAD.md`, `LANCEDB-RESULTS.md`, `MODEL-CANDIDATES.md`, `MODEL-LATENCY.md` and `MODEL-CONFIRMATION.md` under `experiments/`. Read source receipts and cost measurements before proposing a winner. Full production integration, memory budgets, crash safety and consequential licensing decisions remain separate gates. No push or production-default change is part of this queue.
+
+## Future optimization backlog in Beads
+
+Captured at Johan's request on 2026-11-13. Epic `bk-1tc`; all six children are open. These are planned investigations, not measured gains or changes to the active queue.
+
+- `bk-1tc.1`: profile each stage, then reduce repeated builds/encoding with correct cache invalidation and separate cold/warm measurements.
+- `bk-1tc.2`: controlled version comparison for NumPy, ONNX Runtime and tokenizers in isolated environments.
+- `bk-1tc.3`: compare OpenVINO CPU with ONNX Runtime CPU on this Intel host.
+- `bk-1tc.4`: evaluate a native Rust encoder with identical models and recipes, including end-to-end overhead.
+- `bk-1tc.5`: evaluate Polars for corpus preparation and result tables if profiling justifies it. NumPy remains appropriate for dense numerical arrays.
+- `bk-1tc.6`: diagnose the non-reproducible Cognee lexical receipt without deleting it or weakening validation.
+
+Tasks `.2` through `.5` depend on `.1`. Each task records acceptance criteria. Inspect with `rtk proxy bd --sandbox show bk-1tc`; list with `rtk proxy bd --sandbox list --parent bk-1tc`. Wait for the existing measurement queue before starting heavy experiments. No product dependency or default was changed when recording this backlog.
 
 ## Done
 

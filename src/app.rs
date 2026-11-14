@@ -14,7 +14,7 @@ pub const MAX_FILE: u64 = 16 * 1024 * 1024;
 /// Scan bounds per `index` run: a mistake such as pointing at a whole disk aborts and rolls back instead of filling the database.
 const DEFAULT_MAX_FILES: usize = 250_000;
 const DEFAULT_MAX_MIB: u64 = 4096;
-const SCHEMA: i64 = 4;
+const SCHEMA: i64 = 5;
 #[derive(Parser)]
 #[command(
     version,
@@ -94,6 +94,33 @@ enum Action {
         output: PathBuf,
     },
     Stats,
+    /// Store agent memories read as a JSON array on stdin (agent memory database only).
+    Remember {
+        /// Local embedding model directory; repeat for an ensemble. Without it, new memories are lexical-only until rebuild-embeddings.
+        #[arg(long)]
+        model: Vec<PathBuf>,
+    },
+    /// Remove an agent memory from recall (kept as history).
+    Forget {
+        id: i64,
+    },
+    /// Session-start pack: global preferences, then this project's memories, within a character budget.
+    MemoryPack {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 3000)]
+        max_chars: usize,
+    },
+    /// Agent memories relevant to a prompt: global ones and the given project's.
+    MemoryRecall {
+        query: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u8).range(1..=20))]
+        limit: u8,
+        #[arg(long)]
+        model: Vec<PathBuf>,
+    },
     /// Serve the knowledge base to an agent; --mcp selects the MCP stdio transport.
     Serve {
         #[arg(long)]
@@ -121,6 +148,10 @@ enum Action {
     Install {
         #[arg(long)]
         dry_run: bool,
+        /// Set up agent memory instead of a corpus: the memory database, its MCP server, the memory hook and
+        /// /remember in Claude Code, Codex, Grok and DeepSeek Harness (no --db needed).
+        #[arg(long)]
+        memory: bool,
     },
     /// Verify an append-only audit log (no database needed).
     Audit {
@@ -215,6 +246,12 @@ pub(crate) fn open(path: &Path, write: bool) -> Result<Connection> {
             let tx = c.transaction()?;
             tx.execute_batch(crate::semantic::MIGRATION)?;
             tx.pragma_update(None, "user_version", 4)?;
+            tx.commit()?;
+        }
+        if version < 5 {
+            let tx = c.transaction()?;
+            tx.execute_batch(crate::memory::MIGRATION)?;
+            tx.pragma_update(None, "user_version", 5)?;
             tx.commit()?;
         }
     } else if version != SCHEMA {
@@ -319,6 +356,9 @@ fn index(
     }
     if !allowed {
         bail!("root is outside explicit allowlist");
+    }
+    if crate::memory::is_memory_db(c)? {
+        bail!("this is an agent memory database; index documents into a separate corpus database");
     }
     let root_s = root.to_string_lossy().to_string();
     let mut seen = std::collections::HashSet::new();
@@ -496,7 +536,7 @@ fn text_chunks(c: &Connection, id: i64, text: &str, page: Option<i64>) -> Result
     }
     add_chunk(c, id, &heading, page, line, &chunk, &title)
 }
-fn add_chunk(
+pub(crate) fn add_chunk(
     c: &Connection,
     id: i64,
     heading: &str,
@@ -521,6 +561,9 @@ fn add_chunk(
 fn freshness(path: &str, sha: &str, status: &str) -> &'static str {
     if status == "deleted" {
         return "deleted";
+    }
+    if path.starts_with(crate::memory::PREFIX) {
+        return "agent_memory"; // no file behind it
     }
     match bounded_read(Path::new(path)) {
         Ok(b) if hash(&b) == sha => "current",
@@ -739,7 +782,13 @@ fn execute(cli: Cli) -> Result<Value> {
             crate::daemon::proxy(&shared)?;
             return Ok(Value::Null);
         }
-        Action::Install { dry_run } => return crate::install::run(&cli.db, *dry_run),
+        Action::Install { dry_run, memory } => {
+            return if *memory {
+                crate::install::memory(*dry_run)
+            } else {
+                crate::install::run(&cli.db, *dry_run)
+            };
+        }
         Action::Audit { action } => return audit_command(action),
         _ => {}
     }
@@ -752,6 +801,8 @@ fn execute(cli: Cli) -> Result<Value> {
                 | Action::Propose { .. }
                 | Action::Validate { .. }
                 | Action::RebuildEmbeddings { .. }
+                | Action::Remember { .. }
+                | Action::Forget { .. }
         ),
     )?;
     match cli.command {
@@ -814,6 +865,24 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Backup { output } => backup(&c, &output),
         Action::Stats => stats(&c),
+        Action::Remember { model } => {
+            let mut input = String::new();
+            std::io::Read::read_to_string(
+                &mut std::io::Read::take(std::io::stdin(), 512 * 1024),
+                &mut input,
+            )?;
+            crate::memory::remember(&mut c, &serde_json::from_str(&input)?, &model)
+        }
+        Action::Forget { id } => crate::memory::forget(&mut c, id),
+        Action::MemoryPack { project, max_chars } => {
+            crate::memory::pack(&c, project.as_deref(), max_chars)
+        }
+        Action::MemoryRecall {
+            query,
+            project,
+            limit,
+            model,
+        } => crate::memory::recall(&c, &query, project.as_deref(), limit.into(), &model),
         // Dispatched above, before the database is opened; MCP serves its
         // read-only tools by opening the database lazily per request.
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),

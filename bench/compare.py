@@ -56,7 +56,24 @@ def main() -> int:
     verdict = "B better" if lo > 0 else "A better" if hi < 0 else "no consistent difference"
     print(f"{args.dataset} ({args.split}), {len(qs)} queries\n  A = {args.a}: nDCG@10 {mean_a:.4f}\n  B = {args.b}: nDCG@10 {mean_b:.4f}\n"
           f"  B - A = {mean_b - mean_a:+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]  -> {verdict}")
+    for label, spec in (("A", args.a), ("B", args.b)):
+        problem = unreproducible(spec)
+        if problem:
+            print(f"  WARNING {label}: {problem}; this interval cannot support a reproducible-superiority claim")
     return 0
+
+
+def unreproducible(spec: str) -> str | None:
+    """Why the receipt next to a rankings file fails its determinism check, or None if it passed or has no receipt."""
+    receipt = Path(spec.replace(".rankings.json.gz", ".json"))
+    if not spec.endswith(".rankings.json.gz") or not receipt.exists():
+        return None
+    det = json.loads(receipt.read_text(encoding="utf-8")).get("determinism", {})
+    if not det.get("checked"):
+        return f"{receipt.name} has no determinism check"
+    if not det.get("identical_rankings"):
+        return f"{receipt.name} is not reproducible (rankings not identical when {det.get('queries_checked', '?')} queries were repeated)"
+    return None
 
 
 if __name__ == "__main__":

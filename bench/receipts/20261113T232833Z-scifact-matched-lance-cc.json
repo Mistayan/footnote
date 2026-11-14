@@ -1,0 +1,119 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-13T23:28:33+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "scifact",
+    "split": "test",
+    "pin": {
+      "sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+      "converted_sha256": null,
+      "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
+    },
+    "documents": 5183,
+    "queries": 300
+  },
+  "engine": {
+    "id": "matched-lance-cc",
+    "config": {
+      "store": "lance",
+      "lexical": "native",
+      "fusion": "cc",
+      "model": "bekko-a8m only, identical precomputed query and passage vectors",
+      "chunking": "identical exported product chunks, 2000 characters",
+      "vectors": "source int8 decoded to float32, dot product, exact; no ANN",
+      "tokenizer": "simple, lowercase, English stem, accent fold, no stopwords, max token 40",
+      "pool": 100,
+      "alpha": 0.55,
+      "rrf_k": 60,
+      "query_clip_bytes": 500,
+      "caveat": "component experiment, not the production two-model pipeline; encoding excluded"
+    },
+    "versions": {
+      "numpy": "2.3.4",
+      "lancedb": "0.41.0",
+      "tantivy": "0.27.0",
+      "pyarrow": "26.0.1",
+      "sqlite": "3.49.1",
+      "adapter_sha256": "5f114593113b50c7c4f79b038111df1ca8586e463e9def0c0b87589bce65e05a",
+      "input": {
+        "dataset": "scifact",
+        "split": "test",
+        "dataset_pin": {
+          "sha256": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+          "converted_sha256": null,
+          "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/scifact.zip"
+        },
+        "model_lock": {
+          "repo": "hotchpotch/bekko-embedding-v1-a8m",
+          "revision": "c721113d59a1d91b447450324f51c4b3332c924a",
+          "files": {
+            "model.onnx": "96d8cc6199e96357b21b2fb12f6d7ffd2d4abc7b182fe94b5468fbd6dc819af7",
+            "tokenizer.json": "8bd47075711f75a143d1b78e01a41cc65c1c591b00d3cfeffc23db07adce1392"
+          }
+        },
+        "source_database_sha256": "582a3a4875b85e6747ad4fd430d458130e2ffc4b5e842f7272233eb679635760",
+        "documents": 5183,
+        "chunks": 6495,
+        "dimension": 384,
+        "export_ms": 1413.8954998925328,
+        "exporter_sha256": "6c4dcd8c4c7e9ca2a344d5625a6964c6acfca89816a1fed01a93d7a5f0471a17",
+        "encoder_sha256": "7c721e8eafd08ddd10655333ef9a1c3276d7a38dc5412953e0057aed2a27269e",
+        "files_sha256": {
+          "documents.json": "fc4616657cd371af9f988f1631e9c8280dd42a977adaa4ae8d27018bc23828e1",
+          "queries.json": "dd908ae7f19b250e4a53507794327a1169996a5f4c5d95401bbe2a0c46d26c8a",
+          "vectors.npy": "6c7f432ed4a61643058330a1b2f96324f9fd5077d84c2882d3a596ecb21f7f52",
+          "queries.npy": "d345643f89082b9bea3f9eac6c8f133faa2e7916ef1b5a574fa7a0287d8bee7c"
+        }
+      }
+    }
+  },
+  "code": {
+    "commit": "93ff017ca1686daf160d51ad7b59a518c34343b0",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "33f2db3fbfc9044f6351e730d007bd2c384c8dda95bec3f34740894d23bf3add"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 5183,
+    "chunks": 6495,
+    "build_ms": 843.1659999769181,
+    "embed_ms": null,
+    "input_export_ms": 1413.8954998925328,
+    "disk_bytes": 17243697,
+    "store_bytes": 17243697,
+    "sqlite_bytes": 0,
+    "lancedb_bytes": 17243697,
+    "tantivy_bytes": 0,
+    "query_encoding_included": false
+  },
+  "metrics": {
+    "ndcg@10": 0.732286,
+    "recall@5": 0.804722,
+    "recall@10": 0.857889,
+    "recall@20": 0.903222,
+    "mrr@10": 0.699614,
+    "queries_scored": 300,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "resident in-process matched retrieval, precomputed query vector; excludes encoding; includes document-ID fetch",
+    "p50": 12.85,
+    "p95": 13.83,
+    "mean": 12.97,
+    "queries": 300
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 200,
+    "identical_rankings": true,
+    "rankings_sha256": "6ba178b1a06079a0586e608f17d5c5552c00ef6e5e9be52d4ce748ed0fd7f97d"
+  }
+}

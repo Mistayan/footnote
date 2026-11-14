@@ -172,7 +172,7 @@ fn tools_list_returns_eight_tools_with_valid_input_schemas() {
     let rs = responses(&out);
     assert_eq!(rs.len(), 1);
     let tools = rs[0]["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 8);
+    assert_eq!(tools.len(), 10);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     for expected in [
         "footnote_recall",
@@ -231,7 +231,7 @@ fn tools_call_borg_stats_returns_a_successful_tool_result_on_an_indexed_db() {
     assert_eq!(result["isError"], false);
     assert_eq!(result["content"][0]["type"], "text");
     let stats: Value = serde_json::from_str(&text(&result)).unwrap();
-    assert_eq!(stats["schema"], 4);
+    assert_eq!(stats["schema"], 5);
     assert_eq!(stats["sources"], 1);
     assert!(stats["chunks"].as_i64().unwrap() >= 1);
     assert_eq!(stats["records"], 0);
@@ -260,7 +260,7 @@ fn recall_get_health_wake_up_and_export_round_trip() {
 
     let health = call(&db, "footnote_health", json!({}));
     let health: Value = serde_json::from_str(&text(&health)).unwrap();
-    assert_eq!(health["schema"], 4);
+    assert_eq!(health["schema"], 5);
     assert_eq!(health["embeddings_present"], false);
     assert_eq!(health["semantic_state"], "lexical_only");
     assert_eq!(health["records_by_status"], json!({}));

@@ -469,6 +469,15 @@ fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
         "footnote_wake_up" | "borg_wake_up" => wake_up(db, args),
         "footnote_propose" | "borg_propose" => propose(args),
         "footnote_export" | "borg_export" => export(db, args),
+        "footnote_remember" => {
+            let models = if args["model"].is_null() {
+                vec![]
+            } else {
+                model_args(args)?
+            };
+            crate::memory::remember(&mut memory_db(db)?, &args["memories"], &models)
+        }
+        "footnote_forget" => crate::memory::forget(&mut memory_db(db)?, int_arg(args, "id")?),
         other => bail!("unknown tool: {other}"),
     }
 }
@@ -482,6 +491,17 @@ fn read_db(db: &Path) -> Result<Connection> {
         );
     }
     app::open(db, false)
+}
+
+/// Write connection for the memory tools. A corpus database is refused through a read-only
+/// connection first, so an agent call never migrates or touches it.
+fn memory_db(db: &Path) -> Result<Connection> {
+    if db.exists() && crate::memory::has_files(&read_db(db)?)? {
+        bail!(
+            "this server serves a document corpus, which agents cannot write to; agent memory has its own database"
+        );
+    }
+    app::open(db, true)
 }
 
 /// `model`: one local embedding directory, or an array of up to three (an ensemble, blended equally).
@@ -850,6 +870,41 @@ fn tool_definitions() -> Value {
                 "type": "object",
                 "properties": {"payload": {"type": "object", "description": "Record payload (validated by the CLI, not by this transport)."}},
                 "required": ["payload"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "footnote_remember",
+            "description": "Store memories in the agent memory database (refused on a document corpus). Use only when the user asks you to remember something. Each memory is one self-contained sentence with absolute dates. kind: preference (how the user likes to work), fact (decision, convention, release, date), fix (problem, cause and what fixed it), session (what a session achieved). scope: \"global\" for what always applies, otherwise the project name. To correct an older memory, pass its id in `supersedes`.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "memories": {"type": "array", "minItems": 1, "maxItems": 50, "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "maxLength": 2000},
+                            "kind": {"type": "string", "enum": ["preference", "fact", "fix", "session"]},
+                            "scope": {"type": "string", "maxLength": 200},
+                            "observed_at": {"type": "string", "description": "YYYY-MM-DD"},
+                            "session": {"type": "string", "maxLength": 200},
+                            "supersedes": {"type": "integer"}
+                        },
+                        "required": ["text", "kind", "scope", "observed_at"],
+                        "additionalProperties": false
+                    }},
+                    "model": {"oneOf": [{"type": "string", "maxLength": 200}, {"type": "array", "items": {"type": "string", "maxLength": 200}, "minItems": 1, "maxItems": 3}], "description": "Embedding model directories, so the new memories are found by meaning at once."}
+                },
+                "required": ["memories"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "footnote_forget",
+            "description": "Remove an agent memory from recall by id (kept as history). Only agent memories can be forgotten; documents cannot.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "required": ["id"],
                 "additionalProperties": false
             }
         },

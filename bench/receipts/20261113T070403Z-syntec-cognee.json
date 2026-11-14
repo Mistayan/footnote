@@ -1,0 +1,88 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-13T07:04:03+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "syntec",
+    "split": "test",
+    "pin": {
+      "sha256": {
+        "documents.json": "0b899775cbeb3484f8f2b333581e4d792d301e0320d44ab495a593a6025203b8",
+        "queries.json": "c7d922ae47eb90c8c4ad93f8e84d1bb8c82397f1cae4385541027a129f49ca97"
+      },
+      "converted_sha256": null,
+      "source": "lyon-nlp/mteb-fr-retrieval-syntec-s2p"
+    },
+    "documents": 90,
+    "queries": 100
+  },
+  "engine": {
+    "id": "cognee",
+    "config": {
+      "product": "cognee",
+      "pipeline": "get_indexing_tasks via run_custom_pipeline (classify, chunk, embed), no LLM",
+      "search": "SearchType.CHUNKS",
+      "embedder": "fastembed BAAI/bge-small-en-v1.5, 384d",
+      "vector_store": "LanceDB (default)",
+      "chunking": "Cognee TextChunker, 512 tokens",
+      "k": 20,
+      "query_clip_bytes": 500,
+      "caveat": "the knowledge graph and LLM summaries are not built or searched; no fusion of dense and lexical in Cognee"
+    },
+    "versions": {
+      "cognee": "1.6.8",
+      "fastembed": "0.9.1",
+      "lancedb": "0.39.0",
+      "embedder": "BAAI/bge-small-en-v1.5",
+      "adapter_sha256": "43944c049b46ed16a066b234456efddcc2c09198a8ba8c5ab7e314d1c7c49d2b"
+    }
+  },
+  "code": {
+    "commit": "93ff017ca1686daf160d51ad7b59a518c34343b0",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "33f2db3fbfc9044f6351e730d007bd2c384c8dda95bec3f34740894d23bf3add"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 90,
+    "skipped_empty": 0,
+    "build_ms": 14342.31209999416,
+    "embed_ms": null,
+    "disk_bytes": 9720198,
+    "store_bytes": 9720198,
+    "system_bytes": 9603712,
+    "raw_copy_bytes": 116486,
+    "lancedb_bytes": 2591360,
+    "model_cache_bytes": 957297859,
+    "chunks": null
+  },
+  "metrics": {
+    "ndcg@10": 0.552851,
+    "recall@5": 0.62,
+    "recall@10": 0.79,
+    "recall@20": 0.91,
+    "mrr@10": 0.480575,
+    "queries_scored": 100,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "in-process Python call to cognee.search (async, one event loop for the run; embedder loaded once; no LLM)",
+    "p50": 147.98,
+    "p95": 274.57,
+    "mean": 161.45,
+    "queries": 100
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 100,
+    "identical_rankings": true,
+    "rankings_sha256": "d29c98c170b9a380ddb61f06515cae469b3a6d111b719db993a1449a2358d199"
+  }
+}

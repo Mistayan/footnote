@@ -1,0 +1,145 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-13T23:16:42+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "alloprof",
+    "split": "heldout",
+    "pin": {
+      "sha256": {
+        "corpus/test-00000-of-00001.parquet": "d4cc3f31c740d08f5e1bef9d83188da42f5ae07fdb2be920bd2f54754d05a09a",
+        "qrels/test-00000-of-00001.parquet": "f3c0cefa3e200f89f432981069b0d1f841d92e8653a96040d3ac67089db4d387",
+        "queries/test-00000-of-00001.parquet": "0706659a4b9cfc45d6e6eb97458edb37ca7609c96493c9b64de538ab65a5f5d3"
+      },
+      "converted_sha256": {
+        "corpus.jsonl": "0e9da1b2cb4e37da8f286158a0f086f81e558f477187e48ea28434a3ca51a72e",
+        "qrels.tsv": "26432b9a22c46e1d19d08f6cb2fd63086d6f605c9566a38ce5895fb5c326bdce",
+        "queries.jsonl": "27f1e33d57d01694c4166be767b387e2aa2a56384a3dcd8dd0f62ecd22010eaf"
+      },
+      "source": "mteb/AlloprofRetrieval"
+    },
+    "documents": 2556,
+    "queries": 1624
+  },
+  "engine": {
+    "id": "lab:models2_f139fdd30471",
+    "config": {
+      "chunker": {
+        "kind": "whole",
+        "size": 2000,
+        "overlap": 0,
+        "title_prefix": false
+      },
+      "lexical": {
+        "on": true,
+        "tokenizer": {
+          "accents": "strip",
+          "stem": "en"
+        },
+        "k1": 1.2,
+        "b": 0.75,
+        "min_idf": 0.0,
+        "prf": {
+          "docs": 0,
+          "terms": 10,
+          "weight": 0.5
+        },
+        "title_boost": 1
+      },
+      "dense": {
+        "on": true,
+        "model": "embeddinggemma-300m",
+        "max_len": null,
+        "center": "none",
+        "quant": "f32",
+        "dims": 0,
+        "prf": {
+          "docs": 0,
+          "beta": 0.5
+        },
+        "extra": {
+          "model": "",
+          "weight": 0.5
+        }
+      },
+      "fusion": {
+        "kind": "dense",
+        "k": 60,
+        "alpha": 0.55,
+        "norm": "zscore",
+        "pool": 100,
+        "dense_from_lexical": 0,
+        "adaptive": {
+          "on": false,
+          "lo": 0.4,
+          "hi": 0.8
+        }
+      },
+      "rerank": {
+        "on": false,
+        "model": "mmarco-mminilm",
+        "pool": 20,
+        "gate_margin": 0.0
+      }
+    },
+    "versions": {
+      "numpy": "2.3.4",
+      "onnxruntime": "1.23.2",
+      "tokenizers": "0.22.1",
+      "python_stem": "snowballstemmer",
+      "model": "embeddinggemma-300m",
+      "model_lock": {
+        "repo": "onnx-community/embeddinggemma-300m-ONNX",
+        "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+        "files": {
+          "model.onnx": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4",
+          "model.onnx_data": "ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d",
+          "tokenizer.json": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+        }
+      }
+    }
+  },
+  "code": {
+    "commit": "93ff017ca1686daf160d51ad7b59a518c34343b0",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "33f2db3fbfc9044f6351e730d007bd2c384c8dda95bec3f34740894d23bf3add"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 2556,
+    "chunks": 2556,
+    "build_ms": 3102.7632001787424,
+    "embed_ms": 1841.652600094676,
+    "disk_bytes": 0,
+    "index_bytes_in_memory": 7852032
+  },
+  "metrics": {
+    "ndcg@10": 0.553295,
+    "recall@5": 0.657635,
+    "recall@10": 0.75,
+    "recall@20": 0.822044,
+    "mrr@10": 0.490986,
+    "queries_scored": 1624,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "in-process, resident model, numpy brute force (no process spawn): NOT comparable with CLI engines",
+    "p50": 15.55,
+    "p95": 35.84,
+    "mean": 18.72,
+    "queries": 1624
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 200,
+    "identical_rankings": true,
+    "rankings_sha256": "134bddf99d9778d6b42dadbf087f0816c7915e650d4b20cb168292ef1c1329bc"
+  }
+}

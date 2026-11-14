@@ -1,6 +1,6 @@
 # Security policy
 
-Footnote is a local tool that serves your own documents to your own agents. It opens no outbound network connection, and its MCP surface is read-only.
+Footnote is a local tool that serves your own documents to your own agents. It opens no outbound network connection, and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database. The optional memory hook sends conversation text to the LLM you configure for extraction (your own Claude Code CLI by default).
 The model that describes what it defends against is in the README under [Security model](README.md#security-model).
 
 ## Reporting a vulnerability

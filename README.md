@@ -38,7 +38,7 @@ Footnote is a single Rust binary that indexes Markdown, text and PDF on your mac
 
 - **Cited.** Every hit is bound to the exact bytes it came from. If the file changed, the hit says `stale`. If it is gone, it says `missing_or_unreadable`.
 - **Local.** One SQLite file, one search index, one embedding helper on your CPU. No account, no cloud, no telemetry, no network calls.
-- **Read-only for agents.** An agent can recall and fetch. It cannot write to your corpus, and every call is appended to a tamper-evident audit log.
+- **Your documents are read-only for agents.** An agent can recall and fetch. It cannot write to your corpus; it can only add to its own memory database. Every call is appended to a tamper-evident audit log.
 - **French and English.** Built and measured for mixed-language work, not as an afterthought.
 
 ## Proof
@@ -172,15 +172,27 @@ For any other MCP host, add this entry to its MCP settings:
 | `footnote_stats`, `footnote_health` | Counts and state, so the agent can pick a strategy |
 | `footnote_export` | Bounded export of records |
 | `footnote_propose` | **Refused over MCP.** Writes need an explicit CLI command from you |
+| `footnote_remember`, `footnote_forget` | Agent memory only: add or retire a memory in the memory database. Refused on a document corpus |
 
 The previous `borg_*` tool names keep working as aliases.
+
+### Agent memory
+
+Besides your documents, Footnote can remember what an assistant learns while working with you: your preferences, project decisions and dates, problems and their fixes, what each session achieved. Memories live in their own database (`memory.db` in Footnote's per-user state folder), never in a corpus, and are searched with the same hybrid engine.
+
+`footnote install --memory` sets it up for every detected agent: Claude Code, Codex, Grok and DeepSeek Harness. It creates the memory database, registers its MCP server, adds the hook and a `/remember` command, backs up each file it edits, and leaves existing entries alone. A hook ([`tools/memory_hook.py`](tools/memory_hook.py)) does the work:
+- at session start it injects your preferences and the project's memories;
+- on each prompt it adds the memories relevant to it;
+- every 15 prompts, before compaction and at session end, it extracts new memories in the background with your own Claude Code CLI.
+
+Another LLM can be used through any OpenAI-compatible endpoint, including a local one. Without any LLM, keyword rules are used. Projects listed as sensitive never have their project memories extracted through a non-local LLM. Settings are documented at the top of the script, the design in [docs/AGENT-MEMORY-DESIGN.md](docs/AGENT-MEMORY-DESIGN.md).
 
 ## Security model
 
 Footnote is built on the assumption that retrieved text may contain instructions aimed at your agent.
 
 - **Untrusted by default.** Every retrieved passage is labelled as data. Nothing in a document can make the server do anything.
-- **Read-only surface.** The MCP tools cannot write. Proposals are refused and logged.
+- **Read-only documents.** No MCP tool can write to a document corpus. The only write tools add or retire agent memories, and they refuse any database that holds documents before touching it. Proposals are refused and logged.
 - **No network.** The tool opens no outbound connection. The only download is the explicit, hash-checked model provisioning script you run yourself.
 - **Private state.** The audit log, its MAC key and the daemon token live in a user-only folder created on first use.
 - **Authenticated daemon.** The shared daemon listens on a local socket only, with a mutual HMAC handshake; agents never see the token.

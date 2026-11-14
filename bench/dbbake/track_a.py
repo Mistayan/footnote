@@ -119,17 +119,18 @@ class LanceFts:
         import lancedb
         import pyarrow as pa
         self.db = lancedb.connect(str(self.dir))
-        ids = list(corpus)
-        tbl = pa.table({"id": ids, "body": [doc_text(corpus[i]) for i in ids]})
+        items = list(corpus.items())
+        tbl = pa.table({"id": [key for key, _ in items], "body": [doc_text(doc) for _, doc in items]})
         self.t = self.db.create_table("t", tbl)
-        self.t.create_fts_index("body", use_tantivy=False, base_tokenizer="simple", language=self.language, stem=self.stem,
-                                remove_stop_words=False, ascii_folding=True, replace=True)
+        from lancedb.index import FTS
+        self.t.create_index("body", config=FTS(base_tokenizer="simple", language=self.language, stem=self.stem,
+                                             remove_stop_words=False, ascii_folding=True))
 
     def search(self, q: str, k: int) -> list[str]:
         w = words(q)
         if not w:
             return []
-        return [r["id"] for r in self.t.search(" ".join(w), query_type="fts").limit(k).to_list()]
+        return [r["id"] for r in self.t.search(" ".join(w), query_type="fts").select(["id", "_score"]).limit(k).to_list()]
 
     def size(self) -> int:
         return sum(f.stat().st_size for f in self.dir.rglob("*") if f.is_file())

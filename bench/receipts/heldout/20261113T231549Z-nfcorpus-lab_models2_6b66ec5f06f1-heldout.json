@@ -1,0 +1,137 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-13T23:15:49+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "nfcorpus",
+    "split": "heldout",
+    "pin": {
+      "sha256": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+      "converted_sha256": null,
+      "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/nfcorpus.zip"
+    },
+    "documents": 3633,
+    "queries": 323
+  },
+  "engine": {
+    "id": "lab:models2_6b66ec5f06f1",
+    "config": {
+      "chunker": {
+        "kind": "whole",
+        "size": 2000,
+        "overlap": 0,
+        "title_prefix": false
+      },
+      "lexical": {
+        "on": true,
+        "tokenizer": {
+          "accents": "strip",
+          "stem": "en"
+        },
+        "k1": 1.2,
+        "b": 0.75,
+        "min_idf": 0.0,
+        "prf": {
+          "docs": 0,
+          "terms": 10,
+          "weight": 0.5
+        },
+        "title_boost": 1
+      },
+      "dense": {
+        "on": true,
+        "model": "embeddinggemma-300m",
+        "max_len": null,
+        "center": "none",
+        "quant": "f32",
+        "dims": 0,
+        "prf": {
+          "docs": 0,
+          "beta": 0.5
+        },
+        "extra": {
+          "model": "",
+          "weight": 0.5
+        }
+      },
+      "fusion": {
+        "kind": "cc",
+        "k": 60,
+        "alpha": 0.55,
+        "norm": "zscore",
+        "pool": 100,
+        "dense_from_lexical": 0,
+        "adaptive": {
+          "on": false,
+          "lo": 0.4,
+          "hi": 0.8
+        }
+      },
+      "rerank": {
+        "on": false,
+        "model": "mmarco-mminilm",
+        "pool": 20,
+        "gate_margin": 0.0
+      }
+    },
+    "versions": {
+      "numpy": "2.3.4",
+      "onnxruntime": "1.23.2",
+      "tokenizers": "0.22.1",
+      "python_stem": "snowballstemmer",
+      "model": "embeddinggemma-300m",
+      "model_lock": {
+        "repo": "onnx-community/embeddinggemma-300m-ONNX",
+        "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66",
+        "files": {
+          "model.onnx": "ea91fd315a7c152d427d231746f0f811a1ac93beaba656abfdf2b24e091265e4",
+          "model.onnx_data": "ef835ae565d8695236652475903078e8ed794c7c35faf1164d78ec3238e8a88d",
+          "tokenizer.json": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47"
+        }
+      }
+    }
+  },
+  "code": {
+    "commit": "93ff017ca1686daf160d51ad7b59a518c34343b0",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "33f2db3fbfc9044f6351e730d007bd2c384c8dda95bec3f34740894d23bf3add"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 3633,
+    "chunks": 3633,
+    "build_ms": 2565.484399907291,
+    "embed_ms": 1748.8148000556976,
+    "disk_bytes": 0,
+    "index_bytes_in_memory": 11160576
+  },
+  "metrics": {
+    "ndcg@10": 0.389958,
+    "recall@5": 0.153035,
+    "recall@10": 0.196233,
+    "recall@20": 0.242778,
+    "mrr@10": 0.589482,
+    "queries_scored": 323,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "in-process, resident model, numpy brute force (no process spawn): NOT comparable with CLI engines",
+    "p50": 10.3,
+    "p95": 11.83,
+    "mean": 10.37,
+    "queries": 323
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 200,
+    "identical_rankings": true,
+    "rankings_sha256": "7ca21274050ad87fd7aa1785234d4e26746cd9d66d736268eefd7dcd849f1cb9"
+  }
+}

@@ -145,5 +145,18 @@ def fusion2(ds: str, base: dict):
     return out
 
 
-SWEEPS = {"fusion2": fusion2, "ensemble": ensemble, "experiments": experiments, "gated_rerank": gated_rerank, "crowding": crowding, "models": models, "lexical": lexical, "fusion": fusion, "chunking": chunking, "rerank": rerank,
+def models2(ds: str, base: dict):
+    """2026 model candidates (bench/research/embedding-boost.md) against the shipped pair, dense alone and in the shipped hybrid.
+    Each candidate also replaces one member of the pair, since a single heavier model may beat two light ones at a similar cost."""
+    from lab import merge  # noqa: PLC0415
+    out = [("M0 shipped pair: bekko-a8m + gte-small", merge(base, {}))]
+    for m in ("embeddinggemma-300m", "harrier-270m", "granite-small-en-r2", "arctic-m-v2"):
+        out.append((f"M1 {m} dense only", merge(base, {"fusion": {"kind": "dense"}, "dense": {"model": m, "extra": {"model": ""}}})))
+        out.append((f"M2 {m} alone in the hybrid", merge(base, {"dense": {"model": m, "extra": {"model": ""}}})))
+        out.append((f"M3 bekko-a8m + {m}", merge(base, {"dense": {"model": "bekko-a8m", "extra": {"model": m, "weight": 0.5}}})))
+    out.append(("M4 embeddinggemma-300m 256 dims alone in the hybrid", merge(base, {"dense": {"model": "embeddinggemma-300m", "dims": 256, "extra": {"model": ""}}})))
+    return out
+
+
+SWEEPS = {"models2": models2, "fusion2": fusion2, "ensemble": ensemble, "experiments": experiments, "gated_rerank": gated_rerank, "crowding": crowding, "models": models, "lexical": lexical, "fusion": fusion, "chunking": chunking, "rerank": rerank,
           "lexical_lang": lexical_lang}

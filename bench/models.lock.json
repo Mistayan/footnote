@@ -132,6 +132,48 @@
     "repo": "onnx-community/embeddinggemma-300m-ONNX",
     "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66"
   },
+  "embeddinggemma-300m-q4": {
+    "files": {
+      "model.onnx": {
+        "bytes": 519322,
+        "sha256": "ad1dfee81a70f7944b9b9d1cc6e48075b832881cf33fab2f2b248be78f3f0043",
+        "source": "onnx/model_q4.onnx"
+      },
+      "model_q4.onnx_data": {
+        "bytes": 196725760,
+        "sha256": "599962c3143b040de2dd05e5975be3e9091dd067cacc6a8f7186e3203bab9e02",
+        "source": "onnx/model_q4.onnx_data"
+      },
+      "tokenizer.json": {
+        "bytes": 20323312,
+        "sha256": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "onnx-community/embeddinggemma-300m-ONNX",
+    "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66"
+  },
+  "embeddinggemma-300m-q8": {
+    "files": {
+      "model.onnx": {
+        "bytes": 567874,
+        "sha256": "172efde319fe1542dc41f31be6154910b05b78f7a861c265c4600eec906bd6d8",
+        "source": "onnx/model_quantized.onnx"
+      },
+      "model_quantized.onnx_data": {
+        "bytes": 308890624,
+        "sha256": "705626e28e4c23c82ade34566b4197d97f534c12275fa406dfb71e9937d388c0",
+        "source": "onnx/model_quantized.onnx_data"
+      },
+      "tokenizer.json": {
+        "bytes": 20323312,
+        "sha256": "4dda02faaf32bc91031dc8c88457ac272b00c1016cc679757d1c441b248b9c47",
+        "source": "tokenizer.json"
+      }
+    },
+    "repo": "onnx-community/embeddinggemma-300m-ONNX",
+    "revision": "5090578d9565bb06545b4552f76e6bc2c93e4a66"
+  },
   "granite-97m-multi": {
     "files": {
       "model.onnx": {
