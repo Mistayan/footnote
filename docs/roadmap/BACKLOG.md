@@ -48,6 +48,8 @@ Plan and decisions: [P1-PLAN.md](P1-PLAN.md) (engine commands first, then design
 12. **Footnote Alias** (pseudonymisation before the LLM): desk study first (Presidio, LLM Guard, GLiNER PII, French accuracy), then a
     French + English prototype with underline-and-explain. Design notes below.
 13. **Footnote Code:** code-graph study ([plan](../research/CODE-GRAPH-STUDY.md)); hands-on after Johan's go.
+    Its graph visualizer uses the family's design language, decided with the launcher in the M2 studio
+    ([analysis, section 5](../research/LAUNCHER-DESIGN-ANALYSIS.md)).
 14. **Documentation ingestion in Footnote Library** (Johan 15 Nov): crawl and index a documentation site on demand, one index per
     library version, so agents search docs locally, offline, without credits. Cheapest first: `llms.txt` and published `.md` pages,
     then sitemap and plain HTML to Markdown; JavaScript rendering only if needed. Rust crawler candidates to check (licence,

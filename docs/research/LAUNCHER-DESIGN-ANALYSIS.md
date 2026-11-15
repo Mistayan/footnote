@@ -57,12 +57,28 @@ Gaps found for the engine, before the window:
 4. **Light theme:** now, as a second palette, or later as DESIGN.md says.
 5. **Marks:** Library and Memory marks (concept A lenses) to settle in the same session as the icons.
 
-## 5. Four directions to mock
+## 5. One design language for the whole family (Johan, 15 Nov)
+
+The launcher's language is the family's, not the launcher's: the coming Footnote Code graph visualizer (and later the project
+node map and the visual roadmap) must read as the same product. So the studio locks a shared system, not one screen:
+
+- **Shared tokens and components** in `design/` (colours, type, radius scale, insets, glass, motion curves, link chips), used by
+  the launcher, the site and every later app; each app adds only what its content needs.
+- **Graph primitives decided once:** node (a card at the card radius, the product's lens mark for its kind), edge (hairline in
+  the line colour, glow colour when it carries the current path), focus (the glass lens magnifies the selected node and its
+  neighbours), clusters (mint blocks), labels in JetBrains Mono for symbols and paths.
+- **Motion shared with the data metaphor:** the flowing dots of the site become what moves along edges (a call path, a recall
+  from memory to answer), short layout transitions (the 150 ms rule) and nothing under reduced motion.
+- **Same link chips everywhere:** a symbol, file or memory opens the same way in the chat, the launcher and the graph.
+
+The studio session therefore mocks one launcher screen and one graph view per direction, so a direction is judged on both.
+
+## 6. Four directions to mock
 
 | Direction | Idea |
 |---|---|
-| Console | T3-like: sidebar of products, dense content, glass top bar; the most familiar |
-| Lens | The Overview is the logo: one glass lens per product, activity orbiting it; the most on-brand |
+| Console | T3-like: sidebar of products, dense content, glass top bar; the graph sits in the content pane; the most familiar |
+| Lens | The Overview is the logo: one glass lens per product, activity orbiting it; the graph is navigated by lens focus; the most on-brand |
 | Palette | Raycast-like: a command palette first, panels for each product; the fastest daily use |
 | Ledger | Activity first: a timeline of what memory did, filtered by product and project; visibility as the home screen |
 
