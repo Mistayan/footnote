@@ -1,0 +1,370 @@
+//! Embedding model manager: list, install, use, remove, recommend (P1 item 9).
+//!
+//! `models install` is the only command that reaches the network: it fetches public model files pinned to a Hugging Face commit
+//! and checks them against pinned SHA-256 hashes. The manifest it writes is byte-identical to the one the former Python script
+//! wrote, because a model's identity is the hash of its manifest (vectors computed before stay valid).
+use anyhow::{Context, Result, bail};
+use serde_json::{Value, json};
+use std::{
+    fs,
+    io::Read,
+    path::{Path, PathBuf},
+};
+
+struct Recipe {
+    name: &'static str,
+    repo: &'static str,
+    revision: &'static str,
+    onnx: &'static str,
+    query_prefix: &'static str,
+    passage_prefix: &'static str,
+    max_length: u32,
+    pad_token: &'static str,
+    quantization: &'static str,
+    /// Pinned (file, sha256); empty for the older comparison models, whose digest is recorded at first download.
+    sha256: &'static [(&'static str, &'static str)],
+    role: &'static str,
+}
+
+const RECIPES: &[Recipe] = &[
+    Recipe {
+        name: "bekko-a8m",
+        repo: "hotchpotch/bekko-embedding-v1-a8m",
+        revision: "c721113d59a1d91b447450324f51c4b3332c924a",
+        onnx: "onnx/model.onnx",
+        query_prefix: "",
+        passage_prefix: "",
+        max_length: 512,
+        pad_token: "<pad>",
+        quantization: "none (fp32)",
+        sha256: &[
+            (
+                "model.onnx",
+                "96d8cc6199e96357b21b2fb12f6d7ffd2d4abc7b182fe94b5468fbd6dc819af7",
+            ),
+            (
+                "tokenizer.json",
+                "8bd47075711f75a143d1b78e01a41cc65c1c591b00d3cfeffc23db07adce1392",
+            ),
+        ],
+        role: "default pair, multilingual half",
+    },
+    Recipe {
+        name: "gte-small",
+        repo: "Xenova/gte-small",
+        revision: "5927d1727bb12db490052a1b33265ad78058de08",
+        onnx: "onnx/model_quantized.onnx",
+        query_prefix: "",
+        passage_prefix: "",
+        max_length: 512,
+        pad_token: "[PAD]",
+        quantization: "onnx-dynamic-int8",
+        sha256: &[
+            (
+                "model.onnx",
+                "18dec105109b6004369799ca4761fb8fb413c64172c02147bcfac186b5c5f6cb",
+            ),
+            (
+                "tokenizer.json",
+                "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+            ),
+        ],
+        role: "default pair, English half",
+    },
+    Recipe {
+        name: "e5-small",
+        repo: "Xenova/multilingual-e5-small",
+        revision: "761b726dd34fb83930e26aab4e9ac3899aa1fa78",
+        onnx: "onnx/model_quantized.onnx",
+        query_prefix: "query: ",
+        passage_prefix: "passage: ",
+        max_length: 512,
+        pad_token: "<pad>",
+        quantization: "onnx-dynamic-int8",
+        sha256: &[],
+        role: "earlier model, tests and comparison",
+    },
+    Recipe {
+        name: "minilm",
+        repo: "Xenova/paraphrase-multilingual-MiniLM-L12-v2",
+        revision: "2c4055b12046f11709e9df2c122e59ffbdc2f900",
+        onnx: "onnx/model_quantized.onnx",
+        query_prefix: "",
+        passage_prefix: "",
+        max_length: 128,
+        pad_token: "<pad>",
+        quantization: "onnx-dynamic-int8",
+        sha256: &[],
+        role: "earlier model, tests and comparison",
+    },
+];
+const DEFAULT_PAIR: [&str; 2] = ["bekko-a8m", "gte-small"];
+
+fn recipe(name: &str) -> Result<&'static Recipe> {
+    RECIPES
+        .iter()
+        .find(|r| r.name == name)
+        .with_context(|| format!("unknown model `{name}`; `footnote models list` shows them"))
+}
+
+pub fn models_dir(state: &Path) -> PathBuf {
+    state.join("models")
+}
+
+/// Models the memory hook uses (memory.json `models`), as written there.
+fn in_use(state: &Path) -> Result<Vec<String>> {
+    let s = footnote_core::config::product_settings(state, "memory")?;
+    Ok(s["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.as_str().map(|p| p.replace('\\', "/")))
+        .collect())
+}
+
+fn same_model(path: &str, dir: &Path) -> bool {
+    let dir = dir.to_string_lossy().replace('\\', "/");
+    path.trim_end_matches('/') == dir.trim_end_matches('/')
+}
+
+pub fn list(state: &Path) -> Result<Value> {
+    let used = in_use(state)?;
+    let rows: Vec<Value> = RECIPES
+        .iter()
+        .map(|r| {
+            let dir = models_dir(state).join(r.name);
+            let installed = dir.join("manifest.json").exists();
+            let bytes: u64 = ["model.onnx", "tokenizer.json"]
+                .iter()
+                .filter_map(|f| fs::metadata(dir.join(f)).ok())
+                .map(|m| m.len())
+                .sum();
+            json!({"name": r.name, "role": r.role, "installed": installed, "path": installed.then(|| dir.clone()),
+                "bytes": installed.then_some(bytes), "used_by_memory": used.iter().any(|u| same_model(u, &dir)),
+                "source": format!("{}@{}", r.repo, &r.revision[..12])})
+        })
+        .collect();
+    // Models the hook uses from elsewhere (for example a development checkout) are reported too.
+    let elsewhere: Vec<&String> = used
+        .iter()
+        .filter(|u| {
+            !RECIPES
+                .iter()
+                .any(|r| same_model(u, &models_dir(state).join(r.name)))
+        })
+        .collect();
+    Ok(
+        json!({"models": rows, "memory_uses_from_elsewhere": elsewhere, "folder": models_dir(state)}),
+    )
+}
+
+fn agent() -> ureq::Agent {
+    use ureq::tls::{TlsConfig, TlsProvider};
+    ureq::Agent::config_builder()
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TlsProvider::NativeTls)
+                .build(),
+        )
+        .build()
+        .into()
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut f = fs::File::open(path)?;
+    let mut h = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        h.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", h.finalize()))
+}
+
+/// The manifest exactly as the former Python script wrote it (`json.dumps(indent=2)` plus a newline, in text mode, so CRLF on
+/// Windows): a model's identity is the hash of these bytes.
+fn manifest_text(r: &Recipe, files: &[(&str, String, u64, String)]) -> String {
+    let s = |v: &str| serde_json::to_string(v).expect("string");
+    let entries: Vec<String> = files
+        .iter()
+        .map(|(local, sha, bytes, url)| {
+            format!(
+                "    {}: {{\n      \"sha256\": {},\n      \"bytes\": {bytes},\n      \"url\": {}\n    }}",
+                s(local),
+                s(sha),
+                s(url)
+            )
+        })
+        .collect();
+    let text = format!(
+        "{{\n  \"repository\": {},\n  \"revision\": {},\n  \"files\": {{\n{}\n  }},\n  \"pooling\": \"attention-mask-mean-l2\",\n  \"query_prefix\": {},\n  \"passage_prefix\": {},\n  \"max_length\": {},\n  \"pad_token\": {},\n  \"dimension\": 384,\n  \"quantization\": {}\n}}\n",
+        s(r.repo),
+        s(r.revision),
+        entries.join(",\n"),
+        s(r.query_prefix),
+        s(r.passage_prefix),
+        r.max_length,
+        s(r.pad_token),
+        s(r.quantization)
+    );
+    if cfg!(windows) {
+        text.replace('\n', "\r\n")
+    } else {
+        text
+    }
+}
+
+pub fn install(state: &Path, names: &[String]) -> Result<Value> {
+    let mut done = Vec::new();
+    for name in names {
+        let r = recipe(name)?;
+        let dir = models_dir(state).join(r.name);
+        fs::create_dir_all(&dir)?;
+        let mut files = Vec::new();
+        for (remote, local) in [("tokenizer.json", "tokenizer.json"), (r.onnx, "model.onnx")] {
+            let path = dir.join(local);
+            let url = format!(
+                "https://huggingface.co/{}/resolve/{}/{remote}",
+                r.repo, r.revision
+            );
+            if !path.exists() {
+                let partial = dir.join(format!("{local}.partial"));
+                let mut body = agent()
+                    .get(&url)
+                    .call()
+                    .with_context(|| format!("download {url}"))?
+                    .into_body();
+                let mut out = fs::File::create(&partial)?;
+                std::io::copy(&mut body.as_reader(), &mut out)
+                    .with_context(|| format!("download {url}"))?;
+                drop(out);
+                fs::rename(&partial, &path)?;
+            }
+            let digest = sha256_file(&path)?;
+            if let Some((_, pinned)) = r.sha256.iter().find(|(f, _)| *f == local)
+                && digest != *pinned
+            {
+                fs::remove_file(&path)?;
+                bail!(
+                    "{}/{local}: sha256 {digest} does not match the pinned {pinned}; file removed",
+                    r.name
+                );
+            }
+            files.push((local, digest, fs::metadata(&path)?.len(), url));
+        }
+        fs::write(dir.join("manifest.json"), manifest_text(r, &files))?;
+        done.push(json!({"name": r.name, "path": dir}));
+    }
+    Ok(json!({"installed": done}))
+}
+
+/// Point the memory hook at these installed models. Vectors for the new models are computed at the next session start.
+pub fn use_models(state: &Path, names: &[String]) -> Result<Value> {
+    let mut paths = Vec::new();
+    for name in names {
+        recipe(name)?;
+        let dir = models_dir(state).join(name);
+        if !dir.join("manifest.json").exists() {
+            bail!("`{name}` is not installed; run `footnote models install {name}` first");
+        }
+        paths.push(dir.to_string_lossy().replace('\\', "/"));
+    }
+    if paths.is_empty() || paths.len() > 3 {
+        bail!("give one to three models");
+    }
+    footnote_core::config::set_value(state, "memory", "models", json!(paths))?;
+    Ok(
+        json!({"memory_models": paths, "note": "vectors for these models are computed in the background at the next session start"}),
+    )
+}
+
+pub fn remove(state: &Path, name: &str) -> Result<Value> {
+    recipe(name)?;
+    let dir = models_dir(state).join(name);
+    if in_use(state)?.iter().any(|u| same_model(u, &dir)) {
+        bail!("`{name}` is used by Footnote Memory; switch with `footnote models use` first");
+    }
+    if !dir.exists() {
+        return Ok(json!({"removed": false, "name": name}));
+    }
+    footnote_core::no_links(&dir)?;
+    fs::remove_dir_all(&dir)?;
+    Ok(json!({"removed": true, "name": name}))
+}
+
+/// French share of a corpus sample from function words: an estimate, not a language detector.
+fn corpus_language(db: &Path) -> Result<Value> {
+    let c = crate::app::open(db, false)?;
+    let mut s = c.prepare("SELECT text FROM chunks ORDER BY id LIMIT 400")?;
+    let texts: Vec<String> = s
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let (mut fr, mut en) = (0usize, 0usize);
+    for t in &texts {
+        for w in t
+            .split(|ch: char| !ch.is_alphabetic())
+            .map(str::to_lowercase)
+        {
+            match w.as_str() {
+                "le" | "la" | "les" | "des" | "est" | "une" | "pour" | "que" | "dans" | "avec"
+                | "sur" | "pas" => fr += 1,
+                "the" | "and" | "is" | "of" | "to" | "for" | "that" | "with" | "on" | "not"
+                | "are" | "this" => en += 1,
+                _ => {}
+            }
+        }
+    }
+    let share = if fr + en == 0 {
+        0.0
+    } else {
+        fr as f64 / (fr + en) as f64
+    };
+    let label = if fr + en < 50 {
+        "too little text"
+    } else if share >= 0.8 {
+        "French"
+    } else if share > 0.2 {
+        "mixed French and English"
+    } else {
+        "English"
+    };
+    Ok(
+        json!({"estimate": label, "french_share": (share * 100.0).round() / 100.0, "chunks_sampled": texts.len()}),
+    )
+}
+
+/// Recommendation from Footnote's own measured results only; where nothing was measured, it says so.
+pub fn recommend(db: Option<&Path>) -> Result<Value> {
+    let hardware = crate::hardware::detect();
+    let language = db.map(corpus_language).transpose()?;
+    let french = language.as_ref().is_some_and(|l| {
+        matches!(
+            l["estimate"].as_str(),
+            Some("French" | "mixed French and English")
+        )
+    });
+    let mut reasons = vec![json!(
+        "The default pair (bekko-a8m + gte-small) is the shipped default, chosen with benchmark protocol v1 (bench/experiments/RESULTS.md)."
+    )];
+    if french {
+        reasons.push(json!(
+            "French or mixed corpus: Jina v5 nano scored +0.08 to +0.10 nDCG@10 over the pair on held-out Alloprof and mix-fr-en (bench/experiments/LLAMACPP-INPROCESS.md). It needs a build with --features llama, a database about 2.5 times larger, and its query latency is still to be confirmed on an idle machine."
+        ));
+    }
+    if hardware["gpus"].as_array().is_some_and(|g| !g.is_empty()) {
+        reasons.push(json!(
+            "GPU found but not used for search: on the Radeon RX 6800, single queries through DirectML were 10 to 34 times slower than the CPU; only batch indexing with fp32 bekko-a8m gained (3.2 times) (bench/experiments/GPU-ENCODING.md)."
+        ));
+    }
+    Ok(json!({
+        "hardware": hardware,
+        "corpus_language": language,
+        "recommended": DEFAULT_PAIR,
+        "consider": if french { json!(["jina-v5-nano (llama build)"]) } else { json!([]) },
+        "reasons": reasons,
+    }))
+}

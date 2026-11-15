@@ -192,6 +192,11 @@ enum Action {
         #[arg(long, default_value_t = 30)]
         top: usize,
     },
+    /// Embedding models: list, install, use (for Footnote Memory), remove, recommend from this machine and corpus.
+    Models {
+        #[command(subcommand)]
+        action: ModelsAction,
+    },
     /// Every option with its value, where it comes from (default, you, company policy), and what it gains and costs.
     Options,
     /// Read or change an option (`footnote options` lists them).
@@ -209,6 +214,19 @@ enum Action {
 #[derive(Clone, clap::ValueEnum)]
 enum HookStep {
     Embed,
+}
+#[derive(Subcommand)]
+enum ModelsAction {
+    /// Known models, which are installed, which Footnote Memory uses.
+    List,
+    /// Download models (the only command that uses the network): pinned revisions, checked hashes.
+    Install { names: Vec<String> },
+    /// Make Footnote Memory use these installed models (one to three).
+    Use { names: Vec<String> },
+    /// Delete an installed model that nothing uses.
+    Remove { name: String },
+    /// Recommend models from this machine (CPU, RAM, GPU) and, with --db, the corpus language.
+    Recommend,
 }
 #[derive(Subcommand)]
 enum ConfigAction {
@@ -340,6 +358,16 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Audit { action } => return audit_command(action),
         Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
+        Action::Models { action } => {
+            let state = crate::state::state_dir()?;
+            return match action {
+                ModelsAction::List => crate::models::list(&state),
+                ModelsAction::Install { names } => crate::models::install(&state, names),
+                ModelsAction::Use { names } => crate::models::use_models(&state, names),
+                ModelsAction::Remove { name } => crate::models::remove(&state, name),
+                ModelsAction::Recommend => crate::models::recommend(cli.db.as_deref()),
+            };
+        }
         #[cfg(feature = "memory")]
         Action::Uninstall { dry_run, .. } => return crate::install::uninstall_memory(*dry_run),
         Action::Config { action } => {
@@ -469,7 +497,7 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
         #[cfg(feature = "memory")]
         Action::Uninstall { .. } => unreachable!("dispatched before the database is opened"),
-        Action::Audit { .. } | Action::Options | Action::Config { .. } => {
+        Action::Audit { .. } | Action::Options | Action::Config { .. } | Action::Models { .. } => {
             unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "memory")]
@@ -524,6 +552,7 @@ fn action_name(a: &Action) -> &'static str {
         Action::Hook { .. } => "hook",
         Action::Audit { .. } => "audit",
         Action::Options => "options",
+        Action::Models { .. } => "models",
         #[cfg(feature = "memory")]
         Action::Uninstall { .. } => "uninstall",
         Action::Config { .. } => "config",

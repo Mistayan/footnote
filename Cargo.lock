@@ -728,6 +728,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "time",
+ "ureq",
  "wait-timeout",
  "windows-sys 0.61.2",
 ]

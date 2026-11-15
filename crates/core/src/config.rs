@@ -170,14 +170,28 @@ pub fn set(state: &Path, key: &str, raw: &str) -> Result<Value> {
         },
     };
     let (product, name) = key.split_once('.').unwrap_or(("", key));
+    set_value(state, product, name, value.clone())?;
+    Ok(json!({"key": key, "value": value}))
+}
+
+/// Write one setting of a product's file (also used for values outside the catalogue, such as the model list), unless the
+/// company policy sets it; every other setting in the file is kept.
+pub fn set_value(state: &Path, product: &str, name: &str, value: Value) -> Result<()> {
+    let key = format!("{product}.{name}");
+    if let Some(f) = policy()?.get(&key) {
+        bail!(
+            "`{key}` is set by your company policy: {}",
+            f["reason"].as_str().unwrap_or("no reason given")
+        );
+    }
     let mut user = read_user(state, product)?;
-    user.insert(name.to_string(), value.clone());
+    user.insert(name.to_string(), value);
     crate::state::ensure_private_dir(state)?;
     // Write beside, then rename over: a crash never leaves a half-written settings file for the hook to read.
     let tmp = state.join(format!(".{product}.json.{}.tmp", std::process::id()));
     std::fs::write(&tmp, serde_json::to_string_pretty(&user)?)?;
     std::fs::rename(&tmp, settings_file(state, product))?;
-    Ok(json!({"key": key, "value": value}))
+    Ok(())
 }
 
 /// `footnote config get`: one option's effective value, or every option.
