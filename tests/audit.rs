@@ -284,7 +284,9 @@ fn two_sessions_open_at_once_keep_one_chain() {
     };
     let (mut a, mut a_out) = start();
     let (mut b, mut b_out) = start();
-    let mut call = |child: &mut std::process::Child, out: &mut BufReader<std::process::ChildStdout>, id: u64| {
+    let call = |child: &mut std::process::Child,
+                out: &mut BufReader<std::process::ChildStdout>,
+                id: u64| {
         let msg = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"footnote_stats","arguments":{}}});
         writeln!(child.stdin.as_mut().unwrap(), "{msg}").unwrap();
         let mut line = String::new();
@@ -300,6 +302,9 @@ fn two_sessions_open_at_once_keep_one_chain() {
     a.wait().unwrap();
     b.wait().unwrap();
     let report = verify_ok(&audit, None);
-    let seqs: Vec<u64> = audit_lines(&audit).iter().map(|l| l["seq"].as_u64().unwrap()).collect();
+    let seqs: Vec<u64> = audit_lines(&audit)
+        .iter()
+        .map(|l| l["seq"].as_u64().unwrap())
+        .collect();
     assert_eq!(seqs, vec![1, 2, 3, 4], "{report}");
 }

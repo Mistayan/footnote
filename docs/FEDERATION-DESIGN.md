@@ -45,7 +45,7 @@ This design follows that: **each team owns its index, and knowledge is promoted 
 ```
 
 - A memory stays private in its person's `memory.db` until that person proposes it.
-- A proposal lands in the team's index as a draft record; a team member validates it with its evidence (the decision, the runbook, the commit). Footnote already has this lifecycle for structured records: `proposal`, `validated`, `superseded`, with pinned evidence hashes (`src/records.rs`; Beads `bk-doj` continues it).
+- A proposal lands in the team's index as a draft record; a team member validates it with its evidence (the decision, the runbook, the commit). Footnote already has this lifecycle for structured records: `proposal`, `validated`, `superseded`, with pinned evidence hashes (`crates/search/src/records.rs`; Beads `bk-doj` continues it).
 - Once validated, it is a cited entry in the department's library. Superseding it later keeps the history, as memory corrections already do.
 - Each department is responsible for the quality of its own library: it decides what is promoted, and stale entries show as stale because their evidence changed.
 

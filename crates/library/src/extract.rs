@@ -2,7 +2,6 @@ use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::{
     fs,
-    path::Path,
     process::{Command, Stdio},
     time::Duration,
 };
@@ -21,16 +20,16 @@ pub struct Extraction {
 }
 
 pub fn extract(bytes: &[u8], ext: &str) -> Result<Extraction> {
-    let scratch = crate::app::scratch_dir()?;
+    let scratch = footnote_core::scratch_dir()?;
     let dir = tempfile::tempdir_in(scratch)?;
     let source = dir.path().join(format!("snapshot.{ext}"));
     fs::write(&source, bytes)?;
     let output = dir.path().join("output.json");
-    let helper = Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/extract.py");
+    let helper = crate::repo().join("tools/extract.py");
     let python = crate::state::env("FOOTNOTE_PYTHON", "BORG_KNOWLEDGE_PYTHON")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join(if cfg!(windows) {
+            crate::repo().join(if cfg!(windows) {
                 ".venv/Scripts/python.exe"
             } else {
                 ".venv/bin/python"
@@ -44,7 +43,7 @@ pub fn extract(bytes: &[u8], ext: &str) -> Result<Extraction> {
         .stderr(Stdio::null())
         .stdin(Stdio::null());
     // Untrusted documents are parsed here: never hand the agent's credentials on.
-    crate::app::helper_env(&mut cmd);
+    footnote_core::helper_env(&mut cmd);
     let mut child = cmd.spawn()?;
     let Some(status) = child.wait_timeout(Duration::from_secs(120))? else {
         child.kill()?;
@@ -62,7 +61,7 @@ pub fn extract(bytes: &[u8], ext: &str) -> Result<Extraction> {
     }
     result.extractor.push_str(&format!(
         ";helper-sha256={}",
-        crate::app::hash(&fs::read(helper)?)
+        footnote_core::hash(&fs::read(helper)?)
     ));
     result.extractor.push_str(";chunker-v2");
     Ok(result)

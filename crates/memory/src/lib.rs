@@ -5,26 +5,21 @@
 //! uses the same chunks, lexical index and embeddings as a corpus. Corpus databases stay
 //! read-only for agents: `remember` refuses a database holding indexed files, and `index`
 //! refuses a memory database.
-use crate::app::hash;
+use footnote_core::hash;
+// The memory table and its marker belong to the one schema history (ADR 0001); re-exported under their old names.
 use anyhow::{Context, Result, bail};
+pub use footnote_search::store::{
+    MEMORY_MIGRATION as MIGRATION, MEMORY_PREFIX as PREFIX, is_memory_db,
+};
+use footnote_search::{lexical, records, semantic};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
-pub const MIGRATION: &str = "CREATE TABLE memories(source_id INTEGER PRIMARY KEY REFERENCES sources(id),kind TEXT NOT NULL CHECK(kind IN ('preference','fact','fix','session')),scope TEXT NOT NULL,observed_at TEXT NOT NULL,session TEXT,supersedes INTEGER REFERENCES sources(id));
-CREATE INDEX memory_scope ON memories(scope,kind);";
-pub const PREFIX: &str = "memory:";
 const KINDS: [&str; 4] = ["preference", "fact", "fix", "session"];
 const MAX_TEXT: usize = 2000; // one chunk
 const MAX_BATCH: usize = 50;
 
-pub fn is_memory_db(c: &Connection) -> Result<bool> {
-    Ok(c.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sources WHERE path LIKE 'memory:%')",
-        [],
-        |r| r.get(0),
-    )?)
-}
 pub fn has_files(c: &Connection) -> Result<bool> {
     Ok(c.query_row(
         "SELECT EXISTS(SELECT 1 FROM sources WHERE path NOT LIKE 'memory:%')",
@@ -143,7 +138,7 @@ pub fn remember(c: &mut Connection, items: &Value, models: &[PathBuf]) -> Result
             params![id, kind, scope, observed, session, supersedes],
         )?;
         // The heading carries kind, scope and date: every hit shows them, and the model can tell an old fact from a new one.
-        crate::app::add_chunk(
+        footnote_search::store::add_chunk(
             &tx,
             id,
             &format!("{kind} · {scope} · {observed}"),
@@ -162,14 +157,14 @@ pub fn remember(c: &mut Connection, items: &Value, models: &[PathBuf]) -> Result
     }
     tx.commit()?;
     let mut report = json!({"stored": stored, "duplicates": duplicates});
-    report["lexical_index"] = json!(match crate::lexical::sync(c) {
+    report["lexical_index"] = json!(match lexical::sync(c) {
         Ok(Some(_)) => "ready",
         Ok(None) => "not_applicable",
         Err(_) => "unavailable",
     });
     if !models.is_empty() {
         // Only new or changed memories are encoded; the rest are reused.
-        report["embeddings"] = crate::semantic::rebuild(c, models)?;
+        report["embeddings"] = semantic::rebuild(c, models)?;
     }
     Ok(report)
 }
@@ -221,12 +216,12 @@ pub fn recall(
     limit: usize,
     models: &[PathBuf],
 ) -> Result<Value> {
-    let filters = crate::records::Filters::default();
+    let filters = records::Filters::default();
     // Ask for the maximum and filter by scope here: other projects' memories are dropped.
     let found = if models.is_empty() {
-        crate::app::search(c, query, 20, &filters)?
+        footnote_search::store::search(c, query, 20, &filters)?
     } else {
-        crate::semantic::search(c, query, 20, &filters, models)?
+        semantic::search(c, query, 20, &filters, models)?
     };
     let mut scope = c.prepare("SELECT m.kind,m.scope,m.observed_at FROM memories m JOIN chunks c ON c.source_id=m.source_id WHERE c.id=?1")?;
     let mut out = Vec::new();

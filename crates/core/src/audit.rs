@@ -11,7 +11,7 @@
 //! * It does NOT defend against someone who can read the key and rewrite the
 //!   whole log. Keep the key outside the agent's reach (user-only ACL, 0600).
 //! * Argument text is never stored, only its hash: queries can be sensitive.
-use crate::app::hash;
+use crate::hash;
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -66,7 +66,7 @@ pub fn load_key(path: &Path) -> Result<Vec<u8>> {
 }
 
 /// HMAC-SHA256 (RFC 2104), so keyed integrity needs no extra dependency.
-pub(crate) fn hmac_sha256(key: &[u8], data: &[u8]) -> String {
+pub fn hmac_sha256(key: &[u8], data: &[u8]) -> String {
     const BLOCK: usize = 64;
     let mut k = if key.len() > BLOCK {
         Sha256::digest(key).to_vec()

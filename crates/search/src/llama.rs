@@ -50,7 +50,8 @@ impl Gguf {
             LlamaModel::load_from_file(b, path, &LlamaModelParams::default().with_n_gpu_layers(0))
                 .map_err(|e| anyhow!("load GGUF model: {e}"))?,
         ));
-        let threads = (std::thread::available_parallelism().map_or(4, |n| n.get()) / 2).max(1) as i32;
+        let threads =
+            (std::thread::available_parallelism().map_or(4, |n| n.get()) / 2).max(1) as i32;
         let params = LlamaContextParams::default()
             .with_n_ctx(NonZeroU32::new(CTX))
             .with_n_batch(CTX)
@@ -59,9 +60,16 @@ impl Gguf {
             .with_n_threads_batch(threads)
             .with_embeddings(true)
             .with_pooling_type(pooling);
-        let ctx = model.new_context(b, params).map_err(|e| anyhow!("llama.cpp context: {e}"))?;
+        let ctx = model
+            .new_context(b, params)
+            .map_err(|e| anyhow!("llama.cpp context: {e}"))?;
         let dimension = usize::try_from(model.n_embd_out()).context("embedding width")?;
-        Ok(Self { model, ctx, max_len, dimension })
+        Ok(Self {
+            model,
+            ctx,
+            max_len,
+            dimension,
+        })
     }
 
     /// One unit vector per text (`text` already carries its prefix) and whether it was cut at `max_length`.
@@ -82,17 +90,29 @@ impl Gguf {
             bail!("embedding input bound exceeded");
         }
         let mut batch = LlamaBatch::new(tokens.len(), 1);
-        batch.add_sequence(&tokens, 0, true).map_err(|e| anyhow!("{e}"))?;
+        batch
+            .add_sequence(&tokens, 0, true)
+            .map_err(|e| anyhow!("{e}"))?;
         self.ctx.clear_kv_cache();
         // encoder-only models (Jina v5 nano) take encode(); decoder models (Qwen3, Gemma) take decode()
         if self.ctx.encode(&mut batch).is_err() {
-            self.ctx.decode(&mut batch).map_err(|e| anyhow!("llama.cpp decode: {e}"))?;
+            self.ctx
+                .decode(&mut batch)
+                .map_err(|e| anyhow!("llama.cpp decode: {e}"))?;
         }
-        let v = self.ctx.embeddings_seq_ith(0).map_err(|_| anyhow!("no pooled embedding"))?;
+        let v = self
+            .ctx
+            .embeddings_seq_ith(0)
+            .map_err(|_| anyhow!("no pooled embedding"))?;
         if v.len() != self.dimension {
             bail!("invalid embedding output");
         }
-        let norm = v.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt().max(1e-12);
+        let norm = v
+            .iter()
+            .map(|x| (*x as f64).powi(2))
+            .sum::<f64>()
+            .sqrt()
+            .max(1e-12);
         let out: Vec<f64> = v.iter().map(|x| *x as f64 / norm).collect();
         if out.iter().any(|a| !a.is_finite()) {
             bail!("invalid embedding output");

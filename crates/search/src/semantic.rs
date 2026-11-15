@@ -44,13 +44,16 @@ fn check_identity(expected: &str, encoded: &Encoded) -> Result<()> {
     Ok(())
 }
 fn identity(model: &Path) -> Result<(String, String)> {
-    crate::app::no_links(model)?;
-    let manifest = String::from_utf8(crate::app::bounded_read(&model.join("manifest.json"))?)?;
-    let runtime = serde_json::from_str::<Value>(&manifest)?["runtime"].as_str().unwrap_or("onnx").to_string();
+    footnote_core::no_links(model)?;
+    let manifest = String::from_utf8(footnote_core::bounded_read(&model.join("manifest.json"))?)?;
+    let runtime = serde_json::from_str::<Value>(&manifest)?["runtime"]
+        .as_str()
+        .unwrap_or("onnx")
+        .to_string();
     for name in crate::encoder::files(&runtime) {
-        crate::app::no_links(&model.join(name))?;
+        footnote_core::no_links(&model.join(name))?;
     }
-    Ok((crate::app::hash(manifest.as_bytes()), manifest))
+    Ok((footnote_core::hash(manifest.as_bytes()), manifest))
 }
 /// Identity of the embedding recipe (code, not model), stored with each model's vectors: when it changes, stored vectors are rebuilt.
 /// It is still the SHA-256 of the last Python helper (`tools/embed.py`): the Rust encoder gives the same vectors (cosine 1.0) and the
@@ -250,7 +253,7 @@ fn chunk_text(heading: &str, text: &str) -> String {
     format!("{heading}\n{text}")
 }
 fn chunk_signature(sha: &str, revision: i64, text: &str) -> String {
-    crate::app::hash(format!("{sha}:{revision}:{text}").as_bytes())
+    footnote_core::hash(format!("{sha}:{revision}:{text}").as_bytes())
 }
 fn record_text(payload: &str) -> Result<String> {
     let p: Value = serde_json::from_str(payload)?;
@@ -619,13 +622,13 @@ pub fn search(
         || f.status.is_some();
     let eligible = crate::records::eligible(c, f)?;
     // 1. lexical shortlist: chunks (Tantivy, FTS5 fallback) and structured records
-    let expr = crate::app::match_expr(q);
+    let expr = crate::store::match_expr(q);
     let chunk_lex = if structured {
         vec![]
     } else {
         crate::metrics::timed!(
             "search.keywords",
-            crate::app::lexical_chunks(c, q, SHORTLIST)
+            crate::store::lexical_chunks(c, q, SHORTLIST)
         )?
     };
     let record_lex = crate::records::lexical_hits(c, &expr, POOL, f)?;
@@ -665,7 +668,11 @@ pub fn search(
                     .iter()
                     .map(|(_, identity, _)| matrix(c, identity))
                     .collect::<Result<Vec<_>>>()?;
-                if mats.iter().zip(&qvecs).any(|(m, qv)| !m.keys.is_empty() && m.dim != qv.len()) {
+                if mats
+                    .iter()
+                    .zip(&qvecs)
+                    .any(|(m, qv)| !m.keys.is_empty() && m.dim != qv.len())
+                {
                     bail!("stored vectors do not match the model's width; rebuild embeddings");
                 }
                 Dense::scan(&mats, &qvecs, |kind, id| keep(kind, id))
@@ -730,7 +737,7 @@ pub fn search(
     let mut results = Vec::new();
     let mut records = Vec::new();
     let mut seen = HashSet::new();
-    let mut cap = crate::app::PerSource::new(f.per_source);
+    let mut cap = crate::store::PerSource::new(f.per_source);
     for (i, score) in &ranked {
         if results.len() + records.len() >= limit {
             break;
@@ -740,9 +747,9 @@ pub fn search(
             crate::records::get(c, cand.id, false)?
         } else {
             c.query_row(
-                &format!("{} WHERE c.id=?1", crate::app::HIT),
+                &format!("{} WHERE c.id=?1", crate::store::HIT),
                 [cand.id],
-                |r| crate::app::hit(r, false),
+                |r| crate::store::hit(r, false),
             )?
         };
         if cand.kind == 0 {
@@ -901,14 +908,24 @@ mod tests {
         c.execute_batch(MIGRATION).unwrap();
         c.execute("INSERT INTO embedding_models VALUES('m','{}','h',768)", [])
             .unwrap();
-        let unit = |dim: usize| -> Vec<f64> { (0..dim).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect() };
-        c.execute("INSERT INTO embeddings VALUES('m','chunk',1,'sig',?1)", params![quantize(&unit(768))])
-            .unwrap();
+        let unit =
+            |dim: usize| -> Vec<f64> { (0..dim).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect() };
+        c.execute(
+            "INSERT INTO embeddings VALUES('m','chunk',1,'sig',?1)",
+            params![quantize(&unit(768))],
+        )
+        .unwrap();
         assert_eq!(matrix(&c, "m").unwrap().dim, 768);
         assert!((dot_q(&quantize(&unit(768)), &unit(768)).unwrap() - 1.0).abs() < 1e-3);
-        assert!(dot_q(&quantize(&unit(768)), &unit(384)).is_err(), "a query of another width is refused");
-        c.execute("INSERT INTO embeddings VALUES('m','chunk',2,'sig',?1)", params![quantize(&unit(384))])
-            .unwrap();
+        assert!(
+            dot_q(&quantize(&unit(768)), &unit(384)).is_err(),
+            "a query of another width is refused"
+        );
+        c.execute(
+            "INSERT INTO embeddings VALUES('m','chunk',2,'sig',?1)",
+            params![quantize(&unit(384))],
+        )
+        .unwrap();
         assert!(matrix(&c, "m").is_err(), "one model, two widths: refused");
     }
     #[test]

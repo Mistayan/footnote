@@ -716,8 +716,65 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "clap",
+ "footnote-core",
+ "footnote-library",
+ "footnote-memory",
+ "footnote-search",
  "getrandom 0.4.3",
  "interprocess",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "footnote-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "getrandom 0.4.3",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "footnote-library"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "footnote-core",
+ "footnote-search",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "time",
+ "wait-timeout",
+ "walkdir",
+]
+
+[[package]]
+name = "footnote-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "footnote-core",
+ "footnote-search",
+ "rusqlite",
+ "serde_json",
+]
+
+[[package]]
+name = "footnote-search"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "footnote-core",
  "llama-cpp-2",
  "ort",
  "rusqlite",
@@ -728,9 +785,6 @@ dependencies = [
  "tempfile",
  "time",
  "tokenizers",
- "wait-timeout",
- "walkdir",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

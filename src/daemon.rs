@@ -118,6 +118,7 @@ pub fn connect(db: &Path) -> Result<Stream> {
     )?)
 }
 
+#[cfg(feature = "memory")]
 /// One tool call on the running daemon (the memory hook's recall). Fails when no daemon runs: the caller falls back.
 pub fn call(db: &Path, tool: &str, arguments: &serde_json::Value) -> Result<serde_json::Value> {
     let stream = connect(db).context("no resident daemon")?;
@@ -131,8 +132,13 @@ pub fn call(db: &Path, tool: &str, arguments: &serde_json::Value) -> Result<serd
     )?;
     let request = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": tool, "arguments": arguments}});
-    writer.write_all(format!("{request}
-").as_bytes())?;
+    writer.write_all(
+        format!(
+            "{request}
+"
+        )
+        .as_bytes(),
+    )?;
     writer.flush()?;
     let mut line = String::new();
     loop {
@@ -140,14 +146,22 @@ pub fn call(db: &Path, tool: &str, arguments: &serde_json::Value) -> Result<serd
         if reader.read_line(&mut line)? == 0 {
             anyhow::bail!("daemon closed the connection");
         }
-        let reply: serde_json::Value = serde_json::from_str(&line).context("daemon reply: not JSON")?;
+        let reply: serde_json::Value =
+            serde_json::from_str(&line).context("daemon reply: not JSON")?;
         if reply["id"] != 1 {
             continue; // a notification
         }
         let result = &reply["result"];
         let text = result["content"][0]["text"].as_str().unwrap_or_default();
         if result["isError"] == true || !reply["error"].is_null() {
-            anyhow::bail!("daemon: {}", if text.is_empty() { reply["error"].to_string() } else { text.to_string() });
+            anyhow::bail!(
+                "daemon: {}",
+                if text.is_empty() {
+                    reply["error"].to_string()
+                } else {
+                    text.to_string()
+                }
+            );
         }
         return serde_json::from_str(text).context("daemon result: not JSON");
     }

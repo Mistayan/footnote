@@ -106,7 +106,7 @@ fn open(c: &Connection) -> Result<Option<Open>> {
     let Some(dir) = dir_of(c) else {
         return Ok(None);
     };
-    crate::app::no_links(&dir)?;
+    footnote_core::no_links(&dir)?;
     let seq = sequence(c)?;
     let (schema, id, body) = schema();
     let built = read_built(&dir);

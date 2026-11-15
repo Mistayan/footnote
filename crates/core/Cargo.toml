@@ -1,0 +1,17 @@
+[package]
+name = "footnote-core"
+description = "Footnote shared foundations: state folder, keys, audit log, metrics, safe file access"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+metrics = []
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
