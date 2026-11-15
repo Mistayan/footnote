@@ -201,13 +201,17 @@ mod tests {
             "user missing: {listing}"
         );
         assert!(listing.contains("system:"), "SYSTEM missing: {listing}");
-        for broad in [
-            "codexsandbox",
-            "everyone",
-            "users:",
-            "administrators",
-            "authenticated",
-        ] {
+        // An elevated administrator (the CI runner) can take ownership of any file anyway, and Windows Server lists the
+        // Administrators group on what it creates; for a normal user, administrators must not appear either.
+        let elevated = std::process::Command::new("net")
+            .arg("session")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        let mut broad = vec!["codexsandbox", "everyone", "users:", "authenticated"];
+        if !elevated {
+            broad.push("administrators");
+        }
+        for broad in broad {
             assert!(
                 !listing.contains(broad),
                 "{broad} can reach the secret: {listing}"
