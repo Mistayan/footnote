@@ -224,6 +224,14 @@ pub fn install(state: &Path, names: &[String]) -> Result<Value> {
         let r = recipe(name)?;
         let dir = models_dir(state).join(r.name);
         fs::create_dir_all(&dir)?;
+        // Hundreds of MB that must never reach a repository, even if the state folder ends up inside a synced git folder.
+        let ignore = models_dir(state).join(".gitignore");
+        if !ignore.exists() {
+            fs::write(
+                &ignore,
+                "# Downloaded embedding models: never commit them.\n*\n",
+            )?;
+        }
         let mut files = Vec::new();
         for (remote, local) in [("tokenizer.json", "tokenizer.json"), (r.onnx, "model.onnx")] {
             let path = dir.join(local);
@@ -278,7 +286,7 @@ pub fn use_models(state: &Path, names: &[String]) -> Result<Value> {
     }
     footnote_core::config::set_value(state, "memory", "models", json!(paths))?;
     Ok(
-        json!({"memory_models": paths, "note": "vectors for these models are computed in the background at the next session start"}),
+        json!({"memory_models": paths, "note": "vectors these models do not have yet are computed in the background at the next session start (none when only the folder changed)"}),
     )
 }
 
