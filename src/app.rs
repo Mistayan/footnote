@@ -183,6 +183,13 @@ enum Action {
         #[arg(long, default_value_t = 30)]
         top: usize,
     },
+    /// Every option with its value, where it comes from (default, you, company policy), and what it gains and costs.
+    Options,
+    /// Read or change an option (`footnote options` lists them).
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Verify an append-only audit log (no database needed).
     Audit {
         #[command(subcommand)]
@@ -193,6 +200,13 @@ enum Action {
 #[derive(Clone, clap::ValueEnum)]
 enum HookStep {
     Embed,
+}
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// One option's value, or every option without a key.
+    Get { key: Option<String> },
+    /// Set an option, for example `footnote config set memory.enabled false`.
+    Set { key: String, value: String },
 }
 #[derive(Subcommand)]
 pub enum AuditAction {
@@ -316,6 +330,14 @@ fn execute(cli: Cli) -> Result<Value> {
             };
         }
         Action::Audit { action } => return audit_command(action),
+        Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
+        Action::Config { action } => {
+            let state = crate::state::state_dir()?;
+            return match action {
+                ConfigAction::Get { key } => footnote_core::config::get(&state, key.as_deref()),
+                ConfigAction::Set { key, value } => footnote_core::config::set(&state, key, value),
+            };
+        }
         Action::Embed { model, kind } => {
             let mut input = String::new();
             std::io::Read::read_to_string(
@@ -434,8 +456,8 @@ fn execute(cli: Cli) -> Result<Value> {
         // read-only tools by opening the database lazily per request.
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
-        Action::Audit { .. } => {
-            unreachable!("audit verification is dispatched before the database is opened")
+        Action::Audit { .. } | Action::Options | Action::Config { .. } => {
+            unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "memory")]
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
@@ -488,6 +510,8 @@ fn action_name(a: &Action) -> &'static str {
         #[cfg(feature = "memory")]
         Action::Hook { .. } => "hook",
         Action::Audit { .. } => "audit",
+        Action::Options => "options",
+        Action::Config { .. } => "config",
         Action::Embed { .. } => "embed",
         Action::Metrics { .. } => "metrics",
     }

@@ -25,9 +25,12 @@ const MAX_EVENT: u64 = 2 * 1024 * 1024;
 /// db: memory database (default memory.db in the state dir); models: embedding model folders, so memories are found by meaning;
 /// every_turns: prompts between save requests (10); recall_limit: memories per prompt (3); metrics: timings to metrics.jsonl;
 /// resident: recall by meaning through a daemon started on demand, gone after idle_seconds (1800). Off until bk-gsh passes.
+/// enabled: false makes the hook do nothing (the launcher's switch). A company policy file overrides any of these
+/// (footnote_core::config); `footnote options` explains each one.
 #[derive(Deserialize)]
 #[serde(default)]
 struct Settings {
+    enabled: bool,
     db: Option<PathBuf>,
     models: Vec<PathBuf>,
     every_turns: u64,
@@ -39,6 +42,7 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            enabled: true,
             db: None,
             models: vec![],
             every_turns: 10,
@@ -51,12 +55,8 @@ impl Default for Settings {
 }
 impl Settings {
     fn load(state: &Path) -> Result<Self> {
-        let path = state.join("memory.json");
-        let s: Self = if path.exists() {
-            serde_json::from_slice(&fs::read(path)?)?
-        } else {
-            Self::default()
-        };
+        let s: Self =
+            serde_json::from_value(footnote_core::config::product_settings(state, "memory")?)?;
         ensure!(
             (1..=20).contains(&s.recall_limit),
             "recall_limit must be between 1 and 20"
@@ -430,6 +430,9 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
 
 fn run_inner(state: &Path, embed: bool) -> Result<()> {
     let s = Settings::load(state).context("settings")?;
+    if !s.enabled {
+        return Ok(()); // switched off: no context, no save request, no state written
+    }
     if embed {
         return timed(state, s.metrics, "hook.embed", true, || {
             crate::semantic::rebuild(&mut crate::app::open(&s.db(state), true)?, &s.models)?;

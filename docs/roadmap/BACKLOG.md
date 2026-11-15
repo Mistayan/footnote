@@ -31,6 +31,8 @@ of work. "Johan" marks items waiting for his go.
 
 ## P1: product structure (next)
 
+Plan and decisions: [P1-PLAN.md](P1-PLAN.md) (engine commands first, then design, then the Tauri launcher).
+
 8. **Separate products, features on or off:** Library, Memory, Code, Alias enabled independently; nothing loaded that is not used.
 9. **Embedding model manager:** install, switch, remove; recommend from the detected hardware (GPU, VRAM, CPU, RAM) and corpus language,
    from Footnote's own results (the model matrix: licence × hardware × language). Today: the pair by default, nano for French/mixed,
@@ -55,6 +57,8 @@ of work. "Johan" marks items waiting for his go.
 
 - Model matrix and setup playbook (feeds item 8).
 - Test 5 stage A3 (Octen-4B, F2LLM-v2-1.7B, harrier-oss-v1) and the llama.cpp speed grid (`-fa`, `-ub`, runtime versions).
+  llama.cpp b12421 (15 Nov) ships Windows builds for Vulkan and, new for the RX 6800, ROCm 10.0 (HIP): re-run the GPU speed on
+  both against b11901 Vulkan. The product's `llama-cpp-2` crate is still 0.1.161 (its own bundled llama.cpp): upgrade when it follows.
 - Storage backends: SQLite + Tantivy against Postgres + pgvector, LanceDB, HelixDB, Omnigraph; Qdrant for large companies only.
   Ask before installing Postgres or Docker.
 - Memory rematch (mem0, Cognee graph, Hindsight, Graphiti, OpenViking, EverOS), after the review.
