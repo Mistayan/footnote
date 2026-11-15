@@ -26,15 +26,20 @@ repository mixed product code, design passes and research scripts.
 ```
 Cargo.toml, src/        the footnote binary: command line, MCP server, daemon, hook, install
 crates/core/            footnote-core
-crates/search/          footnote-search
+crates/search/          footnote-search (the schema lives in store.rs)
 crates/library/         footnote-library: extraction, corpus indexing, later documentation crawling
 crates/memory/          footnote-memory: remember, recall, pack, forget
 apps/launcher/          Tauri launcher (after its design)
-design/                 tokens, icons, product site, design studio and QLoop passes
+design/                 product site, QLoop passes; later tokens and icons
 bench/                  benchmarks and experiments (Python, drive the real binary)
-docs/                   products, architecture, ADRs, roadmap, operations
+docs/                   architecture, ADRs, roadmap, operations
 scripts/                checks, release, install
 ```
+
+Kept at the root on purpose: `DESIGN.md`, `PRODUCT.md` and `.design-studio/` (the design tools look for them there), the
+agent contract links (`AI-CODING-RULES.md`, `HOOK-REGISTRY.md`, `MCP-REGISTRY.md`, `STACK-CONTRACT.md`, links to the shared
+contracts), and `tools/`: its research scripts locate the repository from their own folder, and the product still runs
+`tools/extract.py` and `tools/provision_embeddings.py`; sorting it moves with the work that next touches those scripts.
 
 ## Practices
 

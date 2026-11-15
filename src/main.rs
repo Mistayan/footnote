@@ -1,19 +1,18 @@
 mod app;
-mod audit;
 mod daemon;
-mod encoder;
-#[cfg(feature = "llama")]
-mod llama;
-mod extract;
+#[cfg(feature = "memory")]
 mod hook;
 mod install;
-mod lexical;
 mod mcp;
-mod memory;
-mod metrics;
-mod records;
-mod semantic;
-mod state;
+
+// Moved to library crates (ADR 0001); imported here so `crate::<module>` paths keep working.
+use footnote_core::{audit, metrics, state};
+#[cfg(feature = "memory")]
+use footnote_memory as memory;
+#[cfg(feature = "library")]
+use footnote_search::lexical;
+use footnote_search::{records, semantic};
+
 fn main() {
     app::run();
 }

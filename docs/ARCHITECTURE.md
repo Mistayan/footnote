@@ -1,5 +1,20 @@
 # Architecture and schema
 
+## Crates
+
+One workspace, dependencies pointing one way ([ADR 0001](adr/0001-repository-structure.md)):
+
+| Crate | Role |
+|---|---|
+| `crates/core` (`footnote-core`) | State folder, keys, hash-chained audit log, metrics, safe file access |
+| `crates/search` (`footnote-search`) | The one schema and its migrations (`store.rs`), Tantivy keyword index, embeddings (ONNX, optional llama.cpp), fusion, records |
+| `crates/library` (`footnote-library`) | Footnote Library: extraction, folder indexing |
+| `crates/memory` (`footnote-memory`) | Footnote Memory: remember, recall, pack, forget |
+| root package `footnote` (`src/`) | The executable: command line, MCP server, daemon, hook, install |
+
+Products are features of the executable, on by default: `cargo build --release --no-default-features --features library` builds
+Footnote Library alone (no memory commands, MCP memory tools or hook).
+
 ## Authorities
 
 SQLite owns structured optimization records and their transition history. Files own human-edited notes and original binaries. `sources`, `chunks`, and their FTS rows are derived data; findings are not. Binary bytes are not copied into SQLite. Original paths, SHA-256, revision, processing status, extractor version/helper hash, and page/heading/line references bind citations to the bytes that were indexed.
@@ -16,6 +31,7 @@ The Rust executable handles scope, filesystem hashes, transactions, lexical retr
 | 2 | `records(id, fingerprint UNIQUE, payload JSON text, payload_sha256, status CHECK, revision, validation JSON text)`; `record_history(record_id, revision, snapshot)`; `records_fts(body)` |
 | 3 | Indexes on source content hash/status and chunk source ID for provenance joins/deduplication |
 | 4 | Derived `embedding_models(identity, manifest, helper_sha256, dimension)` and `embeddings(model, kind, id, signature, vector)`; authoritative records/history unchanged |
+| 5 | `memories(source_id FK, kind CHECK, scope, observed_at, session, supersedes FK)`: agent memories, stored as sources with a `memory:` path and one chunk each |
 
 SQLite foreign keys are enabled on every connection. Readers use `SQLITE_OPEN_READ_ONLY`, without a WAL mode change. Default rollback journal avoids a background service and live-WAL synchronization concerns. Writers use `BEGIN IMMEDIATE` plus a five-second busy timeout. Corpus mutation is one transaction per scan: traversal/read/bound errors roll back the corpus batch. Initial schema migrations can already have committed before a later allowlist failure; no documents have then been imported.
 

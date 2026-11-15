@@ -120,7 +120,7 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
 
 ## 8. Built so far (14 November 2026)
 
-- **Rust core** (`src/memory.rs`, schema 5):
+- **Rust core** (`crates/memory`, schema 5 in `crates/search/src/store.rs`):
   - `remember` (JSON array on stdin), `forget`, `memory-pack` and `memory-recall` commands.
   - `footnote_remember` and `footnote_forget` agent tools.
   - Memory databases and corpus databases refuse each other's writes. Agent writes to a corpus are refused through a read-only connection, before any migration.

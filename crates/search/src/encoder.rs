@@ -6,7 +6,7 @@
 //! L2 normalization. Queries run on a 2-thread session (one short text, low steady latency); documents on a second session with half
 //! the logical CPUs. Same graph and batches, so both give the same vectors (bench/experiments/BUILD-SPEED.md, tests 1b and 4).
 //!
-//! A manifest with `"runtime": "llama.cpp"` holds `model.gguf` instead (src/llama.rs, builds with `--features llama` only).
+//! A manifest with `"runtime": "llama.cpp"` holds `model.gguf` instead (llama.rs, builds with `--features llama` only).
 use anyhow::{Context, Result, anyhow, bail};
 use ort::session::{Session, SessionInputValue};
 use ort::value::Tensor;
@@ -63,7 +63,11 @@ enum Backend {
 
 /// The model files a manifest of this runtime must list and hash.
 pub fn files(runtime: &str) -> &'static [&'static str] {
-    if runtime == "llama.cpp" { &["model.gguf"] } else { &["model.onnx", "tokenizer.json"] }
+    if runtime == "llama.cpp" {
+        &["model.gguf"]
+    } else {
+        &["model.onnx", "tokenizer.json"]
+    }
 }
 
 /// Hash every model file against the manifest; returns the verified bytes.
@@ -71,14 +75,14 @@ fn verified(model: &Path, m: &Manifest) -> Result<HashMap<&'static str, Vec<u8>>
     let mut out = HashMap::new();
     for &name in files(&m.runtime) {
         let path = model.join(name);
-        crate::app::no_links(&path)?;
+        footnote_core::no_links(&path)?;
         let bytes = std::fs::read(&path).with_context(|| format!("read {name}"))?;
         let expected = &m
             .files
             .get(name)
             .context("manifest lists no hash for a model file")?
             .sha256;
-        if &crate::app::hash(&bytes) != expected {
+        if &footnote_core::hash(&bytes) != expected {
             bail!("model artifact hash mismatch: {name}");
         }
         out.insert(name, bytes);
@@ -92,7 +96,7 @@ fn err(e: impl std::fmt::Display) -> anyhow::Error {
 
 impl Encoder {
     pub fn load(model: &Path) -> Result<Self> {
-        let manifest_bytes = crate::app::bounded_read(&model.join("manifest.json"))?;
+        let manifest_bytes = footnote_core::bounded_read(&model.join("manifest.json"))?;
         let m: Manifest = serde_json::from_slice(&manifest_bytes).context("embedding manifest")?;
         if m.runtime == "llama.cpp" {
             return Self::load_gguf(model, m, &manifest_bytes);
@@ -146,7 +150,7 @@ impl Encoder {
                 .map_err(err)
         };
         Ok(Self {
-            model_sha256: crate::app::hash(&manifest_bytes),
+            model_sha256: footnote_core::hash(&manifest_bytes),
             backend: Backend::Onnx {
                 query: session(2)?,
                 bulk: session((cpus / 2).max(2))?,
@@ -165,7 +169,11 @@ impl Encoder {
         if g.dimension != m.dimension {
             bail!("unsupported embedding recipe");
         }
-        Ok(Self { model_sha256: crate::app::hash(manifest_bytes), backend: Backend::Llama(g), m })
+        Ok(Self {
+            model_sha256: footnote_core::hash(manifest_bytes),
+            backend: Backend::Llama(g),
+            m,
+        })
     }
     #[cfg(not(feature = "llama"))]
     fn load_gguf(_: &Path, _: Manifest, _: &[u8]) -> Result<Self> {
@@ -189,7 +197,11 @@ impl Encoder {
             bail!("embedding input bound exceeded");
         }
         let (tokenizer, query, bulk) = match &mut self.backend {
-            Backend::Onnx { tokenizer, query, bulk } => (tokenizer, query, bulk),
+            Backend::Onnx {
+                tokenizer,
+                query,
+                bulk,
+            } => (tokenizer, query, bulk),
             #[cfg(feature = "llama")]
             Backend::Llama(g) => {
                 let (mut vectors, mut truncated) = (Vec::with_capacity(texts.len()), 0);
@@ -198,7 +210,10 @@ impl Encoder {
                     truncated += usize::from(cut);
                     vectors.push(v);
                 }
-                return Ok(Encoded { vectors, truncated_at_limit: truncated });
+                return Ok(Encoded {
+                    vectors,
+                    truncated_at_limit: truncated,
+                });
             }
         };
         let session = if kind == "passage" { bulk } else { query };

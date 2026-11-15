@@ -1,5 +1,6 @@
-use crate::app::{bounded_read, hash};
 use anyhow::{Context, Result, bail};
+use footnote_core::bounded_read;
+use footnote_core::hash;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -14,10 +15,10 @@ fn str_field<'a>(v: &'a Value, k: &str) -> Result<&'a str> {
         .with_context(|| format!("missing nonempty field: {k}"))
 }
 fn checked_path(p: &Path, allow: &[PathBuf]) -> Result<PathBuf> {
-    crate::app::no_links(p)?;
+    footnote_core::no_links(p)?;
     let path = std::fs::canonicalize(p)?;
     for a in allow {
-        crate::app::no_links(a)?;
+        footnote_core::no_links(a)?;
         if path.starts_with(std::fs::canonicalize(a)?) {
             return Ok(path);
         }

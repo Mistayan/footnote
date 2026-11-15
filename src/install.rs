@@ -222,6 +222,7 @@ fn register_daemon(db: &Path, dry_run: bool) -> Value {
     }
     #[cfg(not(windows))]
     {
+        let _ = dry_run; // nothing is registered here, so a dry run and a real run answer the same
         json!({
             "task": task,
             "status": "manual on this platform",
@@ -283,7 +284,9 @@ pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
     }))
 }
 
+#[cfg(feature = "memory")]
 const MEMORY_SERVER: &str = "footnote-memory";
+#[cfg(feature = "memory")]
 fn is_memory_hook(command: &str) -> bool {
     if command.contains("memory_hook.py") {
         return true; // migrate the installed Python hook in place
@@ -294,6 +297,7 @@ fn is_memory_hook(command: &str) -> bool {
     })
 }
 
+#[cfg(feature = "memory")]
 /// Add an MCP server entry under `mcpServers`, leaving an existing entry of that name untouched.
 fn add_server(path: &Path, name: &str, entry: &Value, dry_run: bool) -> Result<&'static str> {
     merge_json(path, dry_run, |root| {
@@ -310,6 +314,7 @@ fn add_server(path: &Path, name: &str, entry: &Value, dry_run: bool) -> Result<&
     })
 }
 
+#[cfg(feature = "memory")]
 /// Add the memory hook command to every listed event of a Claude-format `hooks` object, once.
 fn add_hooks(
     path: &Path,
@@ -362,6 +367,7 @@ fn add_hooks(
     })
 }
 
+#[cfg(feature = "memory")]
 /// Quote a path only when it must be: an unquoted command runs the same under bash (Claude Code), PowerShell (Grok) and cmd.
 fn shell_word(path: &Path, warnings: &mut Vec<String>) -> String {
     let p = portable(path);
@@ -377,6 +383,7 @@ fn shell_word(path: &Path, warnings: &mut Vec<String>) -> String {
 
 /// `install --memory`: one agent memory database for every detected agent, its MCP server, the memory hook and a
 /// /remember command. Claude Code's files also serve Grok, which reads ~/.claude.json and ~/.claude/settings.json.
+#[cfg(feature = "memory")]
 pub fn memory(dry_run: bool) -> Result<Value> {
     let home = home()?;
     let state = crate::state::state_dir()?;

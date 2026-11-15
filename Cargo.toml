@@ -1,19 +1,20 @@
-[package]
-name = "footnote"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
-description = "Local, read-only memory and document retrieval for AI coding agents, with a footnote on every answer"
 license = "Apache-2.0"
 repository = "https://github.com/bobcat88/footnote"
 rust-version = "1.92"
 
-[features]
-# Opt-in timings and failure tracking (src/metrics.rs). Off in normal builds: zero cost.
-metrics = []
-# Opt-in GGUF embedding models through llama.cpp, compiled in (bench/experiments/LLAMACPP-INPROCESS.md). Needs CMake and LLVM to build.
-llama = ["dep:llama-cpp-2"]
-
-[dependencies]
+# One version of each dependency for the whole family (ADR 0001).
+[workspace.dependencies]
+footnote-core = { path = "crates/core" }
+footnote-search = { path = "crates/search" }
+footnote-library = { path = "crates/library" }
+footnote-memory = { path = "crates/memory" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 rusqlite = { version = "0.38", features = ["bundled", "backup"] }
@@ -27,15 +28,53 @@ time = { version = "0.3", features = ["local-offset"] }
 interprocess = "2.4.8"
 getrandom = "0.4.3"
 tantivy = "0.27"
-# Embeddings in-process (src/encoder.rs): ONNX Runtime 1.31, statically linked; the tokenizer library under Python's `tokenizers` 0.22.2.
+# Embeddings in-process (crates/search/src/encoder.rs): ONNX Runtime 1.31, statically linked; the tokenizer library under Python's `tokenizers` 0.22.2.
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native", "api-31"] }
 tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
-llama-cpp-2 = { version = "=0.1.161", default-features = false, features = ["openmp"], optional = true }
+llama-cpp-2 = { version = "=0.1.161", default-features = false, features = ["openmp"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+assert_cmd = "2"
+
+[package]
+name = "footnote"
+version.workspace = true
+edition.workspace = true
+description = "Local, read-only memory and document retrieval for AI coding agents, with a footnote on every answer"
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+# Products (ADR 0001): a build can leave out a product it does not need. Default: all.
+default = ["library", "memory"]
+library = ["dep:footnote-library"]
+memory = ["dep:footnote-memory"]
+# Opt-in timings and failure tracking (crates/core/src/metrics.rs). Off in normal builds: zero cost.
+metrics = ["footnote-core/metrics", "footnote-search/metrics", "footnote-library?/metrics"]
+# Opt-in GGUF embedding models through llama.cpp, compiled in (bench/experiments/LLAMACPP-INPROCESS.md). Needs CMake and LLVM to build.
+llama = ["footnote-search/llama"]
+
+[dependencies]
+footnote-core.workspace = true
+footnote-search.workspace = true
+footnote-library = { workspace = true, optional = true }
+footnote-memory = { workspace = true, optional = true }
+anyhow.workspace = true
+clap.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+wait-timeout.workspace = true
+time.workspace = true
+interprocess.workspace = true
+getrandom.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+windows-sys.workspace = true
 
 [dev-dependencies]
-assert_cmd = "2"
-interprocess = "2.4.8"
-sha2 = "0.10"
+assert_cmd.workspace = true
+interprocess.workspace = true
+sha2.workspace = true

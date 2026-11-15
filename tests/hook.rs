@@ -74,9 +74,18 @@ fn pack_recall_save_and_stop_loop_match_the_existing_contract() {
     let ask: Value = serde_json::from_str(&hook(state, event("Stop", ""))).unwrap();
     assert_eq!(ask["decision"], "block");
     let reason = ask["reason"].as_str().unwrap();
+    // The project scope is the repository folder's name: borgknowledge here, footnote in CI.
+    let project = format!(
+        "\"{}\"",
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_lowercase()
+    );
     for part in [
         "footnote_remember",
-        "\"borgknowledge\"",
+        project.as_str(),
         "what you saved",
         "Name the subject",
         "Tested on Linux",

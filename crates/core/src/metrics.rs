@@ -1,6 +1,7 @@
 //! Opt-in observability: timings, failures and unfinished steps, one JSON line each in `<state dir>/metrics.jsonl`.
 //!
-//! Compiled in only with `cargo build --features metrics`. A normal build expands every `timed!` to the bare expression and
+//! Compiled in only with `cargo build --features metrics`. The macros test the feature of the crate that calls them, so
+//! every crate using them forwards its own `metrics` feature to `footnote-core/metrics`. A normal build expands every `timed!` to the bare expression and
 //! `started!` to nothing: no clock read, no allocation, no write, so release performance is untouched.
 //!
 //! Lines: `{"t":<unix ms>,"pid":..,"start":"cli.index"}` when a long step begins; `{"t":..,"pid":..,"span":"search.hybrid",
@@ -8,10 +9,11 @@
 //! line from the same process stopped (killed, hung or crashed). `footnote metrics` summarizes the file.
 
 /// Time an expression that returns a `Result`, recording whether it succeeded. Without the feature: just the expression.
+#[macro_export]
 macro_rules! timed {
     ($name:expr, $body:expr) => {{
         #[cfg(feature = "metrics")]
-        let __span = crate::metrics::Span::new($name);
+        let __span = $crate::metrics::Span::new($name);
         let __result = $body;
         #[cfg(feature = "metrics")]
         __span.finish(__result.is_ok());
@@ -19,13 +21,14 @@ macro_rules! timed {
     }};
 }
 /// Mark the start of a long step, so a step that never finishes is visible. Without the feature: nothing.
+#[macro_export]
 macro_rules! started {
     ($name:expr) => {{
         #[cfg(feature = "metrics")]
-        crate::metrics::start($name);
+        $crate::metrics::start($name);
     }};
 }
-pub(crate) use {started, timed};
+pub use crate::{started, timed};
 
 #[cfg(feature = "metrics")]
 mod imp {

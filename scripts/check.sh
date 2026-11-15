@@ -10,9 +10,11 @@ if [[ -z ${TMPDIR:-} ]]; then
   TMPDIR="$($PY -c 'from pathlib import Path; import os; p=Path(os.environ.get("LOCALAPPDATA",Path.home()/".cache"))/"hermes/cache/scratch";p.mkdir(parents=True,exist_ok=True);print(p.as_posix())')"
 fi
 export TMPDIR TMP="$TMPDIR" TEMP="$TMPDIR"
-rtk cargo fmt --check
-rtk cargo clippy --locked --all-targets -- -D warnings
-rtk cargo test --locked --all-targets
+rtk cargo fmt --all --check
+rtk cargo clippy --locked --workspace --all-targets -- -D warnings
+rtk cargo clippy --locked --workspace --all-targets --no-default-features --features library -- -D warnings
+rtk cargo clippy --locked --workspace --all-targets --no-default-features --features memory -- -D warnings
+rtk cargo test --locked --workspace --all-targets
 rtk cargo build --locked --release
 "$PY" tests/extraction_test.py
 "$PY" tests/hybrid_metrics_test.py

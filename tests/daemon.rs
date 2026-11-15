@@ -105,7 +105,13 @@ fn install_dry_run_writes_nothing() {
     assert!(out.status.success(), "{out:?}");
     let report: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(report["dry_run"], true);
-    assert_eq!(report["daemon"]["status"], "dry-run");
+    // Windows registers a logon task (dry run: nothing created); elsewhere registration is manual for now.
+    let expected = if cfg!(windows) {
+        "dry-run"
+    } else {
+        "manual on this platform"
+    };
+    assert_eq!(report["daemon"]["status"], expected);
     assert!(
         !home.join(".codex/config.toml").exists(),
         "dry run wrote an agent config"
@@ -151,21 +157,46 @@ fn the_hook_recalls_through_a_resident_daemon_that_leaves_when_idle() {
     let state = t.path().join("state");
     let memory = serde_json::json!([{"text": "Johan wants relative % gaps in every benchmark table.", "kind": "preference",
                                      "scope": "global", "observed_at": "2026-11-15"}]);
-    bin().arg("--db").arg(&db).arg("remember").write_stdin(memory.to_string()).assert().success();
+    bin()
+        .arg("--db")
+        .arg(&db)
+        .arg("remember")
+        .write_stdin(memory.to_string())
+        .assert()
+        .success();
     let recall = |extra: &[&str]| {
-        bin().env("FOOTNOTE_STATE_DIR", &state).arg("--db").arg(&db)
-            .args(["memory-recall", "--resident"]).args(extra).args(["--", "benchmark table gaps"]).output().unwrap()
+        bin()
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .arg("--db")
+            .arg(&db)
+            .args(["memory-recall", "--resident"])
+            .args(extra)
+            .args(["--", "benchmark table gaps"])
+            .output()
+            .unwrap()
     };
-    let answered = |o: &std::process::Output| !String::from_utf8_lossy(&o.stdout).contains("\"error\"");
+    let answered =
+        |o: &std::process::Output| !String::from_utf8_lossy(&o.stdout).contains("\"error\"");
     // No daemon: --resident fails, so the hook falls back to its own search.
     assert!(!answered(&recall(&[])));
 
     let mut daemon = Std::new(assert_cmd::cargo::cargo_bin!("footnote"))
         .env("FOOTNOTE_STATE_DIR", &state)
-        .arg("--db").arg(&db)
-        .args(["serve", "--mcp", "--daemon", "--no-audit", "--idle-seconds", "2"])
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().unwrap();
+        .arg("--db")
+        .arg(&db)
+        .args([
+            "serve",
+            "--mcp",
+            "--daemon",
+            "--no-audit",
+            "--idle-seconds",
+            "2",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
     let mut out = recall(&[]);
     for _ in 0..50 {
         if answered(&out) {
