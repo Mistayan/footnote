@@ -36,8 +36,9 @@ of work. "Johan" marks items waiting for his go.
    from Footnote's own results (the model matrix: licence × hardware × language). Today: the pair by default, nano for French/mixed,
    EmbeddingGemma 1 on a GPU.
 10. **Hook in Rust:** `footnote hook` live in Claude, Codex and DeepSeek since 15 Nov (Python hook p50 39 ms, p95 225 ms, plus
-    interpreter start; first Rust recall 24 ms). Left: delete `tools/memory_hook.py`, its tests and `tools/embed.py` once the live
-    scripts in `tools/` no longer read them (archived `artifacts/` keep their copies).
+    interpreter start; first Rust recall 24 ms). Done: `tools/memory_hook.py` and its tests deleted, docs point to `src/hook.rs`.
+    Kept on purpose: `tools/embed.py`, no longer on any product path, stays the reference recipe that benchmarks import and fingerprint
+    (`rust_encoder.py`, `helper_speed.py`, `server_benchmark.py`, `engines.py` cache key).
 11. **Icons:** one family, one icon per product.
 
 ## P2: new products
@@ -45,6 +46,10 @@ of work. "Johan" marks items waiting for his go.
 12. **Footnote Alias** (pseudonymisation before the LLM): desk study first (Presidio, LLM Guard, GLiNER PII, French accuracy), then a
     French + English prototype with underline-and-explain. Design notes below.
 13. **Footnote Code:** code-graph study ([plan](../research/CODE-GRAPH-STUDY.md)); hands-on after Johan's go.
+14. **Documentation ingestion in Footnote Library** (Johan 15 Nov): crawl and index a documentation site on demand, one index per
+    library version, so agents search docs locally, offline, without credits. Cheapest first: `llms.txt` and published `.md` pages,
+    then sitemap and plain HTML to Markdown; JavaScript rendering only if needed. Rust crawler candidates to check (licence,
+    Windows). Measure first against Grounded Docs (P3).
 
 ## P3: benchmarks, when a decision needs them
 
@@ -53,6 +58,11 @@ of work. "Johan" marks items waiting for his go.
 - Storage backends: SQLite + Tantivy against Postgres + pgvector, LanceDB, HelixDB, Omnigraph; Qdrant for large companies only.
   Ask before installing Postgres or Docker.
 - Memory rematch (mem0, Cognee graph, Hindsight, Graphiti, OpenViking, EverOS), after the review.
+- Documentation search against Grounded Docs (`arabold/docs-mcp-server`, MIT, TypeScript, SQLite FTS5 + sqlite-vec, embeddings
+  through external providers, telemetry on by default), on its own published set: 59 queries over react, python, fastapi, vite and
+  a fifth library, MRR, Recall@k, nDCG@5, Hit@3. Same pages indexed by both. Parked by Johan 15 Nov (about 2 hours); protocol and
+  rule ready in [DOCS-VS-GROUNDED.md](../../bench/experiments/DOCS-VS-GROUNDED.md), needs his go to run their tool through npx.
+  Feeds item 14.
 
 ## Later: company deployment (not urgent, Johan 15 Nov)
 

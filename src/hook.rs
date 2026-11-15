@@ -21,6 +21,10 @@ Then tell the user in one short line what you saved (count and ids), or that not
 const VISIBLE: &str = "Footnote memory: when one of these memories, or one recalled later in this session, shapes your answer, say so in a few words (for example \"from memory: ...\"). Do not mention memories that played no part.";
 const MAX_EVENT: u64 = 2 * 1024 * 1024;
 
+/// `<state dir>/memory.json` (state dir: FOOTNOTE_STATE_DIR, else %LOCALAPPDATA%/footnote or ~/.local/state/footnote).
+/// db: memory database (default memory.db in the state dir); models: embedding model folders, so memories are found by meaning;
+/// every_turns: prompts between save requests (10); recall_limit: memories per prompt (3); metrics: timings to metrics.jsonl;
+/// resident: recall by meaning through a daemon started on demand, gone after idle_seconds (1800). Off until bk-gsh passes.
 #[derive(Deserialize)]
 #[serde(default)]
 struct Settings {

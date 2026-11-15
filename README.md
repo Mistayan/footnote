@@ -116,7 +116,7 @@ Models are public, pinned to a commit and checked against a SHA-256 before every
 
 ## Install
 
-Requirements: Rust 1.92 or later, about 200 MB of disk for the two models. Python 3.10+ is used only to download the models once, for PDF extraction and OCR, and for the agent memory hook; search and embeddings need none.
+Requirements: Rust 1.92 or later, about 200 MB of disk for the two models. Python 3.10+ is used only to download the models once and for PDF extraction and OCR; search, embeddings and the agent memory hook need none.
 
 ```bash
 git clone https://github.com/bobcat88/footnote && cd footnote
@@ -178,12 +178,12 @@ The previous `borg_*` tool names keep working as aliases.
 
 Besides your documents, Footnote can remember what an assistant learns while working with you: your preferences, project decisions and dates, problems and their fixes, what each session achieved. Memories live in their own database (`memory.db` in Footnote's per-user state folder), never in a corpus, and are searched with the same hybrid engine.
 
-`footnote install --memory` sets it up for every detected agent: Claude Code, Codex, Grok and DeepSeek Harness. It creates the memory database, registers its MCP server, adds the hook and a `/remember` command, backs up each file it edits, and leaves existing entries alone. The agent itself writes its memories; no second model reads your conversation. A hook ([`tools/memory_hook.py`](tools/memory_hook.py)) organizes it:
+`footnote install --memory` sets it up for every detected agent: Claude Code, Codex, Grok and DeepSeek Harness. It creates the memory database, registers its MCP server, adds the hook and a `/remember` command, backs up each file it edits, and leaves existing entries alone. The agent itself writes its memories; no second model reads your conversation. A hook (`footnote hook`, [src/hook.rs](src/hook.rs)) organizes it:
 - at session start it injects your preferences and the project's memories;
 - on each prompt it adds the memories relevant to it;
 - every 10 prompts, at the end of a turn, it asks the agent once to save what it learned with `footnote_remember`, and `/remember` does the same on demand.
 
-Nothing leaves the agent you already use: the memories are written by that agent, in its own session, into a local file. Settings are documented at the top of the script, the design in [docs/AGENT-MEMORY-DESIGN.md](docs/AGENT-MEMORY-DESIGN.md).
+Nothing leaves the agent you already use: the memories are written by that agent, in its own session, into a local file. Settings (`memory.json` in the state folder) are documented in [src/hook.rs](src/hook.rs), the design in [docs/AGENT-MEMORY-DESIGN.md](docs/AGENT-MEMORY-DESIGN.md).
 
 ## Security model
 
