@@ -70,7 +70,9 @@ pub fn index(
     let mut total_bytes = 0_u64;
     let extractor_hash = hash(&fs::read(repo().join("tools/extract.py"))?);
     let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    // Sorted: the same files get the same ids on every platform (NTFS lists by name, Linux file systems do not).
     for entry in WalkDir::new(&root)
+        .sort_by_file_name()
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
