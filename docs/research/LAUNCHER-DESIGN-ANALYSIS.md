@@ -50,6 +50,12 @@ Gaps found for the engine, before the window:
 
 ## 4. Questions for the studio (Johan)
 
+**Answered 15 November:** (1) a compact tray panel plus the full window; (2) T3 Code's design language first, adjusted only where
+it does not suit Footnote; (3) the dot field is judged on a demo ([design/demos/launcher-dots.html](../../design/demos/launcher-dots.html):
+none, header only, everywhere, with the draw cost per frame); (4) dark only for now; (5) marks for every product and a rule for
+future members of the family, so the question is never asked again.
+
+
 1. **Window shape:** a compact panel from the tray (quick switch and this week's activity) plus a full window, or the full
    window only.
 2. **Density:** compact like T3 Code (small control radius, dense rows) or closer to the site (21 px everywhere, more air).
