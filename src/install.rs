@@ -222,6 +222,7 @@ fn register_daemon(db: &Path, dry_run: bool) -> Value {
     }
     #[cfg(not(windows))]
     {
+        let _ = dry_run; // nothing is registered here, so a dry run and a real run answer the same
         json!({
             "task": task,
             "status": "manual on this platform",
