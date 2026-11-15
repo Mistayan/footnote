@@ -105,7 +105,13 @@ fn install_dry_run_writes_nothing() {
     assert!(out.status.success(), "{out:?}");
     let report: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(report["dry_run"], true);
-    assert_eq!(report["daemon"]["status"], "dry-run");
+    // Windows registers a logon task (dry run: nothing created); elsewhere registration is manual for now.
+    let expected = if cfg!(windows) {
+        "dry-run"
+    } else {
+        "manual on this platform"
+    };
+    assert_eq!(report["daemon"]["status"], expected);
     assert!(
         !home.join(".codex/config.toml").exists(),
         "dry run wrote an agent config"
