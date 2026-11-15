@@ -192,6 +192,8 @@ enum Action {
         #[arg(long, default_value_t = 30)]
         top: usize,
     },
+    /// What is installed, on, registered and running, and what memory did this week.
+    Status,
     /// Embedding models: list, install, use (for Footnote Memory), remove, recommend from this machine and corpus.
     Models {
         #[command(subcommand)]
@@ -357,6 +359,7 @@ fn execute(cli: Cli) -> Result<Value> {
             };
         }
         Action::Audit { action } => return audit_command(action),
+        Action::Status => return crate::status::status(),
         Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
         Action::Models { action } => {
             let state = crate::state::state_dir()?;
@@ -497,7 +500,11 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
         #[cfg(feature = "memory")]
         Action::Uninstall { .. } => unreachable!("dispatched before the database is opened"),
-        Action::Audit { .. } | Action::Options | Action::Config { .. } | Action::Models { .. } => {
+        Action::Audit { .. }
+        | Action::Options
+        | Action::Config { .. }
+        | Action::Models { .. }
+        | Action::Status => {
             unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "memory")]
@@ -552,6 +559,7 @@ fn action_name(a: &Action) -> &'static str {
         Action::Hook { .. } => "hook",
         Action::Audit { .. } => "audit",
         Action::Options => "options",
+        Action::Status => "status",
         Action::Models { .. } => "models",
         #[cfg(feature = "memory")]
         Action::Uninstall { .. } => "uninstall",

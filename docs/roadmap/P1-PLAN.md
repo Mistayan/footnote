@@ -12,6 +12,9 @@ launcher; the launcher holds no logic that could drift from the engine.
 
 ### M1: engine (no interface)
 
+Done 15 November (branch `feat/m1-engine`): every command below, tested; `footnote status` on Johan's machine: 141 memories,
+162 prompts given memories in the last 7 days, four agents registered, 27 ms.
+
 | Command | What it does |
 |---|---|
 | `footnote status` | Products installed and on, agents registered, daemon running, models present, database sizes, last week's activity (memories saved, recalls injected) |

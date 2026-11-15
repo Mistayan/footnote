@@ -704,3 +704,63 @@ pub fn uninstall_memory(dry_run: bool) -> Result<Value> {
         "note": "restart each agent to unload the hooks; `footnote install --memory` puts everything back",
     }))
 }
+
+/// Where Footnote Memory is registered, read-only (`footnote status`).
+#[cfg(feature = "memory")]
+pub fn memory_registrations() -> Result<Value> {
+    let home = home()?;
+    let json_file = |p: &Path| -> Value {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(Value::Null)
+    };
+    let has_server = |p: &Path| json_file(p)["mcpServers"].get(MEMORY_SERVER).is_some();
+    let has_hooks = |p: &Path| {
+        json_file(p)["hooks"].as_object().is_some_and(|events| {
+            events
+                .values()
+                .filter_map(Value::as_array)
+                .flatten()
+                .any(|g| {
+                    g["hooks"].as_array().is_some_and(|h| {
+                        h.iter()
+                            .any(|h| h["command"].as_str().is_some_and(is_memory_hook))
+                    })
+                })
+        })
+    };
+    let has_table = |p: &Path| {
+        std::fs::read_to_string(p)
+            .is_ok_and(|t| t.contains(&format!("[mcp_servers.{MEMORY_SERVER}]")))
+    };
+    let mut out = Vec::new();
+    if home.join(".claude").exists() {
+        out.push(
+            json!({"agent": "claude-code", "mcp_server": has_server(&home.join(".claude.json")),
+            "hooks": has_hooks(&home.join(".claude/settings.json"))}),
+        );
+    }
+    if home.join(".codex").exists() {
+        out.push(
+            json!({"agent": "codex", "mcp_server": has_table(&home.join(".codex/config.toml")),
+            "hooks": has_hooks(&home.join(".codex/hooks.json"))}),
+        );
+    }
+    if home.join(".grok").exists() {
+        out.push(
+            json!({"agent": "grok", "mcp_server": has_table(&home.join(".grok/config.toml")),
+            "hooks": has_hooks(&home.join(".claude/settings.json"))}),
+        );
+    }
+    if home.join(".dsh").exists() {
+        out.push(json!({"agent": "deepseek-harness",
+            "mcp_server": std::fs::read_to_string(home.join(".dsh/profiles/desktop/cordis.patch.yml"))
+                .is_ok_and(|t| t.contains(&format!("id: {MEMORY_SERVER}-mcp"))),
+            "hooks": has_hooks(&home.join(".dsh/footnote-memory-hooks.json"))}));
+    }
+    if home.join(".gemini").exists() {
+        out.push(json!({"agent": "gemini-cli", "mcp_server": has_server(&home.join(".gemini/settings.json")), "hooks": false}));
+    }
+    Ok(json!(out))
+}

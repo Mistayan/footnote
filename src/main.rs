@@ -6,6 +6,7 @@ mod hook;
 mod install;
 mod mcp;
 mod models;
+mod status;
 
 // Moved to library crates (ADR 0001); imported here so `crate::<module>` paths keep working.
 use footnote_core::{audit, metrics, state};

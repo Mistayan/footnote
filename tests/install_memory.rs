@@ -197,6 +197,32 @@ fn memory_uninstall_removes_only_what_install_added_and_keeps_memories() {
         }
         serde_json::from_slice(&c.assert().success().get_output().stdout).unwrap()
     };
+    let status = || -> Value {
+        let out = Command::new(assert_cmd::cargo::cargo_bin!("footnote"))
+            .arg("status")
+            .env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .output()
+            .unwrap();
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let registered = |s: &Value| -> Vec<bool> {
+        s["products"]["memory"]["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|a| {
+                [
+                    a["mcp_server"].as_bool().unwrap(),
+                    a["hooks"].as_bool().unwrap(),
+                ]
+            })
+            .collect()
+    };
+    let before = status();
+    assert_eq!(before["products"]["memory"]["memories"], 0, "{before}");
+    assert!(registered(&before).iter().all(|r| *r), "{before}");
     // A dry run reports and changes nothing.
     let installed = fs::read_to_string(home.join(".claude/settings.json")).unwrap();
     assert!(
@@ -240,6 +266,8 @@ fn memory_uninstall_removes_only_what_install_added_and_keeps_memories() {
     assert!(!home.join(".claude/commands/remember.md").exists());
     assert!(state.join("memory.db").exists() && state.join("memory.json").exists());
 
+    let after = status();
+    assert!(registered(&after).iter().all(|r| !*r), "{after}");
     // Twice is harmless.
     let again = uninstall(false);
     assert!(
