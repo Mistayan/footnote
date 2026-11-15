@@ -31,7 +31,7 @@
         "rule": "cramped-padding",
         "value": "*",
         "files": [
-          "site/index.html"
+          "design/site/index.html"
         ],
         "createdAt": "2026-11-14T09:20:38.621Z",
         "reason": "Claude: .proof uses padding clamp(24px,4vw,48px); the 1920px screenshot shows a 48px inset on all sides, the detector misreads clamp()"

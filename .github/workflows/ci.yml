@@ -1,0 +1,76 @@
+# Checks on every pull request and every push to main (ADR 0001). Windows first, Linux from the start; macOS joins with the
+# launcher. Only official GitHub actions: Rust comes preinstalled on the runners, nothing third-party runs here.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustup component add clippy rustfmt
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Test models are public and hash-checked by the script; cached between runs.
+      - uses: actions/cache@v4
+        with:
+          path: artifacts/models
+          key: models-${{ hashFiles('tools/provision_embeddings.py') }}
+      - name: Test models
+        run: python tools/provision_embeddings.py minilm e5-small gte-small
+
+      # PDF extraction runs in this environment (tests/cli.rs).
+      - name: Extraction environment
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe; else PY=.venv/bin/python; fi
+          "$PY" -m pip install --quiet -r requirements-extract.lock
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      # Every product combination must build cleanly: a company build may leave a product out.
+      - name: Clippy, all products
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Clippy, Library only
+        run: cargo clippy --locked --workspace --all-targets --no-default-features --features library -- -D warnings
+      - name: Clippy, Memory only
+        run: cargo clippy --locked --workspace --all-targets --no-default-features --features memory -- -D warnings
+
+      - name: Tests
+        run: cargo test --locked --workspace -- --include-ignored

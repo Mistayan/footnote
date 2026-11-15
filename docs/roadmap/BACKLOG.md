@@ -95,7 +95,7 @@ every hook on the critical path. Feeds the IT security (SSI) entry of the compli
 - Footnote Roadmap (visual roadmap from memories and Beads) and the project node map.
 - Baseline audit across projects: AI contracts and rules, security-reviewed skills, projects behind on push.
 - Progressive context levels (summary, overview, full on demand), after OpenViking.
-- Verify the DeepSeek memory hook. Product page v2 (`site/index.html`): QLoop review before commit.
+- Verify the DeepSeek memory hook. Product page v2 (`design/site/index.html`): QLoop review before commit.
 
 ## Footnote Alias, design notes
 
