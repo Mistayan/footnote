@@ -31,6 +31,7 @@ const MAX_EVENT: u64 = 2 * 1024 * 1024;
 #[serde(default)]
 struct Settings {
     enabled: bool,
+    activity: bool,
     db: Option<PathBuf>,
     models: Vec<PathBuf>,
     every_turns: u64,
@@ -43,6 +44,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             enabled: true,
+            activity: true,
             db: None,
             models: vec![],
             every_turns: 10,
@@ -384,6 +386,37 @@ fn timed<T>(
     result
 }
 
+/// The Activity screen's source: which memories reached the agent, when, for which project. Ids only, never the prompt.
+/// Best effort, capped: past 512 KB the older half is dropped.
+fn note(s: &Settings, dir: &Path, event: &str, project: &str, v: &Value) {
+    let ids: Vec<&Value> = v["memories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| &m["id"])
+        .collect();
+    if !s.activity || ids.is_empty() {
+        return;
+    }
+    let path = dir.join("activity.jsonl");
+    if fs::metadata(&path).is_ok_and(|m| m.len() > 512 * 1024)
+        && let Ok(text) = fs::read_to_string(&path)
+    {
+        let lines: Vec<&str> = text.lines().collect();
+        let _ = fs::write(&path, lines[lines.len() / 2..].join("\n") + "\n");
+    }
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(
+            f,
+            "{}",
+            json!({"t": t, "event": event, "project": project, "ids": ids})
+        );
+    }
+}
+
 fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
     let e = Event::normalize(event);
     let project = project_of(&e.cwd);
@@ -401,10 +434,10 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
         "SessionStart" => {
             embed_in_background(s, &db)?;
             if db.exists() {
-                let pack = render(
-                    &crate::memory::pack(&crate::app::open(&db, false)?, Some(&project), 3000)?,
-                    "What you remember about this user and project",
-                );
+                let memories =
+                    crate::memory::pack(&crate::app::open(&db, false)?, Some(&project), 3000)?;
+                note(s, &dir, "pack", &project, &memories);
+                let pack = render(&memories, "What you remember about this user and project");
                 out = context(
                     &e.name,
                     if pack.is_empty() {
@@ -424,6 +457,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 let hits = timed(state, s.metrics, "hook.recall", false, || {
                     recall(s, &db, &project, query)
                 })?;
+                note(s, &dir, "recall", &project, &hits);
                 out = context(&e.name, render(&hits, "Possibly relevant memories"));
             }
         }

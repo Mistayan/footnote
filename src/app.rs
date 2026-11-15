@@ -202,6 +202,26 @@ enum Action {
     },
     /// What is installed, on, registered and running, and what memory did this week.
     Status,
+    /// Running and recent long steps (downloads, indexing) with their progress, whoever started them.
+    Jobs,
+    /// What memory did, day by day: memories saved, sessions and prompts given memories, the memories used most.
+    #[cfg(feature = "memory")]
+    Activity {
+        #[arg(long, default_value_t = 7, value_parser = clap::value_parser!(u16).range(1..=90))]
+        days: u16,
+    },
+    /// Browse agent memories, newest first (ids are those `forget` takes).
+    #[cfg(feature = "memory")]
+    MemoryList {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+    },
     /// Embedding models: list, install, use (for Footnote Memory), remove, recommend from this machine and corpus.
     Models {
         #[command(subcommand)]
@@ -368,6 +388,9 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Audit { action } => return audit_command(action),
         Action::Status => return crate::status::status(),
+        Action::Jobs => return footnote_core::jobs::list(&crate::state::state_dir()?),
+        #[cfg(feature = "memory")]
+        Action::Activity { days } => return crate::activity::activity(*days),
         Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
         Action::Models { action } => {
             let state = crate::state::state_dir()?;
@@ -411,7 +434,22 @@ fn execute(cli: Cli) -> Result<Value> {
             max_files,
             max_mib,
         } => {
-            let mut report = index(&mut c, &root, &allow, max_files, max_mib)?;
+            let mut job = footnote_core::jobs::Job::start(
+                &crate::state::state_dir()?,
+                "library.index",
+                &root.to_string_lossy(),
+                "files",
+            )?;
+            let indexed = index(
+                &mut c,
+                &root,
+                &allow,
+                max_files,
+                max_mib,
+                &mut |files, _| job.progress(files, None),
+            );
+            job.finish(&indexed);
+            let mut report = indexed?;
             // Build the lexical index at index time; a failure only means searches fall back to FTS5.
             report["lexical_index"] =
                 match crate::metrics::timed!("lexical.sync", crate::lexical::sync(&c)) {
@@ -479,6 +517,13 @@ fn execute(cli: Cli) -> Result<Value> {
         #[cfg(feature = "memory")]
         Action::MemoryRescope { from, to } => crate::memory::rescope(&mut c, &from, &to),
         #[cfg(feature = "memory")]
+        Action::MemoryList {
+            project,
+            kind,
+            limit,
+            offset,
+        } => crate::memory::list(&c, project.as_deref(), kind.as_deref(), limit, offset),
+        #[cfg(feature = "memory")]
         Action::MemoryPack { project, max_chars } => {
             crate::memory::pack(&c, project.as_deref(), max_chars)
         }
@@ -509,12 +554,15 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
         #[cfg(feature = "memory")]
-        Action::Uninstall { .. } => unreachable!("dispatched before the database is opened"),
+        Action::Uninstall { .. } | Action::Activity { .. } => {
+            unreachable!("dispatched before the database is opened")
+        }
         Action::Audit { .. }
         | Action::Options
         | Action::Config { .. }
         | Action::Models { .. }
-        | Action::Status => {
+        | Action::Status
+        | Action::Jobs => {
             unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "memory")]
@@ -572,6 +620,11 @@ fn action_name(a: &Action) -> &'static str {
         Action::Audit { .. } => "audit",
         Action::Options => "options",
         Action::Status => "status",
+        Action::Jobs => "jobs",
+        #[cfg(feature = "memory")]
+        Action::Activity { .. } => "activity",
+        #[cfg(feature = "memory")]
+        Action::MemoryList { .. } => "memory-list",
         Action::Models { .. } => "models",
         #[cfg(feature = "memory")]
         Action::Uninstall { .. } => "uninstall",

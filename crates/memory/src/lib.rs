@@ -297,6 +297,40 @@ pub fn rescope(c: &mut Connection, from: &str, to: &str) -> Result<Value> {
     Ok(json!({"from": from, "to": to, "moved": moved, "kept_duplicates": kept}))
 }
 
+/// Live memories, newest first, for browsing: optionally one scope and one kind; paged. Ids are those `forget` takes.
+pub fn list(
+    c: &Connection,
+    scope: Option<&str>,
+    kind: Option<&str>,
+    limit: usize,
+    offset: usize,
+) -> Result<Value> {
+    if !(1..=200).contains(&limit) {
+        bail!("limit must be between 1 and 200");
+    }
+    let filter = format!("{LIVE} AND (?1 IS NULL OR m.scope=?1) AND (?2 IS NULL OR m.kind=?2)");
+    let total: i64 = c.query_row(
+        &format!("SELECT count(*) FROM ({filter})"),
+        params![scope, kind],
+        |r| r.get(0),
+    )?;
+    let mut s = c.prepare(&format!(
+        "{filter} ORDER BY m.observed_at DESC, c.id DESC LIMIT ?3 OFFSET ?4"
+    ))?;
+    let memories: Vec<Value> = s
+        .query_map(params![scope, kind, limit as i64, offset as i64], row)?
+        .collect::<rusqlite::Result<_>>()?;
+    let scopes: Vec<Value> = c
+        .prepare(&format!(
+            "SELECT scope, count(*) FROM ({LIVE}) GROUP BY scope ORDER BY 2 DESC"
+        ))?
+        .query_map([], |r| {
+            Ok(json!({"scope": r.get::<_, String>(0)?, "memories": r.get::<_, i64>(1)?}))
+        })?
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(json!({"total": total, "offset": offset, "memories": memories, "scopes": scopes}))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -42,6 +42,7 @@ pub fn index(
     allow: &[PathBuf],
     max_files: usize,
     max_mib: u64,
+    progress: &mut dyn FnMut(u64, u64),
 ) -> Result<Value> {
     no_links(root)?;
     let root = fs::canonicalize(root)?;
@@ -105,6 +106,7 @@ pub fn index(
         }
         let bytes = bounded_read(e.path())?;
         total_bytes += bytes.len() as u64;
+        progress(seen.len() as u64, total_bytes);
         if total_bytes > max_mib * 1024 * 1024 {
             bail!("index scan byte limit exceeded ({max_mib} MiB); raise it with --max-mib");
         }

@@ -5,6 +5,7 @@ use std::{fs, path::Path};
 
 pub mod audit;
 pub mod config;
+pub mod jobs;
 pub mod metrics;
 pub mod state;
 

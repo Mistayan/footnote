@@ -1,3 +1,5 @@
+#[cfg(feature = "memory")]
+mod activity;
 mod app;
 mod daemon;
 mod hardware;

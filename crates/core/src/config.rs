@@ -54,6 +54,13 @@ pub fn catalogue() -> Vec<OptionSpec> {
             cost: "Higher: more tokens per prompt and more noise",
         },
         OptionSpec {
+            key: "memory.activity",
+            default: json!(true),
+            range: None,
+            gain: "The Activity screen shows which memories reached your agents and when",
+            cost: "A local log of memory ids, projects and times (memory-hook/activity.jsonl, capped at 512 KB); never what you asked",
+        },
+        OptionSpec {
             key: "memory.metrics",
             default: json!(false),
             range: None,

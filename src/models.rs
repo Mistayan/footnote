@@ -170,6 +170,37 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
+/// Stream `url` into `to`, reporting bytes against the size the server announces.
+fn download(url: &str, to: &Path, job: &mut footnote_core::jobs::Job) -> Result<()> {
+    use std::io::Write;
+    let response = agent()
+        .get(url)
+        .call()
+        .with_context(|| format!("download {url}"))?;
+    let total = response
+        .headers()
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok());
+    let mut body = response.into_body();
+    let mut reader = body.as_reader();
+    let mut out = fs::File::create(to)?;
+    let (mut buf, mut done) = (vec![0u8; 1 << 16], 0u64);
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .with_context(|| format!("download {url}"))?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n])?;
+        done += n as u64;
+        job.progress(done, total);
+    }
+    job.progress(done, total.or(Some(done)));
+    Ok(())
+}
+
 fn sha256_file(path: &Path) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut f = fs::File::open(path)?;
@@ -241,15 +272,15 @@ pub fn install(state: &Path, names: &[String]) -> Result<Value> {
             );
             if !path.exists() {
                 let partial = dir.join(format!("{local}.partial"));
-                let mut body = agent()
-                    .get(&url)
-                    .call()
-                    .with_context(|| format!("download {url}"))?
-                    .into_body();
-                let mut out = fs::File::create(&partial)?;
-                std::io::copy(&mut body.as_reader(), &mut out)
-                    .with_context(|| format!("download {url}"))?;
-                drop(out);
+                let mut job = footnote_core::jobs::Job::start(
+                    state,
+                    "models.install",
+                    &format!("{} {local}", r.name),
+                    "bytes",
+                )?;
+                let done = download(&url, &partial, &mut job);
+                job.finish(&done);
+                done?;
                 fs::rename(&partial, &path)?;
             }
             let digest = sha256_file(&path)?;

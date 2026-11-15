@@ -37,6 +37,12 @@ Done 15 November (branch `feat/m1-engine`): every command below, tested; `footno
 that forces or forbids options and products. Policy wins over the user's settings; the launcher shows a locked option with the
 reason. This answers "it depends on security and regulation" without a second build.
 
+**Live progress (Johan, 15 Nov: downloads started from the window must show, and so must any other):** every long step writes
+`<state dir>/jobs/<id>.json` up to four times a second (`footnote jobs` lists them; a job whose process died shows as
+interrupted). The launcher's Rust side watches that folder with file-system notifications and pushes each change to the window
+through Tauri events: live for the user, whoever started the job (window, command line, agent), with or without the daemon.
+When the daemon runs, it may relay the same events over its local socket for millisecond latency; never required.
+
 ### M2: design (no code)
 
 1. T3 Code study ([pingdotgg/t3code](https://github.com/pingdotgg/t3code), MIT, React + Tailwind + Base UI + Lucide inside
