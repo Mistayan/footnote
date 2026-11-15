@@ -540,3 +540,167 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         "note": "restart each agent to load the hooks; Grok asks once to trust a folder before it runs hooks. The agent writes memories through MCP; hooks and embeddings run in Rust without Python.",
     }))
 }
+
+/// Edit a text file through `change` (None: nothing of ours in it); backup, atomic replace, and an empty result deletes the file.
+#[cfg(feature = "memory")]
+fn edit_text(
+    path: &Path,
+    dry_run: bool,
+    change: impl FnOnce(&str) -> Option<String>,
+) -> Result<&'static str> {
+    if !path.exists() {
+        return Ok("not present");
+    }
+    let stamp = file_stamp(path);
+    let text = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let Some(new) = change(&text) else {
+        return Ok("not present");
+    };
+    if !dry_run {
+        backup(path)?;
+        if new.trim().is_empty() {
+            std::fs::remove_file(path)?;
+        } else {
+            replace_atomically(path, &stamp, new)?;
+        }
+    }
+    Ok("removed")
+}
+
+/// Drop a TOML table and its sub-tables (`[mcp_servers.<name>]`, `[mcp_servers.<name>.env]`).
+#[cfg(feature = "memory")]
+fn without_toml_table(text: &str, name: &str) -> Option<String> {
+    let table = format!("[mcp_servers.{name}]");
+    let sub = format!("[mcp_servers.{name}.");
+    let mut out = String::new();
+    let (mut skipping, mut found) = (false, false);
+    for line in text.split_inclusive('\n') {
+        let t = line.trim();
+        if t.starts_with('[') {
+            skipping = t == table || t.starts_with(&sub);
+            found |= skipping;
+        }
+        if !skipping {
+            out.push_str(line);
+        }
+    }
+    found.then(|| out.trim_end().to_string() + "\n")
+}
+
+/// `footnote uninstall --memory`: remove what `install --memory` added to every agent. Memories and settings stay.
+#[cfg(feature = "memory")]
+pub fn uninstall_memory(dry_run: bool) -> Result<Value> {
+    let home = home()?;
+    let mut report: Vec<Value> = Vec::new();
+    let mut add =
+        |agent: &str, what: &str, path: &Path, status: Result<&'static str>| -> Result<()> {
+            let status = match status? {
+                "registered" => "removed",
+                "already registered" => "not present",
+                s => s,
+            };
+            report.push(
+                json!({"agent": agent, "what": what, "path": portable(path), "status": status}),
+            );
+            Ok(())
+        };
+    let remove_server = |path: &Path| {
+        if !path.exists() {
+            return Ok("not present");
+        }
+        merge_json(path, dry_run, |root| {
+            Ok(root
+                .get_mut("mcpServers")
+                .and_then(Value::as_object_mut)
+                .is_some_and(|s| s.remove(MEMORY_SERVER).is_some()))
+        })
+    };
+    let remove_hooks = |path: &Path| {
+        if !path.exists() {
+            return Ok("not present");
+        }
+        merge_json(path, dry_run, |root| {
+            let mut changed = false;
+            if let Some(events) = root.get_mut("hooks").and_then(Value::as_object_mut) {
+                for list in events.values_mut().filter_map(Value::as_array_mut) {
+                    for group in list.iter_mut() {
+                        if let Some(hooks) = group.get_mut("hooks").and_then(Value::as_array_mut) {
+                            let before = hooks.len();
+                            hooks.retain(|h| !h["command"].as_str().is_some_and(is_memory_hook));
+                            changed |= hooks.len() != before;
+                        }
+                    }
+                    list.retain(|g| g["hooks"].as_array().is_none_or(|h| !h.is_empty()));
+                }
+                events.retain(|_, list| list.as_array().is_none_or(|l| !l.is_empty()));
+            }
+            Ok(changed)
+        })
+    };
+    // The /remember command is one paragraph appended by install, starting with this sentence.
+    let remove_remember = |path: &Path| {
+        edit_text(path, dry_run, |text| {
+            let kept: String = text
+                .split_inclusive('\n')
+                .filter(|l| !l.starts_with("Footnote memory: save what is worth remembering"))
+                .collect();
+            (kept.len() != text.len()).then_some(kept)
+        })
+    };
+
+    let claude = home.join(".claude");
+    let grok = home.join(".grok");
+    let codex = home.join(".codex");
+    if claude.exists() || grok.exists() {
+        let mcp = home.join(".claude.json");
+        add(
+            "claude-code + grok",
+            "mcp server",
+            &mcp,
+            remove_server(&mcp),
+        )?;
+        let hooks = claude.join("settings.json");
+        add("claude-code + grok", "hooks", &hooks, remove_hooks(&hooks))?;
+        let cmd = claude.join("commands").join("remember.md");
+        add(
+            "claude-code + grok",
+            "/remember",
+            &cmd,
+            remove_remember(&cmd),
+        )?;
+    }
+    for (agent, dir) in [("grok", &grok), ("codex", &codex)] {
+        let config = dir.join("config.toml");
+        let status = edit_text(&config, dry_run, |t| without_toml_table(t, MEMORY_SERVER));
+        add(agent, "mcp server", &config, status)?;
+    }
+    let hooks = codex.join("hooks.json");
+    add("codex", "hooks", &hooks, remove_hooks(&hooks))?;
+    let prompt = codex.join("prompts").join("remember.md");
+    add("codex", "/remember", &prompt, remove_remember(&prompt))?;
+    // DeepSeek Harness: the hooks file is ours alone; the patch holds the one block install appended.
+    let dsh_hooks = home.join(".dsh").join("footnote-memory-hooks.json");
+    let status = edit_text(&dsh_hooks, dry_run, |_| Some(String::new()));
+    add("deepseek-harness", "hooks", &dsh_hooks, status)?;
+    let patch = home.join(".dsh/profiles/desktop/cordis.patch.yml");
+    let status = edit_text(&patch, dry_run, |text| {
+        let start = text.find("# Footnote agent memory (footnote install --memory)\n")?;
+        let tail = "failOnStartupError: false\n";
+        let end = start + text[start..].find(tail)? + tail.len();
+        Some(format!("{}{}", &text[..start], &text[end..]))
+    });
+    add(
+        "deepseek-harness",
+        "hooks bridge + mcp server",
+        &patch,
+        status,
+    )?;
+    let gemini = home.join(".gemini/settings.json");
+    add("gemini-cli", "mcp server", &gemini, remove_server(&gemini))?;
+    Ok(json!({
+        "dry_run": dry_run,
+        "targets": report,
+        "kept": "your memories (memory.db) and settings (memory.json) in the Footnote state folder",
+        "note": "restart each agent to unload the hooks; `footnote install --memory` puts everything back",
+    }))
+}

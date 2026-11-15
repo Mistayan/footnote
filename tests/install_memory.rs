@@ -169,3 +169,85 @@ fn memory_install_migrates_python_hooks_without_replacing_other_hooks_or_metadat
     install(&home, &state, &python, false);
     assert_eq!(fs::read(&path).unwrap(), before);
 }
+
+#[test]
+fn memory_uninstall_removes_only_what_install_added_and_keeps_memories() {
+    let t = tempfile::tempdir().unwrap();
+    let (home, state) = (t.path().join("home"), t.path().join("state"));
+    let python = t.path().join("python.exe");
+    for d in [".claude", ".codex", ".grok", ".dsh/profiles/desktop"] {
+        fs::create_dir_all(home.join(d)).unwrap();
+    }
+    let existing = json!({"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "other-tool hook"}]}]}});
+    fs::write(home.join(".claude/settings.json"), existing.to_string()).unwrap();
+    let toml = "model = \"gpt\"\n\n[mcp_servers.other]\ncommand = \"other\"\n";
+    fs::write(home.join(".codex/config.toml"), toml).unwrap();
+    let patch = "- id: ui-theme\n  config:\n    fontSize: 12\n";
+    fs::write(home.join(".dsh/profiles/desktop/cordis.patch.yml"), patch).unwrap();
+    install(&home, &state, &python, false);
+
+    let uninstall = |dry_run: bool| -> Value {
+        let mut c = Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+        c.args(["uninstall", "--memory"])
+            .env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .env("FOOTNOTE_STATE_DIR", &state);
+        if dry_run {
+            c.arg("--dry-run");
+        }
+        serde_json::from_slice(&c.assert().success().get_output().stdout).unwrap()
+    };
+    // A dry run reports and changes nothing.
+    let installed = fs::read_to_string(home.join(".claude/settings.json")).unwrap();
+    assert!(
+        uninstall(true)["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["status"] == "removed")
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".claude/settings.json")).unwrap(),
+        installed
+    );
+
+    let report = uninstall(false);
+    assert!(
+        report["kept"].as_str().unwrap().contains("memory.db"),
+        "{report}"
+    );
+    // Other tools' entries survive; ours are gone everywhere.
+    assert_eq!(read(&home.join(".claude/settings.json")), existing);
+    assert!(
+        read(&home.join(".claude.json"))["mcpServers"]
+            .get("footnote-memory")
+            .is_none()
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".codex/config.toml")).unwrap(),
+        toml
+    );
+    assert!(
+        !fs::read_to_string(home.join(".grok/config.toml"))
+            .unwrap_or_default()
+            .contains("footnote-memory")
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".dsh/profiles/desktop/cordis.patch.yml")).unwrap(),
+        patch
+    );
+    assert!(!home.join(".dsh/footnote-memory-hooks.json").exists());
+    assert!(!home.join(".claude/commands/remember.md").exists());
+    assert!(state.join("memory.db").exists() && state.join("memory.json").exists());
+
+    // Twice is harmless.
+    let again = uninstall(false);
+    assert!(
+        again["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["status"] == "not present"),
+        "{again}"
+    );
+}

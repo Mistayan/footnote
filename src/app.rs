@@ -162,6 +162,15 @@ enum Action {
         #[arg(long)]
         memory: bool,
     },
+    /// Remove Footnote Memory from every agent (hooks, MCP server, /remember). Memories and settings are kept.
+    #[cfg(feature = "memory")]
+    Uninstall {
+        #[arg(long)]
+        dry_run: bool,
+        /// Required: what to remove (only Footnote Memory can be uninstalled this way today).
+        #[arg(long, required = true)]
+        memory: bool,
+    },
     #[cfg(feature = "memory")]
     /// Agent memory hook: read an event as JSON on stdin, without Python (settings: <state dir>/memory.json).
     Hook {
@@ -331,6 +340,8 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Audit { action } => return audit_command(action),
         Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
+        #[cfg(feature = "memory")]
+        Action::Uninstall { dry_run, .. } => return crate::install::uninstall_memory(*dry_run),
         Action::Config { action } => {
             let state = crate::state::state_dir()?;
             return match action {
@@ -456,6 +467,8 @@ fn execute(cli: Cli) -> Result<Value> {
         // read-only tools by opening the database lazily per request.
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
+        #[cfg(feature = "memory")]
+        Action::Uninstall { .. } => unreachable!("dispatched before the database is opened"),
         Action::Audit { .. } | Action::Options | Action::Config { .. } => {
             unreachable!("dispatched before the database is opened")
         }
@@ -511,6 +524,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Hook { .. } => "hook",
         Action::Audit { .. } => "audit",
         Action::Options => "options",
+        #[cfg(feature = "memory")]
+        Action::Uninstall { .. } => "uninstall",
         Action::Config { .. } => "config",
         Action::Embed { .. } => "embed",
         Action::Metrics { .. } => "metrics",
