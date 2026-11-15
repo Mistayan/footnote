@@ -51,8 +51,8 @@ Gaps found for the engine, before the window:
 ## 4. Questions for the studio (Johan)
 
 **Answered 15 November:** (1) a compact tray panel plus the full window; (2) T3 Code's design language first, adjusted only where
-it does not suit Footnote; (3) the dot field is judged on a demo ([design/demos/launcher-dots.html](../../design/demos/launcher-dots.html):
-none, header only, everywhere, with the draw cost per frame); (4) dark only for now; (5) marks for every product and a rule for
+it does not suit Footnote; (3) the dot field in the **header only**, chosen on a demo
+([design/demos/launcher-dots.html](../../design/demos/launcher-dots.html): none, header only, everywhere, with the draw cost per frame); (4) dark only for now; (5) marks for every product and a rule for
 future members of the family, so the question is never asked again.
 
 
