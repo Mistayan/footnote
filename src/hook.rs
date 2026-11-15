@@ -116,11 +116,33 @@ fn hidden(command: &mut Command) -> &mut Command {
     command
 }
 
+/// The project scope: the repository's name on its `origin` remote (the same on every clone and machine: `footnote`, not the
+/// local folder `BorgKnowledge`), else the repository folder's name, else the working folder's.
 fn project_of(cwd: &str) -> String {
-    let top = (|| -> Result<String> {
+    let remote = git(cwd, &["remote", "get-url", "origin"]);
+    let name = remote
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(".git");
+    if !name.is_empty() {
+        return name.to_lowercase();
+    }
+    let top = git(cwd, &["rev-parse", "--show-toplevel"]);
+    Path::new(if top.is_empty() { cwd } else { &top })
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase()
+}
+
+/// One git query with a 5-second bound; empty on any failure.
+fn git(cwd: &str, args: &[&str]) -> String {
+    (|| -> Result<String> {
         let mut child = hidden(
             Command::new("git")
-                .args(["rev-parse", "--show-toplevel"])
+                .args(args)
                 .current_dir(cwd)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -133,14 +155,12 @@ fn project_of(cwd: &str) -> String {
             return Ok(String::new());
         }
         let output = child.wait_with_output()?;
+        if !output.status.success() {
+            return Ok(String::new());
+        }
         Ok(String::from_utf8(output.stdout)?.trim().to_string())
     })()
-    .unwrap_or_default();
-    Path::new(if top.is_empty() { cwd } else { &top })
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_lowercase()
+    .unwrap_or_default()
 }
 
 fn session_path(dir: &Path, id: &str) -> PathBuf {

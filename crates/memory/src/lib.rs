@@ -253,6 +253,50 @@ pub fn recall(
     Ok(json!({"kind": "memory_recall", "mode": found["mode"], "memories": out}))
 }
 
+/// Move every memory of one project scope to another name (a renamed project, or the switch from folder names to repository
+/// names). One transaction; the duplicate-detection path follows the new scope. A memory whose twin already lives under the
+/// new name is left where it is and reported.
+pub fn rescope(c: &mut Connection, from: &str, to: &str) -> Result<Value> {
+    if to.trim().is_empty() || to.len() > 200 || from == to {
+        bail!("give two different scopes of at most 200 bytes");
+    }
+    let tx = c.transaction()?;
+    let rows: Vec<(i64, String, String)> = {
+        let mut s = tx.prepare(
+            "SELECT s.id, m.kind, c.text FROM memories m JOIN sources s ON s.id=m.source_id JOIN chunks c ON c.source_id=s.id WHERE m.scope=?1",
+        )?;
+        s.query_map([from], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    let (mut moved, mut kept) = (0, Vec::new());
+    for (id, kind, text) in rows {
+        let path = format!(
+            "{PREFIX}{}",
+            &hash(format!("{to}\n{kind}\n{text}").as_bytes())[..32]
+        );
+        let taken: Option<i64> = tx
+            .query_row("SELECT id FROM sources WHERE path=?1", [&path], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if taken.is_some() {
+            kept.push(id);
+            continue;
+        }
+        tx.execute(
+            "UPDATE sources SET root=?2, path=?3, revision=revision+1 WHERE id=?1",
+            params![id, format!("{PREFIX}{to}"), path],
+        )?;
+        tx.execute(
+            "UPDATE memories SET scope=?2 WHERE source_id=?1",
+            params![id, to],
+        )?;
+        moved += 1;
+    }
+    tx.commit()?;
+    Ok(json!({"from": from, "to": to, "moved": moved, "kept_duplicates": kept}))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

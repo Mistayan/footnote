@@ -106,6 +106,14 @@ enum Action {
         id: i64,
     },
     #[cfg(feature = "memory")]
+    /// Rename a project scope of the agent memories (for example after a project rename).
+    MemoryRescope {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+    },
+    #[cfg(feature = "memory")]
     /// Session-start pack: global preferences, then this project's memories, within a character budget.
     MemoryPack {
         #[arg(long)]
@@ -469,6 +477,8 @@ fn execute(cli: Cli) -> Result<Value> {
         #[cfg(feature = "memory")]
         Action::Forget { id } => crate::memory::forget(&mut c, id),
         #[cfg(feature = "memory")]
+        Action::MemoryRescope { from, to } => crate::memory::rescope(&mut c, &from, &to),
+        #[cfg(feature = "memory")]
         Action::MemoryPack { project, max_chars } => {
             crate::memory::pack(&c, project.as_deref(), max_chars)
         }
@@ -524,7 +534,7 @@ fn writes(a: &Action) -> bool {
         #[cfg(feature = "library")]
         Action::Index { .. } => true,
         #[cfg(feature = "memory")]
-        Action::Remember { .. } | Action::Forget { .. } => true,
+        Action::Remember { .. } | Action::Forget { .. } | Action::MemoryRescope { .. } => true,
         Action::Propose { .. } | Action::Validate { .. } | Action::RebuildEmbeddings { .. } => true,
         _ => false,
     }
@@ -548,6 +558,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Remember { .. } => "remember",
         #[cfg(feature = "memory")]
         Action::Forget { .. } => "forget",
+        #[cfg(feature = "memory")]
+        Action::MemoryRescope { .. } => "memory-rescope",
         #[cfg(feature = "memory")]
         Action::MemoryPack { .. } => "memory-pack",
         #[cfg(feature = "memory")]
