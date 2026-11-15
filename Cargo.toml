@@ -5,7 +5,13 @@ edition = "2024"
 description = "Local, read-only memory and document retrieval for AI coding agents, with a footnote on every answer"
 license = "Apache-2.0"
 repository = "https://github.com/bobcat88/footnote"
-rust-version = "1.85"
+rust-version = "1.92"
+
+[features]
+# Opt-in timings and failure tracking (src/metrics.rs). Off in normal builds: zero cost.
+metrics = []
+# Opt-in GGUF embedding models through llama.cpp, compiled in (bench/experiments/LLAMACPP-INPROCESS.md). Needs CMake and LLVM to build.
+llama = ["dep:llama-cpp-2"]
 
 [dependencies]
 anyhow = "1"
@@ -20,6 +26,10 @@ wait-timeout = "0.2"
 interprocess = "2.4.8"
 getrandom = "0.4.3"
 tantivy = "0.27"
+# Embeddings in-process (src/encoder.rs): ONNX Runtime 1.31, statically linked; the tokenizer library under Python's `tokenizers` 0.22.2.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native", "api-31"] }
+tokenizers = { version = "=0.22.2", default-features = false, features = ["onig"] }
+llama-cpp-2 = { version = "=0.1.161", default-features = false, features = ["openmp"], optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"

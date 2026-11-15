@@ -24,7 +24,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 WORK = HERE / "work"  # no dot in the path: the indexer silently skips dot-folders
-EXE = REPO / "target" / "release" / "footnote.exe"
+EXE = Path(os.environ.get("FOOTNOTE_BENCH_EXE") or REPO / "target" / "release" / "footnote.exe")  # a feature build, e.g. --features llama
 MODEL_DIR = REPO / "artifacts" / "models" / "minilm"
 E5_DIR = REPO / "artifacts" / "models" / "e5-small"
 
@@ -292,4 +292,14 @@ class ShippedEnsemble(CliEngine):
         return [doc_id_of(r["path"]) for r in payload["results"]]
 
 
-ENGINES = {e.id: e for e in (ShippedLexical, Bm25OrLexical, ShippedHybrid, ShippedHybridE5, ShippedEnsemble)}
+class NanoMcp(ShippedEnsemble):
+    """`shipped-ensemble-mcp` with Jina v5 nano alone (GGUF through llama.cpp in-process). Needs FOOTNOTE_BENCH_EXE pointing to a
+    build with `--features llama` (test 6, experiments/LLAMACPP-INPROCESS.md)."""
+
+    id = "nano-mcp"
+    family = "nano"
+    model_dirs = [REPO / "artifacts" / "models" / "jina-v5-nano"]
+    config = {**ShippedEnsemble.config, "dense": "jina-v5-nano Q8_0 GGUF via llama.cpp in-process, 768d int8"}
+
+
+ENGINES = {e.id: e for e in (ShippedLexical, Bm25OrLexical, ShippedHybrid, ShippedHybridE5, ShippedEnsemble, NanoMcp)}

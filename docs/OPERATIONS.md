@@ -41,3 +41,12 @@ The ordinary binary ingestion path snapshots one source into scratch, removes th
 No remote, distribution policy, service ownership or unattended schedule has been selected. The project is licensed Apache-2.0 and the shipped extraction path is permissive (PDFium via `pypdfium2`, RapidOCR). PyMuPDF is AGPL-3.0 and is confined to `requirements-eval.lock` for evaluation scripts only; do not move it back into the runtime locks or bundle it in a distributed product. Dependency versions are pinned in `Cargo.lock` and `requirements-extract.lock`, but a full RustSec/package vulnerability audit has not been run. There is no automatic updater. Keep the binary and its source/helper repository together or rebuild after relocation.
 
 The attempted `AGENTS.md` creation was blocked by the protected-instruction approval timeout. It was not retried or bypassed. Canonical policy symlinks exist; the user/coordinator can separately approve a project agent-instruction file if desired.
+
+## Metrics (opt-in builds only)
+
+A build with `cargo build --release --features metrics` records every important step to `<state dir>/metrics.jsonl` (`%LOCALAPPDATA%/footnote` on Windows): its duration, whether it succeeded, and a start mark for long steps. A normal build compiles all of this out: no clock read, no allocation, no write. Releases are built without the feature.
+
+- `footnote metrics [--top 30]`: per step, count, failures, p50, p95, max and total time, slowest first; then steps that started and never recorded an end in the same process (killed, hung, crashed, or still running, such as an open `serve`).
+- Steps: `cli.<command>`, `mcp.<tool>`, `index.extract`, `lexical.sync`, `search.keywords`, `search.query_vector`, `search.vectors`, `helper.start`, `helper.query`, `helper.passages`, `model.identity`.
+- The memory hook writes `hook.extract`, `hook.llm.<route>` and `hook.recall` to the same file when its settings contain `"metrics": true`.
+- Processes started by `cargo test` without their own `FOOTNOTE_STATE_DIR` never write to the real file.

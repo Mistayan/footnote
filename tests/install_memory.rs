@@ -60,7 +60,7 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
     assert_eq!(starts.len(), 2);
     assert_eq!(starts[0]["hooks"][0]["command"], "other-tool hook");
     assert!(starts[1].to_string().contains("memory_hook.py"));
-    for event in ["UserPromptSubmit", "Stop", "PreCompact", "SessionEnd"] {
+    for event in ["UserPromptSubmit", "Stop"] {
         assert!(
             settings["hooks"][event]
                 .to_string()
@@ -68,7 +68,15 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
             "{event}"
         );
     }
-    assert!(home.join(".claude/commands/remember.md").exists());
+    assert!(
+        fs::read_to_string(home.join(".claude/commands/remember.md"))
+            .unwrap()
+            .contains("footnote_remember")
+    );
+    assert!(
+        settings["hooks"].get("PreCompact").is_none(),
+        "no extraction events any more"
+    );
 
     // Codex: TOML server appended after the user's own keys, hooks for the events Codex has.
     let toml = fs::read_to_string(home.join(".codex/config.toml")).unwrap();

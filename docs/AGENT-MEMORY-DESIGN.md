@@ -100,12 +100,23 @@ Add-only with supersede links, as in mem0's newest pipeline and Zep: nothing is 
 
 ## 7. Decisions (Johan, 14 November 2026)
 
-1. **Extraction model: the user's own LLM.** Built-in route: the Claude Code CLI, the one Johan uses; no other provider is maintained by us (one-person team). Any other provider goes through one generic route configured with an endpoint, a model and an API-key variable (OpenAI-compatible API, which also covers local servers such as Ollama or LM Studio). A local keyword extractor is the fallback when no LLM is configured.
+1. **Extraction model: the user's own LLM.** Built-in route: the Claude Code CLI, the one Johan uses; no other provider is maintained by us (one-person team). Any other provider goes through one generic route configured with an endpoint, a model and an API-key variable (OpenAI-compatible API, which also covers local servers such as Ollama or LM Studio). ~~A local keyword extractor is the fallback when no LLM is configured.~~ Removed 14 November 2026: memory is for agents and by agents, so it is written by an LLM or not at all. Measured before removal, the keyword fallback found the answer's session in the top 5 for 0.50 of LongMemEval questions, against 0.98 when sessions are kept whole (`bench/experiments/MEMORY-BASELINE.md`). When the LLM is missing or fails, the conversation stays pending and is retried.
 2. **Scope: preferences global, everything else per project.** What always applies is kept apart from what is project-specific. Exceptions stay explicit in the memory text ("usually prefers X; in Y cases prefers Z") instead of overwriting the general preference.
 3. **Who may write: the extraction hook and explicit requests only.** Never automatic writes from tool output. A user command forces an extraction at the current point of the session.
-4. **Sensitive projects.** A project can be marked sensitive. Its project memories are then never extracted through a non-local LLM. Global preferences may still be extracted. Project memories in a sensitive project come only from a local LLM route or the keyword fallback.
+4. **Sensitive projects.** A project can be marked sensitive. Its project memories are then never extracted through a non-local LLM. Global preferences may still be extracted. Project memories in a sensitive project come only from a local LLM route.
 
 After agent memory: index build time (section "Where Footnote loses" in `bench/experiments/FINAL-RANKING.md`).
+
+## 7b. One layer: the agent writes its own memories (Johan, 14 November 2026)
+
+Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents: the agent people already use is the LLM that writes the memories, with `footnote_remember`, in its own context. No second model reads the conversation again.
+
+- **When:** every 10 prompts, the Stop hook asks the agent once, at the end of a turn, to save what it learned (the hook's `decision: block` with the request as reason; it never asks twice in a row). `/remember` is a command whose text is the same request. Session start still injects the memory pack and each prompt still gets its relevant memories.
+- **Why:** no second LLM to configure or pay, the best model available writes the memories with the full context instead of a weaker model reading an excerpt, the conversation is already in the agent's cached context so the cost is mostly the few hundred tokens of memories, and nothing is sent anywhere new. Agents that forget to save on their own are the known weakness of tool-based memory; here the hook asks at a fixed moment.
+- **Removed:** the separate extractor (Claude CLI with Haiku or an OpenAI-compatible endpoint), transcript parsing, the prompt journal, catch-up, and the keyword fallback (measured at 0.50 any@5 against 0.98 for whole sessions, `bench/experiments/MEMORY-BASELINE.md`).
+- **Decision 4 (sensitive projects)** existed so a project's text never reached a second, non-local LLM. With one layer, nothing new leaves the agent, so it is resolved by design and its setting is gone.
+- **Vectors:** agents call the tool without model paths, so the hook computes vectors for new memories in the background after a save and at session start.
+- **Not verified yet:** whether Codex honors a Stop hook's request to continue; Claude Code, Grok and DeepSeek's bridge do.
 
 ## 8. Built so far (14 November 2026)
 

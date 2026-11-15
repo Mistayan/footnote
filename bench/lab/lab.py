@@ -212,6 +212,8 @@ class Encoder:
         so.intra_op_num_threads = threads or max(1, (os.cpu_count() or 4) // 2)
         self.sess = ort.InferenceSession(str(folder / "model.onnx"), so, providers=["CPUExecutionProvider"])
         self.inputs = {i.name for i in self.sess.get_inputs()}
+        # Multimodal graphs (EmbeddingGemma 2) also take image, video and audio features: text-only means zero such tokens.
+        self.empty = {i.name: i.shape[1] for i in self.sess.get_inputs() if i.name.endswith("_features")}
 
     def embed(self, texts: list[str], kind: str, batch: int = 16) -> np.ndarray:
         prefix = self.spec["q" if kind == "query" else "p"]
@@ -225,6 +227,8 @@ class Encoder:
             feed = {"input_ids": ids, "attention_mask": mask}
             if "token_type_ids" in self.inputs:
                 feed["token_type_ids"] = np.zeros_like(ids)
+            for name, width in self.empty.items():
+                feed[name] = np.zeros((0, width), dtype=np.float32)
             pooling = self.spec["pooling"]
             if pooling == "graph":  # pooling and projection are inside the ONNX graph (EmbeddingGemma)
                 h = self.sess.run([self.spec.get("output", "sentence_embedding")], feed)[0]
@@ -372,12 +376,93 @@ def fuse(lex: np.ndarray | None, den: np.ndarray | None, cfg: dict, k: int, alph
 
 # ------------------------------------------------------------------ engine
 ENCODERS: dict = {}  # one loaded model per (name, max_len), shared by every engine in the process
+LLAMA_SERVER = os.environ.get("FOOTNOTE_LLAMA_SERVER", "D:/Projets/Qwythos/runtime/b11901/llama-server.exe")
+
+
+class LlamaEncoder:
+    """GGUF model served by a resident llama.cpp `llama-server --embedding` (test 5, bench/experiments/LLAMACPP-MODELS.md).
+
+    Queries always go to a CPU server (-ngl 0); documents go to a server with the spec's `ngl` (0: CPU, 99: GPU). Texts are cut to
+    `max_len` tokens like the ONNX encoders (tokenize, keep the first tokens, detokenize), then the model's own special tokens are added."""
+
+    def __init__(self, name: str, max_len: int | None = None) -> None:
+        self.name, self.spec = name, models.MODELS[name]
+        self.max_len = max_len or self.spec["max_len"]
+        self.path = models.gguf_path(name)
+        self.servers: dict[int, tuple] = {}
+
+    def _url(self, ngl: int) -> str:
+        if ngl not in self.servers:
+            import atexit, socket, subprocess, urllib.request  # noqa: E401, PLC0415
+            with socket.socket() as sk:
+                sk.bind(("127.0.0.1", 0))
+                port = sk.getsockname()[1]
+            slots = 8 if ngl else 4
+            ctx = slots * 1024
+            cmd = [LLAMA_SERVER, "-m", str(self.path), "--embedding", "-ngl", str(ngl), "-np", str(slots), "-c", str(ctx),
+                   "-b", str(ctx), "-ub", str(ctx), "-t", str(max(1, (os.cpu_count() or 4) // 2)), "--host", "127.0.0.1",
+                   "--port", str(port), "--no-webui"]
+            if self.spec.get("pooling") == "last":
+                cmd += ["--pooling", "last"]
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            atexit.register(proc.kill)
+            url = f"http://127.0.0.1:{port}"
+            for _ in range(600):
+                try:
+                    if urllib.request.urlopen(url + "/health", timeout=2).status == 200:
+                        break
+                except OSError:
+                    if proc.poll() is not None:
+                        raise RuntimeError(f"llama-server exited ({proc.returncode}) for {self.name}")
+                time.sleep(0.2)
+            else:
+                raise RuntimeError("llama-server did not start")
+            self.servers[ngl] = (proc, url)
+        return self.servers[ngl][1]
+
+    def close(self) -> None:
+        for proc, _ in self.servers.values():
+            proc.kill()
+            proc.wait()
+        self.servers.clear()
+
+    @staticmethod
+    def _post(url: str, body: dict) -> dict:
+        import urllib.request  # noqa: PLC0415
+        req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=600) as r:
+            return json.loads(r.read())
+
+    def _fit(self, url: str, text: str) -> str:
+        if len(text.encode()) < self.max_len - 4:  # every token covers at least one byte, so this text fits
+            return text + self.spec.get("suffix", "")
+        toks = self._post(url + "/tokenize", {"content": text, "add_special": False})["tokens"]
+        if len(toks) > self.max_len - 4:
+            text = self._post(url + "/detokenize", {"tokens": toks[: self.max_len - 4]})["content"]
+        return text + self.spec.get("suffix", "")
+
+    def embed(self, texts: list[str], kind: str, batch: int = 64) -> np.ndarray:
+        prefix = self.spec["q" if kind == "query" else "p"]
+        url = self._url(self.spec.get("qngl", 0) if kind == "query" else self.spec["ngl"])
+        out = []
+        for i in range(0, len(texts), batch):
+            part = [self._fit(url, prefix + t) for t in texts[i:i + batch]]
+            data = sorted(self._post(url + "/v1/embeddings", {"input": part})["data"], key=lambda d: d["index"])
+            out.extend(d["embedding"] for d in data)
+        v = np.asarray(out, dtype=np.float32)
+        if not np.isfinite(v).all():
+            raise RuntimeError(f"{self.name}: non-finite embedding")
+        return v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-12)
 
 
 def get_encoder(name: str, max_len: int | None) -> Encoder:
     key = (name, max_len or models.MODELS[name]["max_len"])
     if key not in ENCODERS:
-        ENCODERS[key] = Encoder(name, max_len)
+        if "gguf" in models.MODELS[name]:  # an idle server would hold VRAM the next model needs
+            for enc in ENCODERS.values():
+                if isinstance(enc, LlamaEncoder):
+                    enc.close()
+        ENCODERS[key] = LlamaEncoder(name, max_len) if "gguf" in models.MODELS[name] else Encoder(name, max_len)
     return ENCODERS[key]
 
 

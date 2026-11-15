@@ -153,6 +153,20 @@ enum Action {
         #[arg(long)]
         memory: bool,
     },
+    /// Vectors for a JSON array of texts on stdin, with the shipped recipe (benchmarks and checks; not needed for normal use).
+    #[command(hide = true)]
+    Embed {
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long, value_parser = ["query", "passage"])]
+        kind: String,
+    },
+    /// Summarize the metrics file: time per step, failures, steps that never finished (builds with --features metrics only).
+    #[cfg(feature = "metrics")]
+    Metrics {
+        #[arg(long, default_value_t = 30)]
+        top: usize,
+    },
     /// Verify an append-only audit log (no database needed).
     Audit {
         #[command(subcommand)]
@@ -445,11 +459,12 @@ fn index(
                 },
             }
         } else {
-            crate::extract::extract(&bytes, &ext).unwrap_or_else(|_| crate::extract::Extraction {
-                status: "unsupported_or_failed".into(),
-                extractor: "local-extractor-unavailable".into(),
-                pages: vec![],
-            })
+            crate::metrics::timed!("index.extract", crate::extract::extract(&bytes, &ext))
+                .unwrap_or_else(|_| crate::extract::Extraction {
+                    status: "unsupported_or_failed".into(),
+                    extractor: "local-extractor-unavailable".into(),
+                    pages: vec![],
+                })
         };
         if extraction.status != "indexed" {
             failed += 1;
@@ -646,9 +661,12 @@ pub(crate) fn search(
     }
     let text_limit = limit - records.len();
     // Chunk ranking comes from the derived Tantivy index when there is one (BM25, stemming); FTS5 is the fallback.
-    if let Some(ids) = crate::lexical::top_ids(c, q, (limit * 30).max(100))
-        .ok()
-        .flatten()
+    if let Some(ids) = crate::metrics::timed!(
+        "search.keywords",
+        crate::lexical::top_ids(c, q, (limit * 30).max(100))
+    )
+    .ok()
+    .flatten()
     {
         let mut s = c.prepare(&format!(
             "{HIT} WHERE c.id=?1 AND s.status='indexed' AND c.id=(SELECT min(c2.id) FROM chunks c2 JOIN sources s2 ON s2.id=c2.source_id WHERE s2.sha256=s.sha256 AND s2.status='indexed' AND c2.heading=c.heading AND c2.page IS c.page AND c2.line=c.line AND c2.text=c.text)"
@@ -790,6 +808,17 @@ fn execute(cli: Cli) -> Result<Value> {
             };
         }
         Action::Audit { action } => return audit_command(action),
+        Action::Embed { model, kind } => {
+            let mut input = String::new();
+            std::io::Read::read_to_string(
+                &mut std::io::Read::take(std::io::stdin(), 64_000_000),
+                &mut input,
+            )?;
+            let texts: Vec<String> = serde_json::from_str(&input)?;
+            return crate::semantic::embed(model, &texts, kind);
+        }
+        #[cfg(feature = "metrics")]
+        Action::Metrics { top } => return crate::metrics::summary(*top),
         _ => {}
     }
     let db = require_db(&cli.db)?;
@@ -814,11 +843,12 @@ fn execute(cli: Cli) -> Result<Value> {
         } => {
             let mut report = index(&mut c, &root, &allow, max_files, max_mib)?;
             // Build the lexical index at index time; a failure only means searches fall back to FTS5.
-            report["lexical_index"] = match crate::lexical::sync(&c) {
-                Ok(Some(_)) => json!("ready"),
-                Ok(None) => json!("not_applicable"),
-                Err(e) => json!(format!("unavailable: {e:#}")),
-            };
+            report["lexical_index"] =
+                match crate::metrics::timed!("lexical.sync", crate::lexical::sync(&c)) {
+                    Ok(Some(_)) => json!("ready"),
+                    Ok(None) => json!("not_applicable"),
+                    Err(e) => json!(format!("unavailable: {e:#}")),
+                };
             Ok(report)
         }
         Action::RebuildEmbeddings { model } => crate::semantic::rebuild(&mut c, &model),
@@ -890,8 +920,12 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Audit { .. } => {
             unreachable!("audit verification is dispatched before the database is opened")
         }
-        Action::Install { .. } => {
-            unreachable!("install is dispatched before the database is opened")
+        Action::Install { .. } | Action::Embed { .. } => {
+            unreachable!("dispatched before the database is opened")
+        }
+        #[cfg(feature = "metrics")]
+        Action::Metrics { .. } => {
+            unreachable!("metrics is dispatched before the database is opened")
         }
     }
 }
@@ -931,6 +965,32 @@ fn backup(c: &Connection, output: &Path) -> Result<Value> {
     }
     Ok(json!({"backup":output,"sha256":format!("{:x}",digest.finalize())}))
 }
+/// Step name of a command in the metrics file.
+#[cfg(feature = "metrics")]
+fn action_name(a: &Action) -> &'static str {
+    match a {
+        Action::Index { .. } => "index",
+        Action::RebuildEmbeddings { .. } => "rebuild-embeddings",
+        Action::Search { mode, .. } if mode == "hybrid" => "search-hybrid",
+        Action::Search { .. } => "search-lexical",
+        Action::Get { .. } => "get",
+        Action::Propose { .. } => "propose",
+        Action::Validate { .. } => "validate",
+        Action::GetRecord { .. } => "get-record",
+        Action::Backup { .. } => "backup",
+        Action::Stats => "stats",
+        Action::Remember { .. } => "remember",
+        Action::Forget { .. } => "forget",
+        Action::MemoryPack { .. } => "memory-pack",
+        Action::MemoryRecall { .. } => "memory-recall",
+        Action::Serve { .. } => "serve",
+        Action::Mcp => "mcp",
+        Action::Install { .. } => "install",
+        Action::Audit { .. } => "audit",
+        Action::Embed { .. } => "embed",
+        Action::Metrics { .. } => "metrics",
+    }
+}
 pub fn run() {
     let cli = match Cli::try_parse() {
         Ok(c) => c,
@@ -951,13 +1011,15 @@ pub fn run() {
     // In MCP mode stdout belongs to the JSON-RPC transport: a serve-level
     // failure is reported on stderr instead of the CLI's JSON envelope.
     let serving = matches!(cli.command, Action::Serve { .. } | Action::Mcp);
-    match execute(cli) {
+    let vectors = matches!(cli.command, Action::Embed { .. }); // bulk output by design: no response cap
+    crate::metrics::started!(format!("cli.{}", action_name(&cli.command)));
+    match crate::metrics::timed!(format!("cli.{}", action_name(&cli.command)), execute(cli)) {
         Ok(v) => {
             if serving {
                 return;
             }
             let encoded = v.to_string();
-            if encoded.len() > 256_000 {
+            if encoded.len() > 256_000 && !vectors {
                 println!(
                     "{}",
                     json!({"error":"response exceeds 256k byte limit; narrow search"})

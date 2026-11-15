@@ -6,20 +6,16 @@
 //! through a resident helper process (one per model), so the model is loaded once and a query costs milliseconds.
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
-    fs,
-    io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
-    process::{Child, ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex, OnceLock, mpsc},
-    thread,
-    time::Duration,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 pub const MIGRATION: &str = "CREATE TABLE embedding_models(identity TEXT PRIMARY KEY,manifest TEXT NOT NULL,helper_sha256 TEXT NOT NULL,dimension INTEGER NOT NULL); CREATE TABLE embeddings(model TEXT NOT NULL REFERENCES embedding_models(identity),kind TEXT NOT NULL,id INTEGER NOT NULL,signature TEXT NOT NULL,vector TEXT NOT NULL,PRIMARY KEY(model,kind,id));";
+/// The shipped models' width; every model's own width comes from its manifest and is stored in `embedding_models.dimension`.
+#[cfg(test)]
 const DIM: usize = 384;
 const SHORTLIST: usize = 1000;
 const POOL: usize = 100;
@@ -34,14 +30,12 @@ fn scan_limit() -> usize {
 const ALPHA: f64 = 0.55;
 const BATCH: usize = 128;
 const MAX_MODELS: usize = 3;
-const MAX_LINE: u64 = 128_000_000;
-const WORKER_TIMEOUT: Duration = Duration::from_secs(600);
 
-#[derive(Deserialize)]
 struct Encoded {
     vectors: Vec<Vec<f64>>,
     model_sha256: String,
     truncated_at_limit: usize,
+    dimension: usize,
 }
 fn check_identity(expected: &str, encoded: &Encoded) -> Result<()> {
     if encoded.model_sha256 != expected {
@@ -52,30 +46,24 @@ fn check_identity(expected: &str, encoded: &Encoded) -> Result<()> {
 fn identity(model: &Path) -> Result<(String, String)> {
     crate::app::no_links(model)?;
     let manifest = String::from_utf8(crate::app::bounded_read(&model.join("manifest.json"))?)?;
-    for name in ["model.onnx", "tokenizer.json"] {
+    let runtime = serde_json::from_str::<Value>(&manifest)?["runtime"].as_str().unwrap_or("onnx").to_string();
+    for name in crate::encoder::files(&runtime) {
         crate::app::no_links(&model.join(name))?;
     }
     Ok((crate::app::hash(manifest.as_bytes()), manifest))
 }
+/// Identity of the embedding recipe (code, not model), stored with each model's vectors: when it changes, stored vectors are rebuilt.
+/// It is still the SHA-256 of the last Python helper (`tools/embed.py`): the Rust encoder gives the same vectors (cosine 1.0) and the
+/// same rankings (bench/experiments/BUILD-SPEED.md, test 4), so databases built with the helper stay valid.
+const RECIPE: &str = "d69ec768e02c6700472d7d8fed979fa67f576b276f939eee792a9d392ecfcccb";
 fn helper_hash() -> Result<String> {
-    Ok(crate::app::hash(&fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tools/embed.py"),
-    )?))
+    Ok(RECIPE.to_string())
 }
 
-// ------------------------------------------------------------------ resident helper
-struct Worker {
-    child: Child,
-    stdin: ChildStdin,
-    lines: mpsc::Receiver<std::io::Result<String>>,
-}
-impl Drop for Worker {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-static WORKERS: OnceLock<Mutex<HashMap<PathBuf, Worker>>> = OnceLock::new();
+// ------------------------------------------------------------------ resident encoders
+/// One loaded encoder per model directory, for the life of the process (the MCP server, the daemon): loading costs about a second,
+/// a query a few milliseconds.
+static ENCODERS: OnceLock<Mutex<HashMap<PathBuf, crate::encoder::Encoder>>> = OnceLock::new();
 
 pub(crate) fn python() -> PathBuf {
     crate::state::env("FOOTNOTE_PYTHON", "BORG_KNOWLEDGE_PYTHON")
@@ -88,132 +76,46 @@ pub(crate) fn python() -> PathBuf {
             })
         })
 }
-fn read_bounded_line<R: BufRead>(r: &mut R) -> std::io::Result<Option<String>> {
-    let mut line = String::new();
-    let n = r.by_ref().take(MAX_LINE).read_line(&mut line)?;
-    if n == 0 {
-        return Ok(None);
-    }
-    if !line.ends_with('\n') && n as u64 >= MAX_LINE {
-        return Err(std::io::Error::other(
-            "embedding helper response exceeds 128 MB",
-        ));
-    }
-    Ok(Some(line))
-}
-fn spawn_worker(model: &Path, expected: &str) -> Result<Worker> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let mut cmd = Command::new(python());
-    cmd.arg("-I")
-        .arg(root.join("tools/embed.py"))
-        .arg("--serve")
-        .arg(model)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    // The helper is scrubbed like every other one: no agent credentials in a text parser.
-    crate::app::helper_env(&mut cmd);
-    let mut child = cmd.spawn().context("start the embedding helper")?;
-    let stdin = child.stdin.take().context("helper stdin")?;
-    let stdout = child.stdout.take().context("helper stdout")?;
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            match read_bounded_line(&mut reader) {
-                Ok(Some(line)) => {
-                    if tx.send(Ok(line)).is_err() {
-                        break;
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    let _ = tx.send(Err(e));
-                    break;
-                }
-            }
-        }
-    });
-    let worker = Worker {
-        child,
-        stdin,
-        lines: rx,
-    };
-    let ready = worker
-        .lines
-        .recv_timeout(Duration::from_secs(180))
-        .context("embedding helper did not start in 180 s")??;
-    let ready: Value = serde_json::from_str(&ready).context("helper handshake")?;
-    if let Some(e) = ready["error"].as_str() {
-        bail!(
-            "embedding helper failed: {}",
-            e.chars().take(1000).collect::<String>()
-        );
-    }
-    if ready["ready"] != true || ready["model_sha256"] != expected {
-        bail!("embedding helper loaded a different model than the manifest on disk");
-    }
-    Ok(worker)
-}
-fn ask(worker: &mut Worker, body: &str) -> Result<Encoded> {
-    worker.stdin.write_all(body.as_bytes())?;
-    worker.stdin.write_all(b"\n")?;
-    worker.stdin.flush()?;
-    let line = worker
-        .lines
-        .recv_timeout(WORKER_TIMEOUT)
-        .context("embedding helper timed out (600 s)")??;
-    let v: Value = serde_json::from_str(&line)?;
-    if let Some(e) = v["error"].as_str() {
-        bail!(
-            "embedding helper failed: {}",
-            e.chars().take(1000).collect::<String>()
-        );
-    }
-    Ok(serde_json::from_value(v)?)
-}
 fn encode_batch(model: &Path, expected: &str, texts: &[String], kind: &str) -> Result<Encoded> {
-    let body = json!({"kind":kind,"texts":texts}).to_string();
-    if body.len() > 64_000_000 {
-        bail!("embedding request exceeds 64 MB");
-    }
-    let pool = WORKERS.get_or_init(|| Mutex::new(HashMap::new()));
+    let pool = ENCODERS.get_or_init(Default::default);
     let mut guard = pool
         .lock()
-        .map_err(|_| anyhow::anyhow!("helper pool poisoned"))?;
-    for attempt in 0..2 {
-        if !guard.contains_key(model) {
-            guard.insert(model.to_path_buf(), spawn_worker(model, expected)?);
-        }
-        let worker = guard.get_mut(model).expect("inserted above");
-        match ask(worker, &body) {
-            Ok(e) => return Ok(e),
-            Err(e) if attempt == 0 && e.to_string().contains("timed out") => {
-                guard.remove(model); // a stuck helper is killed by Drop and replaced once
-            }
-            Err(e) => {
-                let broken = e.downcast_ref::<std::io::Error>().is_some();
-                if broken {
-                    guard.remove(model);
-                }
-                return Err(e);
-            }
-        }
+        .map_err(|_| anyhow::anyhow!("encoder pool poisoned"))?;
+    if guard.get(model).is_some_and(|e| e.model_sha256 != expected) {
+        guard.remove(model); // the manifest changed on disk since it was loaded: load the new model
     }
-    bail!("embedding helper unavailable")
+    if !guard.contains_key(model) {
+        let e = crate::metrics::timed!("encoder.load", crate::encoder::Encoder::load(model))?;
+        guard.insert(model.to_path_buf(), e);
+    }
+    let encoder = guard.get_mut(model).expect("inserted above");
+    let e = crate::metrics::timed!(
+        if kind == "query" {
+            "encoder.query"
+        } else {
+            "encoder.passages"
+        },
+        encoder.encode(texts, kind)
+    )?;
+    Ok(Encoded {
+        vectors: e.vectors,
+        model_sha256: encoder.model_sha256.clone(),
+        truncated_at_limit: e.truncated_at_limit,
+        dimension: encoder.dimension(),
+    })
 }
 fn encode(model: &Path, texts: &[String], kind: &str) -> Result<Encoded> {
     if texts.is_empty() {
         bail!("embedding batch must not be empty");
     }
-    let (expected, _) = identity(model)?;
+    let (expected, _) = crate::metrics::timed!("model.identity", identity(model))?;
     let mut merged: Option<Encoded> = None;
     for part in texts.chunks(BATCH) {
         let mut e = encode_batch(model, &expected, part, kind)?;
         check_identity(&expected, &e)?;
         if e.vectors.len() != part.len()
             || e.vectors.iter().any(|v| {
-                v.len() != DIM
+                v.len() != e.dimension
                     || v.iter().any(|x| !x.is_finite())
                     || (v.iter().map(|x| x * x).sum::<f64>() - 1.0).abs() > 0.01
             })
@@ -229,6 +131,16 @@ fn encode(model: &Path, texts: &[String], kind: &str) -> Result<Encoded> {
         }
     }
     Ok(merged.expect("texts is not empty"))
+}
+
+/// The `embed` command: the full-precision vectors the index would store, before int8 quantization.
+pub fn embed(model: &Path, texts: &[String], kind: &str) -> Result<Value> {
+    let t = std::time::Instant::now();
+    let e = encode(model, texts, kind)?;
+    Ok(
+        json!({"vectors": e.vectors, "model_sha256": e.model_sha256, "truncated_at_limit": e.truncated_at_limit,
+              "seconds": t.elapsed().as_secs_f64()}),
+    )
 }
 
 // ------------------------------------------------------------------ int8 vectors
@@ -247,7 +159,7 @@ fn quantize(v: &[f64]) -> Vec<u8> {
 /// The scale of a stored vector, or `Err` when it is not a plausible unit vector (wrong length, non-finite or zero scale, norm far
 /// from 1): derived data that was damaged is refused, never ranked.
 fn check_blob(blob: &[u8]) -> Result<f32> {
-    if blob.len() != 4 + DIM {
+    if blob.len() < 5 {
         bail!("corrupt derived vector; rebuild embeddings");
     }
     let scale = f32::from_le_bytes(blob[..4].try_into()?);
@@ -265,7 +177,7 @@ fn check_blob(blob: &[u8]) -> Result<f32> {
 /// Cosine of a stored vector with a unit query vector (see `check_blob` for what is refused).
 fn dot_q(blob: &[u8], q: &[f64]) -> Result<f64> {
     let scale = check_blob(blob)? as f64;
-    if q.len() != DIM {
+    if blob.len() != 4 + q.len() {
         bail!("query vector has the wrong dimension");
     }
     Ok(blob[4..]
@@ -280,6 +192,7 @@ fn dot_q(blob: &[u8], q: &[f64]) -> Result<f64> {
 /// Every stored vector of one model, decoded once per process: a long-lived session (the MCP front-end, the daemon) pays the load on the
 /// first hybrid query and then scores 50,000 entries in a few milliseconds instead of re-reading them from SQLite on every query.
 struct Matrix {
+    dim: usize,
     keys: Vec<(u8, i64)>,
     sigs: Vec<Arc<str>>,
     scale: Vec<f32>,
@@ -309,6 +222,7 @@ fn matrix(c: &Connection, identity: &str) -> Result<Arc<Matrix>> {
         return Ok(m.clone());
     }
     let mut m = Matrix {
+        dim: 0,
         keys: Vec::new(),
         sigs: Vec::new(),
         scale: Vec::new(),
@@ -322,6 +236,11 @@ fn matrix(c: &Connection, identity: &str) -> Result<Arc<Matrix>> {
         let (kind, id, sig, blob): (String, i64, String, Vec<u8>) =
             (r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?);
         let scale = check_blob(&blob)?;
+        if m.dim == 0 {
+            m.dim = blob.len() - 4;
+        } else if blob.len() - 4 != m.dim {
+            bail!("corrupt derived vector; rebuild embeddings");
+        }
         m.keys.push((u8::from(kind == "record"), id));
         m.sigs.push(Arc::from(sig));
         m.scale.push(scale);
@@ -369,10 +288,13 @@ pub fn rebuild(c: &mut Connection, models: &[PathBuf]) -> Result<Value> {
     let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let mut report = Vec::new();
     let mut embedded_total = 0usize;
+    let mut dimensions = Vec::new();
     for model in models {
         let (identity, manifest) = identity(model)?;
         // Start (or reuse) the helper first: it verifies the model files against the manifest, even when nothing needs embedding.
-        check_identity(&identity, &encode(model, &["verify".to_string()], "query")?)?;
+        let probe = encode(model, &["verify".to_string()], "query")?;
+        check_identity(&identity, &probe)?;
+        dimensions.push(probe.dimension);
         let stored: Option<String> = tx
             .query_row(
                 "SELECT helper_sha256 FROM embedding_models WHERE identity=?1",
@@ -386,7 +308,7 @@ pub fn rebuild(c: &mut Connection, models: &[PathBuf]) -> Result<Value> {
         }
         tx.execute(
             "INSERT OR REPLACE INTO embedding_models VALUES(?1,?2,?3,?4)",
-            params![identity, manifest, helper, DIM as i64],
+            params![identity, manifest, helper, probe.dimension as i64],
         )?;
         let mut have: HashMap<(String, i64), String> = HashMap::new();
         {
@@ -469,7 +391,7 @@ pub fn rebuild(c: &mut Connection, models: &[PathBuf]) -> Result<Value> {
     }
     tx.commit()?;
     Ok(
-        json!({"embedded":embedded_total,"models":report,"dimension":DIM,"storage":"int8","derived_only":true}),
+        json!({"embedded":embedded_total,"models":report,"dimension":dimensions[0],"dimensions":dimensions,"storage":"int8","derived_only":true}),
     )
 }
 
@@ -524,7 +446,7 @@ impl Dense {
                 };
                 match j {
                     Some(j) if m.sigs[j] == m0.sigs[i] => {
-                        let row = &m.q[j * DIM..(j + 1) * DIM];
+                        let row = &m.q[j * m.dim..(j + 1) * m.dim];
                         v[i] = row.iter().zip(&qf).map(|(b, x)| *b as f32 * x).sum::<f32>()
                             * m.scale[j];
                     }
@@ -712,7 +634,10 @@ pub fn search(
     let chunk_lex = if structured {
         vec![]
     } else {
-        crate::app::lexical_chunks(c, q, SHORTLIST)?
+        crate::metrics::timed!(
+            "search.keywords",
+            crate::app::lexical_chunks(c, q, SHORTLIST)
+        )?
     };
     let record_lex = crate::records::lexical_hits(c, &expr, POOL, f)?;
     let mut lex: HashMap<(u8, i64), f64> = HashMap::new();
@@ -725,7 +650,8 @@ pub fn search(
     // 2. query vectors, one per model (resident helpers)
     let mut qvecs = Vec::new();
     for (m, identity, _) in &recipes {
-        let e = encode(m, &[q.to_string()], "query")?;
+        let e =
+            crate::metrics::timed!("search.query_vector", encode(m, &[q.to_string()], "query"))?;
         check_identity(identity, &e)?;
         qvecs.push(e.vectors[0].clone());
     }
@@ -742,15 +668,23 @@ pub fn search(
         _ => !structured,
     };
     let n = recipes.len();
-    let dense = if scan {
-        let mats = recipes
-            .iter()
-            .map(|(_, identity, _)| matrix(c, identity))
-            .collect::<Result<Vec<_>>>()?;
-        Dense::scan(&mats, &qvecs, |kind, id| keep(kind, id))
-    } else {
-        Dense::shortlist(c, &recipes, &qvecs, &lex)?
-    };
+    let dense = crate::metrics::timed!(
+        "search.vectors",
+        (|| -> Result<_> {
+            Ok(if scan {
+                let mats = recipes
+                    .iter()
+                    .map(|(_, identity, _)| matrix(c, identity))
+                    .collect::<Result<Vec<_>>>()?;
+                if mats.iter().zip(&qvecs).any(|(m, qv)| !m.keys.is_empty() && m.dim != qv.len()) {
+                    bail!("stored vectors do not match the model's width; rebuild embeddings");
+                }
+                Dense::scan(&mats, &qvecs, |kind, id| keep(kind, id))
+            } else {
+                Dense::shortlist(c, &recipes, &qvecs, &lex)?
+            })
+        })()
+    )?;
     // 4. candidates: the lexical shortlist plus the best dense entries, each checked against the live source and its signature
     // Only the best lexical entries can reach the fusion (it keeps the top POOL by score); twice that many are checked so that
     // entries dropped as stale or deleted are replaced by the next ones. Validating the whole shortlist cost one query and one hash each.
@@ -868,6 +802,7 @@ mod tests {
             vectors: vec![],
             model_sha256: "other-manifest".into(),
             truncated_at_limit: 0,
+            dimension: DIM,
         };
         assert!(check_identity("pinned-manifest", &encoded).is_err());
         assert!(check_identity("other-manifest", &encoded).is_ok());
@@ -969,6 +904,23 @@ mod tests {
             matrix(&c, "m").is_err(),
             "a damaged vector is refused while loading"
         );
+    }
+    #[test]
+    fn a_model_takes_its_width_from_its_vectors_and_mixed_widths_are_refused() {
+        let t = tempfile::tempdir().unwrap();
+        let c = Connection::open(t.path().join("k.db")).unwrap();
+        c.execute_batch(MIGRATION).unwrap();
+        c.execute("INSERT INTO embedding_models VALUES('m','{}','h',768)", [])
+            .unwrap();
+        let unit = |dim: usize| -> Vec<f64> { (0..dim).map(|i| if i == 0 { 1.0 } else { 0.0 }).collect() };
+        c.execute("INSERT INTO embeddings VALUES('m','chunk',1,'sig',?1)", params![quantize(&unit(768))])
+            .unwrap();
+        assert_eq!(matrix(&c, "m").unwrap().dim, 768);
+        assert!((dot_q(&quantize(&unit(768)), &unit(768)).unwrap() - 1.0).abs() < 1e-3);
+        assert!(dot_q(&quantize(&unit(768)), &unit(384)).is_err(), "a query of another width is refused");
+        c.execute("INSERT INTO embeddings VALUES('m','chunk',2,'sig',?1)", params![quantize(&unit(384))])
+            .unwrap();
+        assert!(matrix(&c, "m").is_err(), "one model, two widths: refused");
     }
     #[test]
     fn zscore_of_a_constant_is_zero_not_nan() {

@@ -1,0 +1,13 @@
+[package]
+name = "llama_inproc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Test 6 (bench/experiments/LLAMACPP-INPROCESS.md): no dependencies; llama.dll is loaded at run time.
+[dependencies]
+
+[profile.release]
+debug = false
+
+[workspace]

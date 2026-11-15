@@ -65,6 +65,18 @@ MODELS: dict[str, dict] = {
                             "mteb": "ibm-granite__granite-embedding-small-english-r2", "lang": "en"},
     "arctic-m-v2": {"repo": "Snowflake/snowflake-arctic-embed-m-v2.0", "onnx": "onnx/model.onnx", "pooling": "cls", "max_len": 512,
                     "q": "query: ", "p": "", "mteb": "Snowflake__snowflake-arctic-embed-m-v2.0", "lang": "multi"},
+    # Test 5 (bench/experiments/LLAMACPP-MODELS.md): ONNX candidates that would run on the shipped ONNX Runtime path
+    "embeddinggemma2-onnx-q8": {"repo": "onnx-community/embeddinggemma-2-ONNX", "onnx": "onnx/model_quantized.onnx",
+                                "extra": {"model_quantized.onnx_data": "onnx/model_quantized.onnx_data"}, "pooling": "graph",
+                                "output": "sentence_embedding", "max_len": 512, "q": "task: search result | query: ",
+                                "p": "title: none | text: ", "mteb": "google__embeddinggemma-2", "lang": "multi"},
+    "embeddinggemma2-onnx": {"repo": "onnx-community/embeddinggemma-2-ONNX", "onnx": "onnx/model.onnx",
+                             "extra": {"model.onnx_data": "onnx/model.onnx_data"}, "pooling": "graph",
+                             "output": "sentence_embedding", "max_len": 512, "q": "task: search result | query: ",
+                             "p": "title: none | text: ", "mteb": "google__embeddinggemma-2", "lang": "multi"},
+    "granite-311m-multi-r2": {"repo": "ibm-granite/granite-embedding-311m-multilingual-r2", "onnx": "onnx/model_quint8_avx2.onnx",
+                              "pooling": "cls", "max_len": 512, "q": "", "p": "",
+                              "mteb": "ibm-granite__granite-embedding-311m-multilingual-r2", "lang": "multi"},
     "bge-m3": {"repo": "onnx-community/bge-m3-ONNX", "onnx": "onnx/model_quantized.onnx", "pooling": "cls", "max_len": 512,
                "q": "", "p": "", "mteb": "BAAI__bge-m3", "lang": "multi"},
 }
@@ -79,6 +91,39 @@ RERANKERS: dict[str, dict] = {
     "bge-reranker-v2-m3": {"repo": "onnx-community/bge-reranker-v2-m3-ONNX", "onnx": "onnx/model_quantized.onnx", "max_len": 512, "lang": "multi"},
 }
 
+
+# GGUF models run by llama.cpp (bench/experiments/LLAMACPP-MODELS.md, test 5). Files live in artifacts/gguf and are checked against the
+# pinned SHA-256 at every load. "ngl" > 0 encodes documents on the GPU; queries always run on the CPU.
+_GEMMA = {"gguf": {"repo": "ggml-org/embeddinggemma-300M-GGUF", "revision": "0f741b5a6585bd53aeb15cd1372c56f2a0f65e12",
+                   "file": "embeddinggemma-300M-Q8_0.gguf", "sha256": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63"},
+          "max_len": 512, "q": "task: search result | query: ", "p": "title: none | text: ", "lang": "multi"}
+_GEMMA2 = {**_GEMMA, "gguf": {"repo": "ggml-org/embeddinggemma-2-GGUF", "revision": "6ea3e3a309d12a4779cfda98b8c19800d2d5da71",
+                               "file": "embeddinggemma-2-Q8_0.gguf",
+                               "sha256": "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"}}
+_QWEN3 = {"gguf": {"repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "revision": "370f27d7550e0def9b39c1f16d3fbaa13aa67728",
+                   "file": "Qwen3-Embedding-0.6B-Q8_0.gguf", "sha256": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439"},
+          "pooling": "last", "suffix": "<|endoftext|>", "max_len": 512,
+          "q": "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ", "p": "", "lang": "multi"}
+_BGEM3 = {"gguf": {"repo": "ggml-org/bge-m3-Q8_0-GGUF", "revision": "9eba04c5d75ba5a1595e45de734d36bef4e5cb98",
+                   "file": "bge-m3-q8_0.gguf", "sha256": "aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173"},
+          "max_len": 512, "q": "", "p": "", "lang": "multi"}
+_JINA = {"pooling": "last", "max_len": 512, "q": "Query: ", "p": "Document: ", "lang": "multi"}
+_JNANO = {**_JINA, "gguf": {"repo": "jinaai/jina-embeddings-v5-text-nano-retrieval-GGUF", "revision": "59cfaceeeb7d738c404659435af4c0da74d06c96",
+                            "file": "v5-nano-retrieval-Q8_0.gguf", "sha256": "86b6e6279e9b9e71389f02a082764a2ac2b15a50e37482c26f98d69092f12442"}}
+_JSMALL = {**_JINA, "gguf": {"repo": "jinaai/jina-embeddings-v5-text-small-retrieval-GGUF", "revision": "78b0ebcb4c870fdfef409e578b65288b49a4fa90",
+                             "file": "v5-small-retrieval-Q8_0.gguf", "sha256": "b759677362414e664160ffb017fbc74c300feaa4ad4085f69f2cc1bfa12ccb71"}}
+# GPU class (documents and queries on the GPU): too slow for the CPU
+MODELS["gguf-qwen3-4b-gpu"] = {**_QWEN3, "ngl": 99, "qngl": 99, "gguf": {
+    "repo": "Qwen/Qwen3-Embedding-4B-GGUF", "revision": "f4602530db1d980e16da9d7d3a70294cf5c190be", "file": "Qwen3-Embedding-4B-Q8_0.gguf",
+    "sha256": "b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d"}}
+MODELS["gguf-qwen3-8b-gpu"] = {**_QWEN3, "ngl": 99, "qngl": 99, "gguf": {
+    "repo": "Qwen/Qwen3-Embedding-8B-GGUF", "revision": "69d0e58a13e463cd99a9b83e3f5fee7c10265fab", "file": "Qwen3-Embedding-8B-Q8_0.gguf",
+    "sha256": "d20ddc71e8a5c4344f2343481e242233a997dc5eaff442427a945836c97b4deb"}}
+for _name, _spec in {"gguf-jina-v5-nano": _JNANO, "gguf-jina-v5-small": _JSMALL, "gguf-embeddinggemma": _GEMMA, "gguf-embeddinggemma2": _GEMMA2, "gguf-qwen3-0.6b": _QWEN3,
+                     "gguf-bge-m3": _BGEM3}.items():
+    MODELS[_name] = {**_spec, "ngl": 0}
+    MODELS[_name + "-gpu"] = {**_spec, "ngl": 99}
+GGUF_DIR = REPO / "artifacts" / "gguf"
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -140,8 +185,22 @@ def model_dir(name: str) -> Path:
     return folder
 
 
+def gguf_path(name: str) -> Path:
+    g = MODELS[name]["gguf"]
+    path = GGUF_DIR / g["file"]
+    if not path.exists():
+        print(f"downloading {g['repo']}:{g['file']} ...", flush=True)
+        _get(f"https://huggingface.co/{g['repo']}/resolve/{g['revision']}/{g['file']}", path)
+    if sha256_file(path) != g["sha256"]:
+        raise SystemExit(f"{name}: {path} does not match its pinned SHA-256; refusing to use it")
+    return path
+
+
 def lock_entry(name: str) -> dict:
     spec = MODELS.get(name) or RERANKERS[name]
+    if "gguf" in spec:
+        g = spec["gguf"]
+        return {"repo": g["repo"], "revision": g["revision"], "files": {g["file"]: g["sha256"]}}
     if "local" in spec:
         manifest = json.loads((REPO / spec["local"] / "manifest.json").read_text())
         return {"repo": manifest["repository"], "revision": manifest["revision"],

@@ -158,5 +158,24 @@ def models2(ds: str, base: dict):
     return out
 
 
-SWEEPS = {"models2": models2, "fusion2": fusion2, "ensemble": ensemble, "experiments": experiments, "gated_rerank": gated_rerank, "crowding": crowding, "models": models, "lexical": lexical, "fusion": fusion, "chunking": chunking, "rerank": rerank,
+def llamacpp(ds: str, base: dict):
+    """Test 5 (bench/experiments/LLAMACPP-MODELS.md), stage A: each candidate alone in the shipped hybrid (the M2 configuration)."""
+    from lab import merge  # noqa: PLC0415
+    out = [("M0 shipped pair: bekko-a8m + gte-small", merge(base, {}))]
+    for m in ("gguf-embeddinggemma", "gguf-qwen3-0.6b", "gguf-bge-m3", "gguf-embeddinggemma2", "embeddinggemma2-onnx-q8",
+              "embeddinggemma2-onnx", "granite-311m-multi-r2"):
+        out.append((f"T5 {m} alone in the hybrid", merge(base, {"dense": {"model": m, "extra": {"model": ""}}})))
+    return out
+
+
+def llamacpp2(ds: str, base: dict):
+    """Test 5 amendment: Jina v5 (CPU) and the GPU-class Qwen3 4B and 8B, same configuration as `llamacpp`."""
+    from lab import merge  # noqa: PLC0415
+    out = []
+    for m in ("gguf-jina-v5-nano", "gguf-jina-v5-small", "gguf-qwen3-4b-gpu", "gguf-qwen3-8b-gpu"):
+        out.append((f"T5 {m} alone in the hybrid", merge(base, {"dense": {"model": m, "extra": {"model": ""}}})))
+    return out
+
+
+SWEEPS = {"llamacpp": llamacpp, "llamacpp2": llamacpp2, "models2": models2, "fusion2": fusion2, "ensemble": ensemble, "experiments": experiments, "gated_rerank": gated_rerank, "crowding": crowding, "models": models, "lexical": lexical, "fusion": fusion, "chunking": chunking, "rerank": rerank,
           "lexical_lang": lexical_lang}

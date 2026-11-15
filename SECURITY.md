@@ -1,6 +1,6 @@
 # Security policy
 
-Footnote is a local tool that serves your own documents to your own agents. It opens no outbound network connection, and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database. The optional memory hook sends conversation text to the LLM you configure for extraction (your own Claude Code CLI by default).
+Footnote is a local tool that serves your own documents to your own agents. It opens no outbound network connection, and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database. Agent memories are written by the agent you already use, into a local file; no other model receives your conversation.
 The model that describes what it defends against is in the README under [Security model](README.md#security-model).
 
 ## Reporting a vulnerability
@@ -15,7 +15,7 @@ Include what you did, what you expected, what happened, and the version (`footno
 - Anything that lets retrieved text act as an instruction to the server or to the agent beyond being labelled data.
 - Any way for an MCP client to write to the corpus, read outside the indexed roots, or bypass the audit log.
 - Weaknesses in the daemon's local socket authentication, the audit log's hash chain or MAC, or the private state folder.
-- A way to make the embedding helper load a model that does not match its pinned manifest.
+- A way to make the embedding encoder load a model that does not match its pinned manifest.
 - Resource exhaustion through a query, a document or a helper response that the documented bounds should have stopped.
 
 ## Out of scope

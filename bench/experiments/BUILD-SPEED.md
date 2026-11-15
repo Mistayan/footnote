@@ -82,3 +82,47 @@ Large-corpus confirmation, mix-fr-en (receipt `20261114T075530Z` against `202611
 ### Test 2: both models at the same time (written before measuring)
 
 After test 1b each model encodes with 12 threads, one model after the other; one model on all 24 threads was slower. Test: the two models encode the same 2,000 SciFact documents at the same time, each with 12 threads, against one after the other. **Adopt into the binary only if** the wall time of the pair is at most 80 % of the sequential time (1.25× or more), with vectors identical to test 1b (cosine 1.0), since the Rust change (one helper call per model in parallel) costs complexity.
+
+### Test 4: encoder in Rust, no Python (written 14 November, before any code or measurement)
+
+The Python helper (`tools/embed.py`) is replaced by the same recipe inside the binary: ONNX Runtime 1.31 through the `ort` crate (2.0.0-rc.15, built for ONNX Runtime 1.31, the version Python uses today) and the `tokenizers` crate 0.22.2 (the Rust library under Python's `tokenizers` 0.22.2). Same manifest checks, prefixes, truncation, padding, batches of 8 in corpus order, mean pooling, L2 normalization, 2 threads for queries and half the logical CPUs for documents.
+
+Gains to expect: no Python install for search and memory; the helper start (about 1.05 s per process and model, from `footnote metrics`) goes away; no JSON round trip per batch.
+
+**Adopt only if every condition holds:**
+1. **Same vectors:** on the same 2,000 SciFact documents as test 1b and the 300 SciFact test queries, for both shipped models, every cosine between the Python helper and the Rust encoder is at least 0.99999.
+2. **Same results:** a SciFact build with the Rust encoder gives the same rankings SHA-256 as the current receipt (2e8c1770…); if it differs, nDCG@10 within 0.002 of 0.7467.
+3. **No slower:** embedding time at most 1.1× today's 279.9 s, and query p95 at most 1.1× today's 24.6 ms.
+4. **Size:** the release binary grows by at most 40 MB.
+
+If SciFact passes: one mix-fr-en build (rankings b0472dd3…, 712.4 s) before shipping. Product cost if adopted: the recipe identity changes, so existing databases run `rebuild-embeddings` once, unless condition 1 shows identical vectors, in which case the old Python recipe hash is accepted as equal.
+
+**Result (14 November): adopted.**
+
+1. Vectors (`rust_encoder.py`, raw: `work/build-speed-t4-vectors.jsonl`), 2,000 SciFact documents and 300 test queries:
+
+| Model | Texts | Min cosine | Max difference | Python texts/s | Rust texts/s |
+|---|---|---|---|---|---|
+| bekko-a8m | documents | 1.0 | 1.0e-7 | 80.1 | 81.7 |
+| bekko-a8m | queries | 1.0 | 1.5e-7 | 457.6 | 179.1 * |
+| gte-small | documents | 1.0 | 3.3e-16 | 40.9 | 41.2 |
+| gte-small | queries | 1.0 | 2.2e-16 | 350.6 | 285.8 * |
+
+\* The Rust figure includes the first batch's warm-up, the Python one does not; per-query latency is judged on the receipts below.
+
+2–4. Shipped-binary builds, Rust encoder against the Python helper:
+
+| | SciFact before | SciFact after | Mix-fr-en before | Mix-fr-en after |
+|---|---|---|---|---|
+| Receipt | `20261114T074136Z` | `20261114T125923Z` | `20261114T075530Z` | `20261114T131231Z` |
+| nDCG@10 | 0.7467 | 0.7467 | 0.488989 | 0.488989 |
+| Rankings SHA-256 | 2e8c1770… | 2e8c1770… (identical) | b0472dd3… | cda616aa… (3 of 3,039 queries differ) |
+| Embedding time | 279.9 s | **241.0 s (−14 %)** | 704.5 s † | **660.4 s (−6 %)** |
+| Query p50 / p95 | 21.4 / 24.6 ms | **18.5 / 21.5 ms** | 27.8 / 44.6 ms | 27.1 / 43.9 ms |
+| Binary | 9.5 MB | 34.8 MB (+25 MB) | | |
+
+† Whole build 712.4 → 664.9 s (−7 %).
+
+On mix-fr-en, three queries swap two neighbouring documents around rank 9–10: `gte-small` is bit-identical, `bekko-a8m` (fp32) differs by about 1e-7, enough to cross an int8 rounding step now and then. nDCG@10 is identical to six decimals, so condition 2 holds through its fallback. The recipe identity stays the Python helper's hash (`d69ec768…`): vectors already stored stay valid, no rebuild needed.
+
+Python is no longer needed for indexing, embeddings or search. It remains for the one-time model download, PDF extraction and OCR, and the memory hook.

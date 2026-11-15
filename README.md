@@ -37,7 +37,7 @@ An agent that remembers is only useful if it can tell you where it read somethin
 Footnote is a single Rust binary that indexes Markdown, text and PDF on your machine and serves them to your agent over MCP.
 
 - **Cited.** Every hit is bound to the exact bytes it came from. If the file changed, the hit says `stale`. If it is gone, it says `missing_or_unreadable`.
-- **Local.** One SQLite file, one search index, one embedding helper on your CPU. No account, no cloud, no telemetry, no network calls.
+- **Local.** One SQLite file, one search index, embeddings computed inside the binary on your CPU. No account, no cloud, no telemetry, no network calls.
 - **Your documents are read-only for agents.** An agent can recall and fetch. It cannot write to your corpus; it can only add to its own memory database. Every call is appended to a tamper-evident audit log.
 - **French and English.** Built and measured for mixed-language work, not as an afterthought.
 
@@ -116,7 +116,7 @@ Models are public, pinned to a commit and checked against a SHA-256 before every
 
 ## Install
 
-Requirements: Rust 1.85 or later, Python 3.12 (only for the embedding helper), about 200 MB of disk for the two models.
+Requirements: Rust 1.92 or later, about 200 MB of disk for the two models. Python 3.10+ is used only to download the models once, for PDF extraction and OCR, and for the agent memory hook; search and embeddings need none.
 
 ```bash
 git clone https://github.com/bobcat88/footnote && cd footnote
@@ -124,9 +124,7 @@ cargo build --release                      # target/release/footnote
 export PATH="$PWD/target/release:$PATH"     # this shell; use an absolute path for MCP
 mkdir -p ~/.footnote
 
-python -m venv .venv                       # the embedding helper (onnxruntime, tokenizers, numpy)
-.venv/bin/pip install -r requirements-hybrid.lock          # Windows: .venv\Scripts\pip
-python tools/provision_embeddings.py bekko-a8m gte-small   # public models, hash-checked
+python tools/provision_embeddings.py bekko-a8m gte-small   # one-time download of the public models, hash-checked
 
 export DB=~/.footnote/knowledge.db
 footnote --db $DB index --root ~/notes --allow ~/notes
@@ -180,12 +178,12 @@ The previous `borg_*` tool names keep working as aliases.
 
 Besides your documents, Footnote can remember what an assistant learns while working with you: your preferences, project decisions and dates, problems and their fixes, what each session achieved. Memories live in their own database (`memory.db` in Footnote's per-user state folder), never in a corpus, and are searched with the same hybrid engine.
 
-`footnote install --memory` sets it up for every detected agent: Claude Code, Codex, Grok and DeepSeek Harness. It creates the memory database, registers its MCP server, adds the hook and a `/remember` command, backs up each file it edits, and leaves existing entries alone. A hook ([`tools/memory_hook.py`](tools/memory_hook.py)) does the work:
+`footnote install --memory` sets it up for every detected agent: Claude Code, Codex, Grok and DeepSeek Harness. It creates the memory database, registers its MCP server, adds the hook and a `/remember` command, backs up each file it edits, and leaves existing entries alone. The agent itself writes its memories; no second model reads your conversation. A hook ([`tools/memory_hook.py`](tools/memory_hook.py)) organizes it:
 - at session start it injects your preferences and the project's memories;
 - on each prompt it adds the memories relevant to it;
-- every 15 prompts, before compaction and at session end, it extracts new memories in the background with your own Claude Code CLI.
+- every 10 prompts, at the end of a turn, it asks the agent once to save what it learned with `footnote_remember`, and `/remember` does the same on demand.
 
-Another LLM can be used through any OpenAI-compatible endpoint, including a local one. Without any LLM, keyword rules are used. Projects listed as sensitive never have their project memories extracted through a non-local LLM. Settings are documented at the top of the script, the design in [docs/AGENT-MEMORY-DESIGN.md](docs/AGENT-MEMORY-DESIGN.md).
+Nothing leaves the agent you already use: the memories are written by that agent, in its own session, into a local file. Settings are documented at the top of the script, the design in [docs/AGENT-MEMORY-DESIGN.md](docs/AGENT-MEMORY-DESIGN.md).
 
 ## Security model
 
@@ -197,8 +195,8 @@ Footnote is built on the assumption that retrieved text may contain instructions
 - **Private state.** The audit log, its MAC key and the daemon token live in a user-only folder created on first use.
 - **Authenticated daemon.** The shared daemon listens on a local socket only, with a mutual HMAC handshake; agents never see the token.
 - **Tamper-evident audit.** Every call is appended to a hash-chained, MAC-signed log. `footnote audit verify --file <audit.jsonl> --mac-key <audit.key>` verifies it offline.
-- **Bounded everything.** Query length, result counts, helper output size and timeouts are capped; the embedding helper runs with a scrubbed environment.
-- **Verified models.** Model files are hashed against the manifest at every helper start and every rebuild.
+- **Bounded everything.** Query length, result counts, text sizes, helper output size and timeouts are capped; the PDF helper runs with a scrubbed environment.
+- **Verified models.** Model files are hashed against the manifest every time a process loads a model, and loaded from the bytes that were hashed.
 
 ## Reproduce every number
 
@@ -212,7 +210,6 @@ python bench/report.py                                                          
 ## Limits, stated plainly
 
 - The English stemmer is applied to every language. On the mixed French and English index it still beat per-language stemming, but a French-only corpus may want a French stemmer.
-- Hybrid search needs a Python environment for the embedding helper. A pure-Rust encoder is planned; the helper keeps the model hash checks in one place until then.
 - A reranker helps French questions (+0.04 nDCG@10 on Alloprof) but costs 1 to 3 seconds per query on a CPU; it is not in the default path. Reranking only the 60% of queries where the two best dense scores are close keeps 87% of that gain ([E12](bench/experiments/RESULTS.md)).
 - Precision at 100,000 chunks and above was not measured: the judged benchmarks have at most 11,462 documents, and the large-corpus rows above measure speed only.
 - PDF text layers and OCR for scans are supported through optional helpers; extraction quality is reported separately from retrieval quality.

@@ -372,14 +372,11 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         shell_word(&script, &mut warnings)
     );
     let entry = json!({"command": portable(&exe), "args": ["--db", portable(&db), "mcp"]});
-    let claude_events = [
-        ("SessionStart", 15),
-        ("UserPromptSubmit", 10),
-        ("Stop", 5),
-        ("PreCompact", 15),
-        ("SessionEnd", 15),
-    ];
-    let remember = "Memory extraction for this session has started in the background (Footnote). Confirm in one short sentence and continue.\n";
+    // The same three events everywhere: pack at start, recall per prompt, and at Stop the request that makes the agent save
+    // its memories (Codex and DeepSeek's bridge have no compaction or end-of-session event, and none is needed).
+    let events = [("SessionStart", 15), ("UserPromptSubmit", 10), ("Stop", 5)];
+    // /remember is the save request itself: the agent writes its memories with the footnote_remember tool.
+    let remember = "Footnote memory: save what is worth remembering from this conversation with the footnote_remember tool (MCP server footnote-memory). Each memory is one self-contained sentence with absolute dates. kind: preference (how the user likes to work), fact (a decision, convention or date), fix (a problem, its cause and the fix) or session (what was achieved, what is left). scope: \"global\" for what applies everywhere, otherwise this project's repository folder name in lower case. observed_at: today's date. Skip what is already remembered or readable in the code. Then confirm in one short line.\n";
     let mut report: Vec<Value> = Vec::new();
     let mut add =
         |agent: &str, what: &str, path: &Path, status: Result<&'static str>| -> Result<()> {
@@ -433,7 +430,7 @@ pub fn memory(dry_run: bool) -> Result<Value> {
             agent,
             "hooks",
             &hooks,
-            add_hooks(&hooks, &claude_events, &command, dry_run),
+            add_hooks(&hooks, &events, &command, dry_run),
         )?;
         let cmd = claude.join("commands").join("remember.md");
         add(
@@ -462,9 +459,7 @@ pub fn memory(dry_run: bool) -> Result<Value> {
             &config,
             codex_server(&config, MEMORY_SERVER, &db, dry_run),
         )?;
-        // Codex has no PreCompact or SessionEnd: what is left is extracted at the next session start.
         let hooks = codex.join("hooks.json");
-        let events = [("SessionStart", 15), ("UserPromptSubmit", 10), ("Stop", 5)];
         add(
             "codex",
             "hooks",
@@ -483,11 +478,9 @@ pub fn memory(dry_run: bool) -> Result<Value> {
     if patch.exists() {
         // DeepSeek Harness: its Claude Code hooks bridge runs a dedicated hooks file (not all of Claude's hooks),
         // and an mcp-client entry serves the memory database.
-        // Its bridge runs only SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, Stop and the subagent events;
-        // as with Codex, what is left at the end is extracted at the next session start. The bridge package itself
-        // (@deepseek-ai/dsh-hooks-claude-code, pinned to the app's version) is installed with DeepSeek's plugin manager.
+        // The bridge package itself (@deepseek-ai/dsh-hooks-claude-code, pinned to the app's version) is installed with
+        // DeepSeek's plugin manager.
         let hooks = home.join(".dsh").join("footnote-memory-hooks.json");
-        let events = [("SessionStart", 15), ("UserPromptSubmit", 10), ("Stop", 5)];
         add(
             "deepseek-harness",
             "hooks",

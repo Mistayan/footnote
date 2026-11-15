@@ -1,0 +1,135 @@
+{
+  "protocol": "v1",
+  "timestamp_utc": "2026-11-15T08:09:44+00:00",
+  "partial": false,
+  "dataset": {
+    "id": "nfcorpus",
+    "split": "heldout",
+    "pin": {
+      "sha256": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+      "converted_sha256": null,
+      "source": "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/nfcorpus.zip"
+    },
+    "documents": 3633,
+    "queries": 323
+  },
+  "engine": {
+    "id": "lab:llamacpp_720a2cffd89a",
+    "config": {
+      "chunker": {
+        "kind": "whole",
+        "size": 2000,
+        "overlap": 0,
+        "title_prefix": false
+      },
+      "lexical": {
+        "on": true,
+        "tokenizer": {
+          "accents": "strip",
+          "stem": "en"
+        },
+        "k1": 1.2,
+        "b": 0.75,
+        "min_idf": 0.0,
+        "prf": {
+          "docs": 0,
+          "terms": 10,
+          "weight": 0.5
+        },
+        "title_boost": 1
+      },
+      "dense": {
+        "on": true,
+        "model": "gguf-embeddinggemma-gpu",
+        "max_len": null,
+        "center": "none",
+        "quant": "f32",
+        "dims": 0,
+        "prf": {
+          "docs": 0,
+          "beta": 0.5
+        },
+        "extra": {
+          "model": "",
+          "weight": 0.5
+        }
+      },
+      "fusion": {
+        "kind": "cc",
+        "k": 60,
+        "alpha": 0.55,
+        "norm": "zscore",
+        "pool": 100,
+        "dense_from_lexical": 0,
+        "adaptive": {
+          "on": false,
+          "lo": 0.4,
+          "hi": 0.8
+        }
+      },
+      "rerank": {
+        "on": false,
+        "model": "mmarco-mminilm",
+        "pool": 20,
+        "gate_margin": 0.0
+      }
+    },
+    "versions": {
+      "numpy": "2.3.4",
+      "onnxruntime": "1.23.2",
+      "tokenizers": "0.22.1",
+      "python_stem": "snowballstemmer",
+      "model": "gguf-embeddinggemma-gpu",
+      "model_lock": {
+        "repo": "ggml-org/embeddinggemma-300M-GGUF",
+        "revision": "0f741b5a6585bd53aeb15cd1372c56f2a0f65e12",
+        "files": {
+          "embeddinggemma-300M-Q8_0.gguf": "b5ce9d77a3fc4b3b39ccb5643c36777911cc4eb46a66962eadfa3f5f60490d63"
+        }
+      }
+    }
+  },
+  "code": {
+    "commit": "3b35ce81e51cf7ad5c30b750517a582cbde22f17",
+    "dirty": true,
+    "metrics_sha256": "f60c511c79f8cd4fe5e95ecbf5a47d77ddddceae8fc89038682c7fc44502ab50",
+    "harness_sha256": "7dd3b5b91e554225190f293d8700ab37915a9f3ffa245d434b5ab3a37a8db6e9"
+  },
+  "machine": {
+    "os": "Windows-11-10.0.28000-SP0",
+    "cpu": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "logical_cpus": 24,
+    "ram_gib": 47.6,
+    "python": "3.12.10"
+  },
+  "build": {
+    "documents": 3633,
+    "chunks": 3633,
+    "build_ms": 125202.10979995318,
+    "embed_ms": 124360.35129986703,
+    "disk_bytes": 0,
+    "index_bytes_in_memory": 11160576
+  },
+  "metrics": {
+    "ndcg@10": 0.391498,
+    "recall@5": 0.1507,
+    "recall@10": 0.196691,
+    "recall@20": 0.243856,
+    "mrr@10": 0.598913,
+    "queries_scored": 323,
+    "queries_empty": 0
+  },
+  "latency_ms": {
+    "scope": "in-process, resident model, numpy brute force (no process spawn): NOT comparable with CLI engines",
+    "p50": 14.71,
+    "p95": 25.5,
+    "mean": 18.03,
+    "queries": 323
+  },
+  "determinism": {
+    "checked": true,
+    "queries_checked": 200,
+    "identical_rankings": true,
+    "rankings_sha256": "25f19021ba7fa941e556806fdcc4bac09b27eb75961421d75410a33ec1043eff"
+  }
+}

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -162,6 +162,19 @@ impl Audit {
         result: &Value,
         elapsed_ms: u64,
     ) -> Result<Appended> {
+        // Several processes share one log (an MCP server per agent session). Under an exclusive lock, continue from the line that is
+        // really last, not from the one this process saw: otherwise two sessions both write the next number and the chain forks.
+        let mut file = OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(&self.path)
+            .with_context(|| format!("append audit log {}", self.path.display()))?;
+        file.lock()
+            .with_context(|| format!("lock audit log {}", self.path.display()))?;
+        if let Some((seq, prev)) = last_entry(&mut file)? {
+            (self.seq, self.prev) = (seq, prev);
+        }
         let seq = self.seq + 1;
         let result_sha256 = hash(canonical(result).as_bytes());
         let mut entry = json!({
@@ -186,15 +199,8 @@ impl Audit {
         let entry_hash = hash(format!("{}|{}", self.prev, canonical(&entry)).as_bytes());
         entry["hash"] = json!(entry_hash);
         let line = canonical(&entry);
-
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-            .with_context(|| format!("append audit log {}", self.path.display()))?;
-        file.write_all(line.as_bytes())?;
-        file.write_all(b"\n")?;
-        file.flush()?;
+        file.write_all(format!("{line}\n").as_bytes())?;
+        file.flush()?; // the lock is released when `file` is dropped
 
         self.seq = seq;
         self.prev = entry_hash;
@@ -203,6 +209,22 @@ impl Audit {
             result_sha256,
             mac,
         })
+    }
+}
+
+/// `(seq, hash)` of the last line, or `None` for an empty log. Lines are a few hundred bytes, so the last 64 KiB hold it.
+fn last_entry(file: &mut File) -> Result<Option<(u64, String)>> {
+    let len = file.seek(SeekFrom::End(0))?;
+    file.seek(SeekFrom::Start(len.saturating_sub(65_536)))?;
+    let mut tail = String::new();
+    file.read_to_string(&mut tail)?;
+    let Some(line) = tail.lines().rev().find(|l| !l.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let entry: Value = serde_json::from_str(line).context("last audit line: not JSON")?;
+    match (entry["seq"].as_u64(), entry["hash"].as_str()) {
+        (Some(seq), Some(h)) => Ok(Some((seq, h.to_string()))),
+        _ => bail!("last audit line: no seq or hash"),
     }
 }
 

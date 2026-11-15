@@ -12,7 +12,14 @@ const KEY_HEX: &str = "a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a1b2c3d4a
 const WRONG_KEY_HEX: &str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
 
 fn bin() -> Command {
-    Command::new(assert_cmd::cargo::cargo_bin!("footnote"))
+    let mut c = Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+    // An empty state folder: without it, `audit verify` with no --mac-key picks up this machine's managed key (once any
+    // daemon or MCP session has created one) and an unkeyed test log fails with "MAC mismatch".
+    c.env(
+        "FOOTNOTE_STATE_DIR",
+        std::env::temp_dir().join(format!("footnote-audit-test-{}", std::process::id())),
+    );
+    c
 }
 
 fn tmp() -> tempfile::TempDir {
@@ -251,4 +258,48 @@ fn a_mac_key_without_an_audit_log_is_rejected() {
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(stderr.contains("--mac-key requires --audit"), "{stderr}");
+}
+
+#[test]
+fn two_sessions_open_at_once_keep_one_chain() {
+    // Found 2026-11-15: each server kept the head it read at start, so the second session to write forked the chain (two lines with
+    // the same seq) and every later start refused to serve.
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command as Std, Stdio};
+    let t = tmp();
+    let db = fixture(&t);
+    let audit = t.path().join("audit.jsonl");
+    let start = || {
+        let mut c = Std::new(assert_cmd::cargo::cargo_bin!("footnote"));
+        c.env("FOOTNOTE_STATE_DIR", t.path().join("state"))
+            .arg("--db")
+            .arg(&db)
+            .args(["serve", "--mcp", "--audit"])
+            .arg(&audit)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped());
+        let mut child = c.spawn().unwrap();
+        let out = BufReader::new(child.stdout.take().unwrap());
+        (child, out)
+    };
+    let (mut a, mut a_out) = start();
+    let (mut b, mut b_out) = start();
+    let mut call = |child: &mut std::process::Child, out: &mut BufReader<std::process::ChildStdout>, id: u64| {
+        let msg = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":"footnote_stats","arguments":{}}});
+        writeln!(child.stdin.as_mut().unwrap(), "{msg}").unwrap();
+        let mut line = String::new();
+        out.read_line(&mut line).unwrap();
+        assert!(line.contains("\"result\""), "call failed: {line}");
+    };
+    call(&mut a, &mut a_out, 1);
+    call(&mut b, &mut b_out, 1);
+    call(&mut a, &mut a_out, 2);
+    call(&mut b, &mut b_out, 2);
+    drop(a.stdin.take());
+    drop(b.stdin.take());
+    a.wait().unwrap();
+    b.wait().unwrap();
+    let report = verify_ok(&audit, None);
+    let seqs: Vec<u64> = audit_lines(&audit).iter().map(|l| l["seq"].as_u64().unwrap()).collect();
+    assert_eq!(seqs, vec![1, 2, 3, 4], "{report}");
 }

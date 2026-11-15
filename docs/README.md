@@ -12,6 +12,7 @@ ranking are superseded by the benchmark protocol in [`../bench/`](../bench/READM
 | [`../bench/DECISION.md`](../bench/DECISION.md) | Decision rules written before the results, and every outcome: models, fusion, chunking, rerank, storage engine |
 | [`../bench/experiments/RESULTS.md`](../bench/experiments/RESULTS.md) | The 15 optimization experiments, the heldout confirmation, E12 reranker, E14 latency at scale |
 | [`OPERATIONS.md`](OPERATIONS.md) | Limits, privacy, recovery, the audit log (scan bounds and hybrid limits updated) |
+| [`roadmap/BACKLOG.md`](roadmap/BACKLOG.md) | What is running, waiting for a decision, planned, or only an idea |
 
 ## Pilot-era records (historical)
 
