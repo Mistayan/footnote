@@ -23,7 +23,7 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
     let t = tempfile::tempdir().unwrap();
     let (home, state) = (t.path().join("home"), t.path().join("state"));
     let python = t.path().join("python.exe");
-    fs::write(&python, "").unwrap(); // only its existence is checked
+    // Deliberately absent: installing memory must not depend on Python.
     for d in [".claude", ".codex", ".grok", ".dsh/profiles/desktop"] {
         fs::create_dir_all(home.join(d)).unwrap();
     }
@@ -59,12 +59,15 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
     let starts = settings["hooks"]["SessionStart"].as_array().unwrap();
     assert_eq!(starts.len(), 2);
     assert_eq!(starts[0]["hooks"][0]["command"], "other-tool hook");
-    assert!(starts[1].to_string().contains("memory_hook.py"));
+    assert!(
+        starts[1]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" hook")
+    );
     for event in ["UserPromptSubmit", "Stop"] {
         assert!(
-            settings["hooks"][event]
-                .to_string()
-                .contains("memory_hook.py"),
+            settings["hooks"][event].to_string().contains(" hook"),
             "{event}"
         );
     }
@@ -82,11 +85,7 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
     let toml = fs::read_to_string(home.join(".codex/config.toml")).unwrap();
     assert!(toml.starts_with("model = \"gpt\"") && toml.contains("[mcp_servers.footnote-memory]"));
     let codex = read(&home.join(".codex/hooks.json"));
-    assert!(
-        codex["hooks"]["Stop"]
-            .to_string()
-            .contains("memory_hook.py")
-    );
+    assert!(codex["hooks"]["Stop"].to_string().contains(" hook"));
     assert!(codex["hooks"].get("PreCompact").is_none());
 
     assert!(
@@ -103,11 +102,7 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
             && patch.contains("@deepseek-ai/dsh-mcp-client")
     );
     let dsh = read(&home.join(".dsh/footnote-memory-hooks.json"));
-    assert!(
-        dsh["hooks"]["SessionStart"]
-            .to_string()
-            .contains("memory_hook.py")
-    );
+    assert!(dsh["hooks"]["SessionStart"].to_string().contains(" hook"));
     assert!(
         dsh["hooks"].get("SessionEnd").is_none(),
         "the DeepSeek bridge drops SessionEnd"
@@ -139,4 +134,38 @@ fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config(
             .count(),
         1
     );
+}
+
+#[test]
+fn memory_install_migrates_python_hooks_without_replacing_other_hooks_or_metadata() {
+    let t = tempfile::tempdir().unwrap();
+    let (home, state) = (t.path().join("home"), t.path().join("state"));
+    fs::create_dir_all(home.join(".codex")).unwrap();
+    let path = home.join(".codex/hooks.json");
+    let existing = json!({"custom": true, "hooks": {"Stop": [{"matcher": "existing", "hooks": [
+        {"type": "command", "command": "other-tool hook", "timeout": 7},
+        {"type": "command", "command": "python -I /old/memory_hook.py", "command_windows": "python -I C:/old/memory_hook.py", "timeout": 5, "statusMessage": "Memory"}
+    ]}]}});
+    fs::write(&path, existing.to_string()).unwrap();
+    let python = t.path().join("not-installed-python");
+    install(&home, &state, &python, true);
+    assert_eq!(read(&path), existing);
+    let report = install(&home, &state, &python, false);
+    let migrated = read(&path);
+    assert_eq!(migrated["custom"], true);
+    assert_eq!(migrated["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    let group = &migrated["hooks"]["Stop"][0];
+    assert_eq!(group["matcher"], "existing");
+    assert_eq!(group["hooks"][0], existing["hooks"]["Stop"][0]["hooks"][0]);
+    assert_eq!(group["hooks"][1]["command"], report["hook"]);
+    assert!(!migrated.to_string().contains("memory_hook.py"));
+    assert_eq!(group["hooks"][1]["timeout"], 5);
+    assert_eq!(group["hooks"][1]["statusMessage"], "Memory");
+    assert_eq!(
+        read(&home.join(".codex/hooks.json.footnote-backup")),
+        existing
+    );
+    let before = fs::read(&path).unwrap();
+    install(&home, &state, &python, false);
+    assert_eq!(fs::read(&path).unwrap(), before);
 }

@@ -5,6 +5,7 @@ mod encoder;
 #[cfg(feature = "llama")]
 mod llama;
 mod extract;
+mod hook;
 mod install;
 mod lexical;
 mod mcp;

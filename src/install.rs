@@ -284,7 +284,15 @@ pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
 }
 
 const MEMORY_SERVER: &str = "footnote-memory";
-const HOOK_MARK: &str = "memory_hook.py";
+fn is_memory_hook(command: &str) -> bool {
+    if command.contains("memory_hook.py") {
+        return true; // migrate the installed Python hook in place
+    }
+    command.trim().strip_suffix(" hook").is_some_and(|exe| {
+        let exe = exe.trim_matches(['\'', '"']).replace('\\', "/");
+        matches!(exe.rsplit('/').next(), Some("footnote" | "footnote.exe"))
+    })
+}
 
 /// Add an MCP server entry under `mcpServers`, leaving an existing entry of that name untouched.
 fn add_server(path: &Path, name: &str, entry: &Value, dry_run: bool) -> Result<&'static str> {
@@ -322,7 +330,28 @@ fn add_hooks(
                 .or_insert_with(|| json!([]))
                 .as_array_mut()
                 .with_context(|| format!("{}: hooks.{event} is not an array", path.display()))?;
-            if !list.iter().any(|g| g.to_string().contains(HOOK_MARK)) {
+            let mut found = false;
+            for group in list.iter_mut() {
+                for hook in group["hooks"].as_array_mut().into_iter().flatten() {
+                    if hook["command"].as_str().is_some_and(is_memory_hook) {
+                        found = true;
+                        if hook["command"] != command {
+                            hook["command"] = json!(command);
+                            for key in ["command_windows", "commandWindows"] {
+                                if hook.get(key).is_some() {
+                                    hook[key] = json!(if command.starts_with('"') {
+                                        format!("& {command}")
+                                    } else {
+                                        command.to_string()
+                                    });
+                                }
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+            }
+            if !found {
                 list.push(
                     json!({"hooks": [{"type": "command", "command": command, "timeout": timeout}]}),
                 );
@@ -353,24 +382,8 @@ pub fn memory(dry_run: bool) -> Result<Value> {
     let state = crate::state::state_dir()?;
     let db = state.join("memory.db");
     let exe = std::env::current_exe().context("locate this executable")?;
-    let python = crate::semantic::python();
-    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tools")
-        .join(HOOK_MARK);
-    for (what, p) in [("Python interpreter", &python), ("memory hook", &script)] {
-        if !p.is_file() {
-            bail!(
-                "{what} not found at {} (set FOOTNOTE_PYTHON to a Python 3.10+ interpreter)",
-                p.display()
-            );
-        }
-    }
     let mut warnings = Vec::new();
-    let command = format!(
-        "{} -I {}",
-        shell_word(&python, &mut warnings),
-        shell_word(&script, &mut warnings)
-    );
+    let command = format!("{} hook", shell_word(&exe, &mut warnings));
     let entry = json!({"command": portable(&exe), "args": ["--db", portable(&db), "mcp"]});
     // The same three events everywhere: pack at start, recall per prompt, and at Stop the request that makes the agent save
     // its memories (Codex and DeepSeek's bridge have no compaction or end-of-session event, and none is needed).
@@ -517,6 +530,6 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         "hook": command,
         "targets": report,
         "warnings": warnings,
-        "note": "restart each agent to load the hooks; Grok asks once to trust a folder before it runs hooks. Extraction uses your Claude Code CLI by default; change the extractor or list sensitive projects in the settings file",
+        "note": "restart each agent to load the hooks; Grok asks once to trust a folder before it runs hooks. The agent writes memories through MCP; hooks and embeddings run in Rust without Python.",
     }))
 }

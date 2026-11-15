@@ -249,7 +249,7 @@ pub fn recall(
         if sc != "global" && Some(sc.as_str()) != project {
             continue;
         }
-        out.push(json!({"id": id, "kind": kind, "scope": sc, "observed_at": date, "text": hit["text"], "score": hit.get("score")}));
+        out.push(json!({"id": id, "kind": kind, "scope": sc, "observed_at": date, "text": hit["text"], "score": hit.get("fusion_score")}));
         if out.len() >= limit {
             break;
         }

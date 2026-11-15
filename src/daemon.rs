@@ -16,7 +16,7 @@ use std::{
     path::Path,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -24,6 +24,9 @@ use std::{
 /// Sessions served at once. A handful of agents is normal; this only stops floods.
 const MAX_SESSIONS: usize = 64;
 static ACTIVE: AtomicUsize = AtomicUsize::new(0);
+/// When the last session ended, in seconds since `STARTED` (idle exit).
+static LAST_END: AtomicU64 = AtomicU64::new(0);
+static STARTED: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
 /// Endpoint name derived from the corpus path, so separate databases never share
 /// a daemon and a moved corpus gets its own.
@@ -38,7 +41,7 @@ fn endpoint_of(db: &Path) -> String {
 }
 
 /// Run the daemon: accept many concurrent agents, one thread each.
-pub fn run(shared: Shared) -> Result<()> {
+pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
     let endpoint = endpoint_of(&shared.db);
     let name = endpoint.as_str().to_ns_name::<GenericNamespaced>()?;
     let listener = ListenerOptions::new()
@@ -55,6 +58,20 @@ pub fn run(shared: Shared) -> Result<()> {
     if let Ok(state) = crate::state::state_dir() {
         let _ = crate::state::ensure_private_dir(&state);
         let _ = std::fs::write(state.join("daemon.pid"), std::process::id().to_string());
+    }
+    if let Some(idle) = idle {
+        // Started on demand (the memory hook): leave once no session has been open for `idle`, so nothing stays resident
+        // that nobody uses. Agents' MCP sessions stay open, so the daemon lives as long as one of them does.
+        let started = *STARTED.get_or_init(Instant::now);
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_secs(5).min(idle));
+                let quiet = started.elapsed().as_secs() - LAST_END.load(Ordering::SeqCst);
+                if ACTIVE.load(Ordering::SeqCst) == 0 && quiet >= idle.as_secs() {
+                    std::process::exit(0);
+                }
+            }
+        });
     }
     let shared = Arc::new(shared);
     for connection in listener.incoming() {
@@ -81,6 +98,9 @@ pub fn run(shared: Shared) -> Result<()> {
                 eprintln!("footnote daemon: session ended: {e:#}");
             }
             ACTIVE.fetch_sub(1, Ordering::SeqCst);
+            if let Some(started) = STARTED.get() {
+                LAST_END.store(started.elapsed().as_secs(), Ordering::SeqCst);
+            }
         });
     }
     Ok(())
@@ -96,6 +116,41 @@ pub fn connect(db: &Path) -> Result<Stream> {
     Ok(Stream::connect(
         endpoint.as_str().to_ns_name::<GenericNamespaced>()?,
     )?)
+}
+
+/// One tool call on the running daemon (the memory hook's recall). Fails when no daemon runs: the caller falls back.
+pub fn call(db: &Path, tool: &str, arguments: &serde_json::Value) -> Result<serde_json::Value> {
+    let stream = connect(db).context("no resident daemon")?;
+    let mut reader = BufReader::new(&stream);
+    let mut writer = &stream;
+    crate::mcp::client_handshake(
+        &mut reader,
+        &mut writer,
+        &crate::state::load_or_create_token()?,
+        &crate::state::random_hex(32)?,
+    )?;
+    let request = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": tool, "arguments": arguments}});
+    writer.write_all(format!("{request}
+").as_bytes())?;
+    writer.flush()?;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            anyhow::bail!("daemon closed the connection");
+        }
+        let reply: serde_json::Value = serde_json::from_str(&line).context("daemon reply: not JSON")?;
+        if reply["id"] != 1 {
+            continue; // a notification
+        }
+        let result = &reply["result"];
+        let text = result["content"][0]["text"].as_str().unwrap_or_default();
+        if result["isError"] == true || !reply["error"].is_null() {
+            anyhow::bail!("daemon: {}", if text.is_empty() { reply["error"].to_string() } else { text.to_string() });
+        }
+        return serde_json::from_str(text).context("daemon result: not JSON");
+    }
 }
 
 /// Stdio front-end for agents: use the shared daemon when it is running,

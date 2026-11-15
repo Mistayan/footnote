@@ -140,3 +140,54 @@ fn install_registers_detected_agents() {
             .unwrap();
     assert_eq!(gemini["mcpServers"]["footnote"]["args"][2], "mcp");
 }
+
+/// The memory hook's per-prompt recall through a daemon started on demand, which leaves by itself once idle.
+/// The daemon's stdio is null, so it cannot hold the harness's pipes open (see the module note).
+#[test]
+fn the_hook_recalls_through_a_resident_daemon_that_leaves_when_idle() {
+    use std::process::{Command as Std, Stdio};
+    let t = tmp();
+    let db = t.path().join("memory.db");
+    let state = t.path().join("state");
+    let memory = serde_json::json!([{"text": "Johan wants relative % gaps in every benchmark table.", "kind": "preference",
+                                     "scope": "global", "observed_at": "2026-11-15"}]);
+    bin().arg("--db").arg(&db).arg("remember").write_stdin(memory.to_string()).assert().success();
+    let recall = |extra: &[&str]| {
+        bin().env("FOOTNOTE_STATE_DIR", &state).arg("--db").arg(&db)
+            .args(["memory-recall", "--resident"]).args(extra).args(["--", "benchmark table gaps"]).output().unwrap()
+    };
+    let answered = |o: &std::process::Output| !String::from_utf8_lossy(&o.stdout).contains("\"error\"");
+    // No daemon: --resident fails, so the hook falls back to its own search.
+    assert!(!answered(&recall(&[])));
+
+    let mut daemon = Std::new(assert_cmd::cargo::cargo_bin!("footnote"))
+        .env("FOOTNOTE_STATE_DIR", &state)
+        .arg("--db").arg(&db)
+        .args(["serve", "--mcp", "--daemon", "--no-audit", "--idle-seconds", "2"])
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .spawn().unwrap();
+    let mut out = recall(&[]);
+    for _ in 0..50 {
+        if answered(&out) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        out = recall(&[]);
+    }
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| panic!("{out:?}"));
+    assert!(v["memories"].to_string().contains("relative % gaps"), "{v}");
+
+    // Idle with no session open: the daemon exits on its own.
+    let mut gone = None;
+    for _ in 0..100 {
+        gone = daemon.try_wait().unwrap();
+        if gone.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if gone.is_none() {
+        daemon.kill().unwrap();
+        panic!("daemon still running after its idle time");
+    }
+}

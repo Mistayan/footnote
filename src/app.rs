@@ -120,6 +120,9 @@ enum Action {
         limit: u8,
         #[arg(long)]
         model: Vec<PathBuf>,
+        /// Ask the resident daemon (models already loaded) instead of searching here; fails when none runs.
+        #[arg(long)]
+        resident: bool,
     },
     /// Serve the knowledge base to an agent; --mcp selects the MCP stdio transport.
     Serve {
@@ -140,6 +143,9 @@ enum Action {
         /// Daemon mode: do not record an audit log.
         #[arg(long)]
         no_audit: bool,
+        /// Daemon mode: exit after this many seconds with no session open (a daemon started on demand).
+        #[arg(long)]
+        idle_seconds: Option<u64>,
     },
     /// Stdio front-end for agents: use the shared daemon when it runs, otherwise
     /// serve in-process. Audit logging, MAC key and token are automatic.
@@ -152,6 +158,12 @@ enum Action {
         /// /remember in Claude Code, Codex, Grok and DeepSeek Harness (no --db needed).
         #[arg(long)]
         memory: bool,
+    },
+    /// Agent memory hook: read an event as JSON on stdin, without Python (settings: <state dir>/memory.json).
+    Hook {
+        /// Background step: encode new memories with the configured models.
+        #[arg(hide = true)]
+        step: Option<HookStep>,
     },
     /// Vectors for a JSON array of texts on stdin, with the shipped recipe (benchmarks and checks; not needed for normal use).
     #[command(hide = true)]
@@ -172,6 +184,10 @@ enum Action {
         #[command(subcommand)]
         action: AuditAction,
     },
+}
+#[derive(Clone, clap::ValueEnum)]
+enum HookStep {
+    Embed,
 }
 #[derive(Subcommand)]
 pub enum AuditAction {
@@ -775,6 +791,7 @@ fn execute(cli: Cli) -> Result<Value> {
             audit,
             mac_key,
             no_audit,
+            idle_seconds,
         } => {
             let db = require_db(&cli.db)?;
             if *daemon {
@@ -784,7 +801,7 @@ fn execute(cli: Cli) -> Result<Value> {
                     crate::mcp::open_audit(audit_path.as_deref(), key_path.as_deref())?,
                     Some(crate::state::load_or_create_token()?),
                 );
-                crate::daemon::run(shared)?;
+                crate::daemon::run(shared, idle_seconds.map(std::time::Duration::from_secs))?;
                 return Ok(Value::Null);
             }
             return crate::mcp::serve(db, *mcp, audit.as_deref(), mac_key.as_deref());
@@ -912,7 +929,19 @@ fn execute(cli: Cli) -> Result<Value> {
             project,
             limit,
             model,
-        } => crate::memory::recall(&c, &query, project.as_deref(), limit.into(), &model),
+            resident,
+        } => {
+            if resident {
+                let models: Vec<String> = model.iter().map(|m| m.to_string_lossy().into_owned()).collect();
+                crate::daemon::call(
+                    db,
+                    "footnote_memory_recall",
+                    &json!({"query": query, "project": project, "limit": limit, "model": if models.is_empty() { Value::Null } else { json!(models) }}),
+                )
+            } else {
+                crate::memory::recall(&c, &query, project.as_deref(), limit.into(), &model)
+            }
+        }
         // Dispatched above, before the database is opened; MCP serves its
         // read-only tools by opening the database lazily per request.
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),
@@ -920,7 +949,7 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Audit { .. } => {
             unreachable!("audit verification is dispatched before the database is opened")
         }
-        Action::Install { .. } | Action::Embed { .. } => {
+        Action::Install { .. } | Action::Embed { .. } | Action::Hook { .. } => {
             unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "metrics")]
@@ -986,6 +1015,7 @@ fn action_name(a: &Action) -> &'static str {
         Action::Serve { .. } => "serve",
         Action::Mcp => "mcp",
         Action::Install { .. } => "install",
+        Action::Hook { .. } => "hook",
         Action::Audit { .. } => "audit",
         Action::Embed { .. } => "embed",
         Action::Metrics { .. } => "metrics",
@@ -1008,6 +1038,11 @@ pub fn run() {
             std::process::exit(2);
         }
     };
+    // Hook stdout belongs to the agent's event protocol. Failures must never block a session.
+    if let Action::Hook { step } = &cli.command {
+        crate::hook::run(step.is_some());
+        return;
+    }
     // In MCP mode stdout belongs to the JSON-RPC transport: a serve-level
     // failure is reported on stderr instead of the CLI's JSON envelope.
     let serving = matches!(cli.command, Action::Serve { .. } | Action::Mcp);

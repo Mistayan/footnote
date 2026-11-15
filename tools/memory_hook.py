@@ -25,7 +25,9 @@ Settings: <state dir>/memory.json (state dir: FOOTNOTE_STATE_DIR, else %LOCALAPP
       "models": ["C:/models/bekko-a8m", "C:/models/gte-small"],      optional: lets memories be found by meaning
       "every_turns": 10,
       "recall_limit": 3,
-      "metrics": false
+      "metrics": false,
+      "resident": false,                                              optional: recall by meaning on each prompt through a
+      "idle_seconds": 1800                                            daemon started on demand, gone after idle_seconds
     }
 
 The hook never breaks a session: every failure is logged to <state dir>/memory-hook/hook.log and ignored.
@@ -46,9 +48,14 @@ NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
 SAVE = """Footnote memory: before you stop, save what is worth remembering from the recent conversation with the footnote_remember tool (MCP server footnote-memory). Each memory is one self-contained sentence that makes sense alone in a year, with absolute dates (today is {today}).
 - kind: "preference" (how the user likes to work or be answered), "fact" (a decision, convention, constraint, release or date), "fix" (a problem, its cause and what fixed it, in one sentence), or "session" (what was achieved and what is left).
 - scope: "global" for what applies to every project (most preferences), otherwise "{project}". observed_at: "{today}".
+- Name the subject (person, project or component) explicitly. Include only the stack, platform/version, triggering condition or exception needed to interpret the fact, and only when supported by the conversation. "Tested on Linux" does not mean "Linux only"; leave unknown details out. Prefer a short self-contained fact over copied context or keyword lists.
 - Keep exceptions explicit ("usually X; for Y prefers Z"). To correct an outdated memory, pass its id in "supersedes".
 - Skip what is already remembered, what is readable in the code or git history, and temporary task state.
-If nothing is worth keeping, say so in one short line. Then stop."""
+Then tell the user in one short line what you saved (count and ids), or that nothing was worth keeping. Then stop."""
+
+# Johan, 15 Nov: memory that works silently looks useless; say when it is used. Once per session, not per prompt.
+VISIBLE = ("Footnote memory: when one of these memories, or one recalled later in this session, shapes your answer, say so in a "
+           "few words (for example \"from memory: ...\"). Do not mention memories that played no part.")
 
 
 # --- settings and state ------------------------------------------------------------------------------------------------
@@ -64,7 +71,7 @@ def settings() -> dict:
     path = state_dir() / "memory.json"
     s = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     return {"footnote": "footnote", "db": str(state_dir() / "memory.db"), "models": [], "every_turns": 10, "recall_limit": 3,
-            "metrics": False, **s}
+            "metrics": False, "resident": False, "idle_seconds": 1800, **s}
 
 
 def hook_dir() -> Path:
@@ -108,7 +115,8 @@ def session_state(session: str) -> tuple[Path, dict]:
     """Prompt count and the count at the last save request."""
     path = hook_dir() / f"{re.sub(r'[^A-Za-z0-9_-]', '_', session)[:100]}.json"
     st = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return path, {"turns": 0, "asked_at": 0, "embed": False, **st}
+    # Only counters: no transcript path, folder or text is kept (zero retention).
+    return path, {"turns": 0, "asked_at": 0, "embed": False, **{k: st[k] for k in ("turns", "asked_at", "embed") if k in st}}
 
 
 def normalize(event: dict) -> dict:
@@ -161,6 +169,22 @@ def embed() -> None:
         footnote(s, ["rebuild-embeddings", *[a for m in s["models"] for a in ("--model", m)]])
 
 
+def recall(s: dict, project: str, query: str) -> list[dict]:
+    """Keyword recall here (milliseconds), or recall by meaning through the resident daemon when switched on: loading the
+    models costs about a second, too slow per prompt, so only a resident process can do it. No daemon yet: start one in the
+    background and answer by keyword this time."""
+    args = ["memory-recall", "--project", project, "--limit", str(s["recall_limit"])]
+    if s["resident"] and s["models"]:
+        try:
+            return footnote(s, [*args, "--resident", *[a for m in s["models"] for a in ("--model", m)], "--", query])["memories"]
+        except RuntimeError:
+            flags = (NO_WINDOW | 0x00000200) if os.name == "nt" else 0  # hidden, own process group
+            subprocess.Popen([s["footnote"], "--db", s["db"], "serve", "--mcp", "--daemon", "--idle-seconds", str(s["idle_seconds"])],
+                             creationflags=flags, start_new_session=os.name != "nt", stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return footnote(s, [*args, "--", query])["memories"]
+
+
 # --- hook entry -------------------------------------------------------------------------------------------------------
 
 def context(event_name: str, text: str) -> None:
@@ -177,16 +201,17 @@ def handle(event: dict) -> None:
     if name == "SessionStart":
         embed_in_background(s)  # memories saved at the end of earlier sessions
         if Path(s["db"]).exists():
-            context(name, render(footnote(s, ["memory-pack", "--project", project])["memories"], "What you remember about this user and project"))
+            pack = render(footnote(s, ["memory-pack", "--project", project])["memories"], "What you remember about this user and project")
+            context(name, f"{pack}\n\n{VISIBLE}" if pack else "")
     elif name == "UserPromptSubmit":
         prompt = e["prompt"]
         st["turns"] += 1
         st["embed"] = st["embed"] or prompt.strip().lower().startswith("/remember")
         if Path(s["db"]).exists() and prompt.strip() and not prompt.startswith("/"):
-            # shortcut: lexical recall only (milliseconds); hybrid needs the resident model daemon, not one process per prompt.
+            # The query limit is 512 bytes, not characters: accented French doubles the size.
             # "--" ends the options: a prompt starting with "-" ("- fix the bug") is a query, not a flag.
             with timed("hook.recall", s["metrics"]):
-                hits = footnote(s, ["memory-recall", "--project", project, "--limit", str(s["recall_limit"]), "--", prompt[:500]])["memories"]
+                hits = recall(s, project, prompt.encode("utf-8")[:500].decode("utf-8", "ignore"))
             context(name, render(hits, "Possibly relevant memories"))
     elif name == "Stop":
         if e["stop_active"] or st["embed"]:  # the agent has just saved: never ask twice in a row

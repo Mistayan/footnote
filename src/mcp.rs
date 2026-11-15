@@ -453,6 +453,8 @@ fn tool_envelope(text: String, is_error: bool) -> Value {
 fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
     match name {
         "footnote_recall" | "borg_recall" => recall(db, args),
+        // Not listed in tools/list: the memory hook's per-prompt recall through the resident daemon (models stay loaded).
+        "footnote_memory_recall" => memory_recall(db, args),
         "footnote_get" | "borg_get" => {
             let c = read_db(db)?;
             chunk_by_id(&c, int_arg(args, "id")?)
@@ -540,6 +542,18 @@ fn recall(db: &Path, args: &Value) -> Result<Value> {
         return crate::semantic::search(&c, &query, limit, &filters, &models);
     }
     app::search(&c, &query, limit, &filters)
+}
+
+fn memory_recall(db: &Path, args: &Value) -> Result<Value> {
+    let query = query_arg(args)?;
+    let limit = limit_arg(args, 3)?;
+    let project = optional_text(args, "project", MAX_FILTER)?;
+    let models = if args["model"].is_null() {
+        Vec::new()
+    } else {
+        model_args(args)?
+    };
+    crate::memory::recall(&read_db(db)?, &query, project.as_deref(), limit, &models)
 }
 
 fn chunk_by_id(c: &Connection, id: i64) -> Result<Value> {

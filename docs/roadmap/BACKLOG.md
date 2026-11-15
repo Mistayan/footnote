@@ -12,29 +12,39 @@ of work. "Johan" marks items waiting for his go.
 
 ## P0: protect and finish what exists (small, this week)
 
-1. **Commit and push** everything since the last push (two days of work, uncommitted). Johan.
-2. **Make memory work visible** (Johan's first-week feedback): the hook asks agents to say in a few words when a recalled memory
-   shapes the answer, and to give a short receipt after each save.
-3. **Zero retention in the hook:** per-session journals under `memory-hook/` keep conversation text; keep only what the hook needs,
-   then delete the old journals (Johan).
+1. ~~Commit and push~~ done by Johan, 15 Nov.
+2. ~~Make memory work visible~~ done 15 Nov: once per session the hook asks agents to say when a memory shapes the answer; the save
+   request ends with a one-line receipt (count and ids).
+3. ~~Zero retention in the hook~~ done 15 Nov: old journals deleted, session state keeps only counters. Also fixed: long accented
+   prompts failed recall (cut at 500 characters, limit is 512 bytes), the 4 recall failures of the first days.
 4. **`bk-gsh`, hybrid recall on each prompt:** the memory baseline gave hybrid any@5 0.504 against keyword 0.384.
+   Self-contained writing guidance added in the repository after a [600-memory bilingual synthetic pilot](../../bench/experiments/MEMORY-WRITTEN-RESULTS.md).
+   Raw retrieval improves in that controlled fixture; the no-answer injection gate still fails. Live hybrid recall remains off;
+   real agent-written memories and independent relevance review are still needed.
 5. **Jina nano latency on an idle machine** (Johan says when), then ship it as the opt-in French/mixed profile.
 6. **Memory review** around 21 November (baseline: memory 134).
 
+7. ~~Documentation tool for agents~~ done 15 Nov (Johan): Context7 removed from Claude, Codex and the shared agent contracts;
+   documentation lookup goes through Firecrawl developer search (docs, repos, issues, PRs). Still open, low to mid priority: a
+   performance pass on our code with it, Windows first, then Linux and macOS; rust-docs-mcp (local, exact versions) only if
+   Firecrawl falls short on our pinned crates.
+
 ## P1: product structure (next)
 
-7. **Separate products, features on or off:** Library, Memory, Code, Alias enabled independently; nothing loaded that is not used.
-8. **Embedding model manager:** install, switch, remove; recommend from the detected hardware (GPU, VRAM, CPU, RAM) and corpus language,
+8. **Separate products, features on or off:** Library, Memory, Code, Alias enabled independently; nothing loaded that is not used.
+9. **Embedding model manager:** install, switch, remove; recommend from the detected hardware (GPU, VRAM, CPU, RAM) and corpus language,
    from Footnote's own results (the model matrix: licence × hardware × language). Today: the pair by default, nano for French/mixed,
    EmbeddingGemma 1 on a GPU.
-9. **Hook in Rust** (`footnote hook`), then delete `tools/embed.py`: no Python left on the memory path (hook p95 225 ms today). Johan.
-10. **Icons:** one family, one icon per product.
+10. **Hook in Rust:** `footnote hook` live in Claude, Codex and DeepSeek since 15 Nov (Python hook p50 39 ms, p95 225 ms, plus
+    interpreter start; first Rust recall 24 ms). Left: delete `tools/memory_hook.py`, its tests and `tools/embed.py` once the live
+    scripts in `tools/` no longer read them (archived `artifacts/` keep their copies).
+11. **Icons:** one family, one icon per product.
 
 ## P2: new products
 
-11. **Footnote Alias** (pseudonymisation before the LLM): desk study first (Presidio, LLM Guard, GLiNER PII, French accuracy), then a
+12. **Footnote Alias** (pseudonymisation before the LLM): desk study first (Presidio, LLM Guard, GLiNER PII, French accuracy), then a
     French + English prototype with underline-and-explain. Design notes below.
-12. **Footnote Code:** code-graph study ([plan](../research/CODE-GRAPH-STUDY.md)); hands-on after Johan's go.
+13. **Footnote Code:** code-graph study ([plan](../research/CODE-GRAPH-STUDY.md)); hands-on after Johan's go.
 
 ## P3: benchmarks, when a decision needs them
 
@@ -62,6 +72,11 @@ Advice for every company: classify data before connecting agents; adding it late
 | IT security (SSI) | Architecture (local, no outbound network), hash-chained audit log, threat model, dependencies, vulnerability audit (not run yet) |
 | Compliance | AI Act position, licences of every model and dependency, what the tool cannot do |
 | CSE / CSEC | No per-employee monitoring; usage statistics aggregated and off by default |
+
+**Cost at company scale** (Johan 15 Nov; measure on a more mature product of the family, not now): RAM, CPU and wall time per hook
+and MCP call, measured on an idle machine and turned into a cost per 1,000 users. Shared virtual desktops (VDI, Citrix) host dozens
+of users per server, so a light per-call footprint decides whether agents can be switched on for everyone; chained agents also put
+every hook on the critical path. Feeds the IT security (SSI) entry of the compliance kit.
 
 ## Ideas, unranked
 

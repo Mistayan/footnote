@@ -65,17 +65,6 @@ fn helper_hash() -> Result<String> {
 /// a query a few milliseconds.
 static ENCODERS: OnceLock<Mutex<HashMap<PathBuf, crate::encoder::Encoder>>> = OnceLock::new();
 
-pub(crate) fn python() -> PathBuf {
-    crate::state::env("FOOTNOTE_PYTHON", "BORG_KNOWLEDGE_PYTHON")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join(if cfg!(windows) {
-                ".venv/Scripts/python.exe"
-            } else {
-                ".venv/bin/python"
-            })
-        })
-}
 fn encode_batch(model: &Path, expected: &str, texts: &[String], kind: &str) -> Result<Encoded> {
     let pool = ENCODERS.get_or_init(Default::default);
     let mut guard = pool
