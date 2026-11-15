@@ -31,6 +31,8 @@ of work. "Johan" marks items waiting for his go.
 
 ## P1: product structure (next)
 
+Plan and decisions: [P1-PLAN.md](P1-PLAN.md) (engine commands first, then design, then the Tauri launcher).
+
 8. **Separate products, features on or off:** Library, Memory, Code, Alias enabled independently; nothing loaded that is not used.
 9. **Embedding model manager:** install, switch, remove; recommend from the detected hardware (GPU, VRAM, CPU, RAM) and corpus language,
    from Footnote's own results (the model matrix: licence × hardware × language). Today: the pair by default, nano for French/mixed,
@@ -46,6 +48,8 @@ of work. "Johan" marks items waiting for his go.
 12. **Footnote Alias** (pseudonymisation before the LLM): desk study first (Presidio, LLM Guard, GLiNER PII, French accuracy), then a
     French + English prototype with underline-and-explain. Design notes below.
 13. **Footnote Code:** code-graph study ([plan](../research/CODE-GRAPH-STUDY.md)); hands-on after Johan's go.
+    Its graph visualizer uses the family's design language, decided with the launcher in the M2 studio
+    ([analysis, section 5](../research/LAUNCHER-DESIGN-ANALYSIS.md)).
 14. **Documentation ingestion in Footnote Library** (Johan 15 Nov): crawl and index a documentation site on demand, one index per
     library version, so agents search docs locally, offline, without credits. Cheapest first: `llms.txt` and published `.md` pages,
     then sitemap and plain HTML to Markdown; JavaScript rendering only if needed. Rust crawler candidates to check (licence,
@@ -55,6 +59,8 @@ of work. "Johan" marks items waiting for his go.
 
 - Model matrix and setup playbook (feeds item 8).
 - Test 5 stage A3 (Octen-4B, F2LLM-v2-1.7B, harrier-oss-v1) and the llama.cpp speed grid (`-fa`, `-ub`, runtime versions).
+  llama.cpp b12421 (15 Nov) ships Windows builds for Vulkan and, new for the RX 6800, ROCm 10.0 (HIP): re-run the GPU speed on
+  both against b11901 Vulkan. The product's `llama-cpp-2` crate is still 0.1.161 (its own bundled llama.cpp): upgrade when it follows.
 - Storage backends: SQLite + Tantivy against Postgres + pgvector, LanceDB, HelixDB, Omnigraph; Qdrant for large companies only.
   Ask before installing Postgres or Docker.
 - Memory rematch (mem0, Cognee graph, Hindsight, Graphiti, OpenViking, EverOS), after the review.

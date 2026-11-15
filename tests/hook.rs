@@ -74,15 +74,21 @@ fn pack_recall_save_and_stop_loop_match_the_existing_contract() {
     let ask: Value = serde_json::from_str(&hook(state, event("Stop", ""))).unwrap();
     assert_eq!(ask["decision"], "block");
     let reason = ask["reason"].as_str().unwrap();
-    // The project scope is the repository folder's name: borgknowledge here, footnote in CI.
-    let project = format!(
-        "\"{}\"",
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_lowercase()
-    );
+    // The project scope is the repository's name on its origin remote (footnote here and in CI), as the hook reads it.
+    let remote = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .unwrap();
+    let url = String::from_utf8(remote.stdout).unwrap();
+    let name = url
+        .trim()
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap()
+        .trim_end_matches(".git");
+    let project = format!("\"{}\"", name.to_lowercase());
     for part in [
         "footnote_remember",
         project.as_str(),

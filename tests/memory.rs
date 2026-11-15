@@ -269,3 +269,61 @@ fn agents_can_remember_over_mcp_but_never_into_a_corpus() {
     assert_eq!(refused["isError"], true);
     assert_eq!(fs::read(&corpus).unwrap(), before);
 }
+
+#[test]
+fn rescope_moves_a_project_and_keeps_duplicate_detection() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("memory.db");
+    run(
+        &db,
+        &["remember"],
+        Some(json!([
+            mem("Builds use cargo xtask.", "fact", "oldname", "2026-11-15"),
+            mem("Prefers tables.", "preference", "oldname", "2026-11-15"),
+            mem(
+                "Always answer in French.",
+                "preference",
+                "global",
+                "2026-11-15"
+            ),
+            mem("Prefers tables.", "preference", "newname", "2026-11-15"),
+        ])),
+    );
+    let moved = run(
+        &db,
+        &["memory-rescope", "--from", "oldname", "--to", "newname"],
+        None,
+    );
+    assert_eq!(moved["moved"], 1, "{moved}");
+    assert_eq!(
+        moved["kept_duplicates"].as_array().unwrap().len(),
+        1,
+        "the twin under newname stays apart"
+    );
+    let pack = run(&db, &["memory-pack", "--project", "newname"], None);
+    let all = texts(&pack).join("\n");
+    assert!(
+        all.contains("cargo xtask") && all.contains("French"),
+        "{pack}"
+    );
+    // Saving the moved memory again under its new scope is recognised as a duplicate.
+    let again = run(
+        &db,
+        &["remember"],
+        Some(json!([mem(
+            "Builds use cargo xtask.",
+            "fact",
+            "newname",
+            "2026-11-15"
+        )])),
+    );
+    assert_eq!(again["duplicates"], 1, "{again}");
+    assert!(
+        fails(
+            &db,
+            &["memory-rescope", "--from", "a", "--to", "a"],
+            json!(null)
+        )
+        .contains("different")
+    );
+}

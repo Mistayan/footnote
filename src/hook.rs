@@ -25,9 +25,13 @@ const MAX_EVENT: u64 = 2 * 1024 * 1024;
 /// db: memory database (default memory.db in the state dir); models: embedding model folders, so memories are found by meaning;
 /// every_turns: prompts between save requests (10); recall_limit: memories per prompt (3); metrics: timings to metrics.jsonl;
 /// resident: recall by meaning through a daemon started on demand, gone after idle_seconds (1800). Off until bk-gsh passes.
+/// enabled: false makes the hook do nothing (the launcher's switch). A company policy file overrides any of these
+/// (footnote_core::config); `footnote options` explains each one.
 #[derive(Deserialize)]
 #[serde(default)]
 struct Settings {
+    enabled: bool,
+    activity: bool,
     db: Option<PathBuf>,
     models: Vec<PathBuf>,
     every_turns: u64,
@@ -39,6 +43,8 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            enabled: true,
+            activity: true,
             db: None,
             models: vec![],
             every_turns: 10,
@@ -51,12 +57,8 @@ impl Default for Settings {
 }
 impl Settings {
     fn load(state: &Path) -> Result<Self> {
-        let path = state.join("memory.json");
-        let s: Self = if path.exists() {
-            serde_json::from_slice(&fs::read(path)?)?
-        } else {
-            Self::default()
-        };
+        let s: Self =
+            serde_json::from_value(footnote_core::config::product_settings(state, "memory")?)?;
         ensure!(
             (1..=20).contains(&s.recall_limit),
             "recall_limit must be between 1 and 20"
@@ -116,11 +118,33 @@ fn hidden(command: &mut Command) -> &mut Command {
     command
 }
 
+/// The project scope: the repository's name on its `origin` remote (the same on every clone and machine: `footnote`, not the
+/// local folder `BorgKnowledge`), else the repository folder's name, else the working folder's.
 fn project_of(cwd: &str) -> String {
-    let top = (|| -> Result<String> {
+    let remote = git(cwd, &["remote", "get-url", "origin"]);
+    let name = remote
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(".git");
+    if !name.is_empty() {
+        return name.to_lowercase();
+    }
+    let top = git(cwd, &["rev-parse", "--show-toplevel"]);
+    Path::new(if top.is_empty() { cwd } else { &top })
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase()
+}
+
+/// One git query with a 5-second bound; empty on any failure.
+fn git(cwd: &str, args: &[&str]) -> String {
+    (|| -> Result<String> {
         let mut child = hidden(
             Command::new("git")
-                .args(["rev-parse", "--show-toplevel"])
+                .args(args)
                 .current_dir(cwd)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -133,14 +157,12 @@ fn project_of(cwd: &str) -> String {
             return Ok(String::new());
         }
         let output = child.wait_with_output()?;
+        if !output.status.success() {
+            return Ok(String::new());
+        }
         Ok(String::from_utf8(output.stdout)?.trim().to_string())
     })()
-    .unwrap_or_default();
-    Path::new(if top.is_empty() { cwd } else { &top })
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_lowercase()
+    .unwrap_or_default()
 }
 
 fn session_path(dir: &Path, id: &str) -> PathBuf {
@@ -364,6 +386,37 @@ fn timed<T>(
     result
 }
 
+/// The Activity screen's source: which memories reached the agent, when, for which project. Ids only, never the prompt.
+/// Best effort, capped: past 512 KB the older half is dropped.
+fn note(s: &Settings, dir: &Path, event: &str, project: &str, v: &Value) {
+    let ids: Vec<&Value> = v["memories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| &m["id"])
+        .collect();
+    if !s.activity || ids.is_empty() {
+        return;
+    }
+    let path = dir.join("activity.jsonl");
+    if fs::metadata(&path).is_ok_and(|m| m.len() > 512 * 1024)
+        && let Ok(text) = fs::read_to_string(&path)
+    {
+        let lines: Vec<&str> = text.lines().collect();
+        let _ = fs::write(&path, lines[lines.len() / 2..].join("\n") + "\n");
+    }
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(
+            f,
+            "{}",
+            json!({"t": t, "event": event, "project": project, "ids": ids})
+        );
+    }
+}
+
 fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
     let e = Event::normalize(event);
     let project = project_of(&e.cwd);
@@ -381,10 +434,10 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
         "SessionStart" => {
             embed_in_background(s, &db)?;
             if db.exists() {
-                let pack = render(
-                    &crate::memory::pack(&crate::app::open(&db, false)?, Some(&project), 3000)?,
-                    "What you remember about this user and project",
-                );
+                let memories =
+                    crate::memory::pack(&crate::app::open(&db, false)?, Some(&project), 3000)?;
+                note(s, &dir, "pack", &project, &memories);
+                let pack = render(&memories, "What you remember about this user and project");
                 out = context(
                     &e.name,
                     if pack.is_empty() {
@@ -404,6 +457,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 let hits = timed(state, s.metrics, "hook.recall", false, || {
                     recall(s, &db, &project, query)
                 })?;
+                note(s, &dir, "recall", &project, &hits);
                 out = context(&e.name, render(&hits, "Possibly relevant memories"));
             }
         }
@@ -430,6 +484,9 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
 
 fn run_inner(state: &Path, embed: bool) -> Result<()> {
     let s = Settings::load(state).context("settings")?;
+    if !s.enabled {
+        return Ok(()); // switched off: no context, no save request, no state written
+    }
     if embed {
         return timed(state, s.metrics, "hook.embed", true, || {
             crate::semantic::rebuild(&mut crate::app::open(&s.db(state), true)?, &s.models)?;

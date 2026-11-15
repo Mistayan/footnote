@@ -106,6 +106,14 @@ enum Action {
         id: i64,
     },
     #[cfg(feature = "memory")]
+    /// Rename a project scope of the agent memories (for example after a project rename).
+    MemoryRescope {
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+    },
+    #[cfg(feature = "memory")]
     /// Session-start pack: global preferences, then this project's memories, within a character budget.
     MemoryPack {
         #[arg(long)]
@@ -162,6 +170,15 @@ enum Action {
         #[arg(long)]
         memory: bool,
     },
+    /// Remove Footnote Memory from every agent (hooks, MCP server, /remember). Memories and settings are kept.
+    #[cfg(feature = "memory")]
+    Uninstall {
+        #[arg(long)]
+        dry_run: bool,
+        /// Required: what to remove (only Footnote Memory can be uninstalled this way today).
+        #[arg(long, required = true)]
+        memory: bool,
+    },
     #[cfg(feature = "memory")]
     /// Agent memory hook: read an event as JSON on stdin, without Python (settings: <state dir>/memory.json).
     Hook {
@@ -183,6 +200,40 @@ enum Action {
         #[arg(long, default_value_t = 30)]
         top: usize,
     },
+    /// What is installed, on, registered and running, and what memory did this week.
+    Status,
+    /// Running and recent long steps (downloads, indexing) with their progress, whoever started them.
+    Jobs,
+    /// What memory did, day by day: memories saved, sessions and prompts given memories, the memories used most.
+    #[cfg(feature = "memory")]
+    Activity {
+        #[arg(long, default_value_t = 7, value_parser = clap::value_parser!(u16).range(1..=90))]
+        days: u16,
+    },
+    /// Browse agent memories, newest first (ids are those `forget` takes).
+    #[cfg(feature = "memory")]
+    MemoryList {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+    },
+    /// Embedding models: list, install, use (for Footnote Memory), remove, recommend from this machine and corpus.
+    Models {
+        #[command(subcommand)]
+        action: ModelsAction,
+    },
+    /// Every option with its value, where it comes from (default, you, company policy), and what it gains and costs.
+    Options,
+    /// Read or change an option (`footnote options` lists them).
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Verify an append-only audit log (no database needed).
     Audit {
         #[command(subcommand)]
@@ -193,6 +244,26 @@ enum Action {
 #[derive(Clone, clap::ValueEnum)]
 enum HookStep {
     Embed,
+}
+#[derive(Subcommand)]
+enum ModelsAction {
+    /// Known models, which are installed, which Footnote Memory uses.
+    List,
+    /// Download models (the only command that uses the network): pinned revisions, checked hashes.
+    Install { names: Vec<String> },
+    /// Make Footnote Memory use these installed models (one to three).
+    Use { names: Vec<String> },
+    /// Delete an installed model that nothing uses.
+    Remove { name: String },
+    /// Recommend models from this machine (CPU, RAM, GPU) and, with --db, the corpus language.
+    Recommend,
+}
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// One option's value, or every option without a key.
+    Get { key: Option<String> },
+    /// Set an option, for example `footnote config set memory.enabled false`.
+    Set { key: String, value: String },
 }
 #[derive(Subcommand)]
 pub enum AuditAction {
@@ -316,6 +387,30 @@ fn execute(cli: Cli) -> Result<Value> {
             };
         }
         Action::Audit { action } => return audit_command(action),
+        Action::Status => return crate::status::status(),
+        Action::Jobs => return footnote_core::jobs::list(&crate::state::state_dir()?),
+        #[cfg(feature = "memory")]
+        Action::Activity { days } => return crate::activity::activity(*days),
+        Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
+        Action::Models { action } => {
+            let state = crate::state::state_dir()?;
+            return match action {
+                ModelsAction::List => crate::models::list(&state),
+                ModelsAction::Install { names } => crate::models::install(&state, names),
+                ModelsAction::Use { names } => crate::models::use_models(&state, names),
+                ModelsAction::Remove { name } => crate::models::remove(&state, name),
+                ModelsAction::Recommend => crate::models::recommend(cli.db.as_deref()),
+            };
+        }
+        #[cfg(feature = "memory")]
+        Action::Uninstall { dry_run, .. } => return crate::install::uninstall_memory(*dry_run),
+        Action::Config { action } => {
+            let state = crate::state::state_dir()?;
+            return match action {
+                ConfigAction::Get { key } => footnote_core::config::get(&state, key.as_deref()),
+                ConfigAction::Set { key, value } => footnote_core::config::set(&state, key, value),
+            };
+        }
         Action::Embed { model, kind } => {
             let mut input = String::new();
             std::io::Read::read_to_string(
@@ -339,7 +434,22 @@ fn execute(cli: Cli) -> Result<Value> {
             max_files,
             max_mib,
         } => {
-            let mut report = index(&mut c, &root, &allow, max_files, max_mib)?;
+            let mut job = footnote_core::jobs::Job::start(
+                &crate::state::state_dir()?,
+                "library.index",
+                &root.to_string_lossy(),
+                "files",
+            )?;
+            let indexed = index(
+                &mut c,
+                &root,
+                &allow,
+                max_files,
+                max_mib,
+                &mut |files, _| job.progress(files, None),
+            );
+            job.finish(&indexed);
+            let mut report = indexed?;
             // Build the lexical index at index time; a failure only means searches fall back to FTS5.
             report["lexical_index"] =
                 match crate::metrics::timed!("lexical.sync", crate::lexical::sync(&c)) {
@@ -405,6 +515,15 @@ fn execute(cli: Cli) -> Result<Value> {
         #[cfg(feature = "memory")]
         Action::Forget { id } => crate::memory::forget(&mut c, id),
         #[cfg(feature = "memory")]
+        Action::MemoryRescope { from, to } => crate::memory::rescope(&mut c, &from, &to),
+        #[cfg(feature = "memory")]
+        Action::MemoryList {
+            project,
+            kind,
+            limit,
+            offset,
+        } => crate::memory::list(&c, project.as_deref(), kind.as_deref(), limit, offset),
+        #[cfg(feature = "memory")]
         Action::MemoryPack { project, max_chars } => {
             crate::memory::pack(&c, project.as_deref(), max_chars)
         }
@@ -434,8 +553,17 @@ fn execute(cli: Cli) -> Result<Value> {
         // read-only tools by opening the database lazily per request.
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
-        Action::Audit { .. } => {
-            unreachable!("audit verification is dispatched before the database is opened")
+        #[cfg(feature = "memory")]
+        Action::Uninstall { .. } | Action::Activity { .. } => {
+            unreachable!("dispatched before the database is opened")
+        }
+        Action::Audit { .. }
+        | Action::Options
+        | Action::Config { .. }
+        | Action::Models { .. }
+        | Action::Status
+        | Action::Jobs => {
+            unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "memory")]
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
@@ -454,7 +582,7 @@ fn writes(a: &Action) -> bool {
         #[cfg(feature = "library")]
         Action::Index { .. } => true,
         #[cfg(feature = "memory")]
-        Action::Remember { .. } | Action::Forget { .. } => true,
+        Action::Remember { .. } | Action::Forget { .. } | Action::MemoryRescope { .. } => true,
         Action::Propose { .. } | Action::Validate { .. } | Action::RebuildEmbeddings { .. } => true,
         _ => false,
     }
@@ -479,6 +607,8 @@ fn action_name(a: &Action) -> &'static str {
         #[cfg(feature = "memory")]
         Action::Forget { .. } => "forget",
         #[cfg(feature = "memory")]
+        Action::MemoryRescope { .. } => "memory-rescope",
+        #[cfg(feature = "memory")]
         Action::MemoryPack { .. } => "memory-pack",
         #[cfg(feature = "memory")]
         Action::MemoryRecall { .. } => "memory-recall",
@@ -488,6 +618,17 @@ fn action_name(a: &Action) -> &'static str {
         #[cfg(feature = "memory")]
         Action::Hook { .. } => "hook",
         Action::Audit { .. } => "audit",
+        Action::Options => "options",
+        Action::Status => "status",
+        Action::Jobs => "jobs",
+        #[cfg(feature = "memory")]
+        Action::Activity { .. } => "activity",
+        #[cfg(feature = "memory")]
+        Action::MemoryList { .. } => "memory-list",
+        Action::Models { .. } => "models",
+        #[cfg(feature = "memory")]
+        Action::Uninstall { .. } => "uninstall",
+        Action::Config { .. } => "config",
         Action::Embed { .. } => "embed",
         Action::Metrics { .. } => "metrics",
     }
