@@ -236,6 +236,10 @@ enum Action {
     Status,
     /// Running and recent long steps (downloads, indexing) with their progress, whoever started them.
     Jobs,
+    /// Projects agents worked in (recorded automatically at each session start): memories, code graph, uncommitted and
+    /// unpushed git work.
+    #[cfg(feature = "memory")]
+    Projects,
     /// What memory did, day by day: memories saved, sessions and prompts given memories, the memories used most.
     #[cfg(feature = "memory")]
     Activity {
@@ -448,19 +452,36 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Audit { action } => return audit_command(action),
         #[cfg(feature = "code")]
-        Action::CodeIndex { root } => return footnote_code::index(&canonical(root)?, &code_db(root)?),
+        Action::CodeIndex { root } => {
+            return footnote_code::index(&canonical(root)?, &code_db(root)?);
+        }
         #[cfg(feature = "code")]
-        Action::Code { name, root, limit } => return footnote_code::lookup(&code_db(root)?, name, *limit),
+        Action::Code { name, root, limit } => {
+            return footnote_code::lookup(&code_db(root)?, name, *limit);
+        }
         #[cfg(feature = "alias")]
-        Action::AliasScan { model, pseudonymise } => {
+        Action::AliasScan {
+            model,
+            pseudonymise,
+        } => {
             let texts: Vec<String> = serde_json::from_reader(std::io::stdin().lock())?;
             let dir = match model {
                 Some(d) => Some(d.clone()),
-                None => Some(crate::models::models_dir(&crate::state::state_dir()?).join("openai-privacy-filter"))
-                    .filter(|d| d.is_dir()),
+                None => Some(
+                    crate::models::models_dir(&crate::state::state_dir()?)
+                        .join("openai-privacy-filter"),
+                )
+                .filter(|d| d.is_dir()),
             };
-            let mut pf = dir.as_deref().map(footnote_alias::model::PrivacyFilter::load).transpose()?;
-            let key = if *pseudonymise { crate::state::load_or_create_alias_key()? } else { Vec::new() };
+            let mut pf = dir
+                .as_deref()
+                .map(footnote_alias::model::PrivacyFilter::load)
+                .transpose()?;
+            let key = if *pseudonymise {
+                crate::state::load_or_create_alias_key()?
+            } else {
+                Vec::new()
+            };
             let mut results = Vec::with_capacity(texts.len());
             for t in &texts {
                 let hits = footnote_alias::find(t, pf.as_mut())?;
@@ -471,7 +492,11 @@ fn execute(cli: Cli) -> Result<Value> {
                     json!(hits)
                 });
             }
-            let detectors = if pf.is_some() { json!(["rules", "privacy-filter"]) } else { json!(["rules"]) };
+            let detectors = if pf.is_some() {
+                json!(["rules", "privacy-filter"])
+            } else {
+                json!(["rules"])
+            };
             return Ok(json!({ "detectors": detectors, "results": results }));
         }
         Action::Status => return crate::status::status(),
@@ -520,6 +545,8 @@ fn execute(cli: Cli) -> Result<Value> {
             return done;
         }
         Action::Jobs => return footnote_core::jobs::list(&crate::state::state_dir()?),
+        #[cfg(feature = "memory")]
+        Action::Projects => return crate::projects::list(&crate::state::state_dir()?),
         #[cfg(feature = "memory")]
         Action::Activity { days } => return crate::activity::activity(*days),
         Action::Options => return footnote_core::config::options(&crate::state::state_dir()?),
@@ -694,7 +721,9 @@ fn execute(cli: Cli) -> Result<Value> {
         #[cfg(feature = "library")]
         Action::Crawl { .. } => unreachable!("dispatched before the database is opened"),
         #[cfg(feature = "code")]
-        Action::CodeIndex { .. } | Action::Code { .. } => unreachable!("dispatched before the database is opened"),
+        Action::CodeIndex { .. } | Action::Code { .. } => {
+            unreachable!("dispatched before the database is opened")
+        }
         #[cfg(feature = "alias")]
         Action::AliasScan { .. } => unreachable!("dispatched before the database is opened"),
         Action::Audit { .. }
@@ -705,6 +734,8 @@ fn execute(cli: Cli) -> Result<Value> {
         | Action::Jobs => {
             unreachable!("dispatched before the database is opened")
         }
+        #[cfg(feature = "memory")]
+        Action::Projects => unreachable!("dispatched before the database is opened"),
         #[cfg(feature = "memory")]
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
         Action::Install { .. } | Action::Embed { .. } => {
@@ -739,7 +770,9 @@ fn canonical(root: &Path) -> Result<PathBuf> {
 #[cfg(feature = "code")]
 pub(crate) fn code_db(root: &Path) -> Result<PathBuf> {
     let key = footnote_core::hash(canonical(root)?.to_string_lossy().as_bytes());
-    Ok(crate::state::state_dir()?.join("code").join(format!("{}.db", &key[..16])))
+    Ok(crate::state::state_dir()?
+        .join("code")
+        .join(format!("{}.db", &key[..16])))
 }
 
 /// Step name of a command in the metrics file.
@@ -789,6 +822,8 @@ fn action_name(a: &Action) -> &'static str {
         #[cfg(feature = "library")]
         Action::Crawl { .. } => "crawl",
         Action::Jobs => "jobs",
+        #[cfg(feature = "memory")]
+        Action::Projects => "projects",
         #[cfg(feature = "memory")]
         Action::Activity { .. } => "activity",
         #[cfg(feature = "memory")]
