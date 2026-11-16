@@ -79,6 +79,10 @@ Plan and decisions: [P1-PLAN.md](P1-PLAN.md) (engine commands first, then design
   enough for a V1. Later, each measured before adoption: hits grouped by page (first), crawler improvements, page-cleaning passes
   before embedding, more retrieval techniques, and a larger embedding model for documentation only (indexed rarely, per version,
   so a slower build for better precision is an acceptable trade).
+  **Versions (Johan, 16 Nov; post-V1, after the full stack harness ships):** reuse vectors across documentation versions (a cache keyed by chunk-text hash and model, so a
+  new version only embeds changed passages), then measure how much two versions share (React 18/19, Python 3.12/3.13) before
+  deciding whether versions should share stored passages (a common store per source with a list per version, as git does)
+  instead of one full database each; the saving adds up across many stacks and versions.
 
 ## Later: company deployment (not urgent, Johan 15 Nov)
 
@@ -121,6 +125,23 @@ every hook on the critical path. Feeds the IT security (SSI) entry of the compli
 - Footnote Roadmap (visual roadmap from memories and Beads) and the project node map.
 - Baseline audit across projects: AI contracts and rules, security-reviewed skills, projects behind on push.
 - Progressive context levels (summary, overview, full on demand), after OpenViking.
+- **Leaner agent output** (Johan, 16 Nov). Measured on one Vite search (5 results, characters, not tokens): today 4,211;
+  the same results with 5 fields (id, path relative to the root, heading, line, text) 2,866 (68 %); those 5 fields as a
+  TOON-style table 2,686 (64 %); as plain Markdown 2,592 (62 %). Most of the saving is dropping fields an agent does not use in a
+  search (sha256, revision, status, extractor, `trust` per result, absolute path): do that first, it has no precision risk.
+  Formats on what remains are worth a few points only, because our results are mostly free text, not uniform short values.
+  - CSV: no (multi-line text). TOON: about 4 points more, quoting-heavy on Markdown and code.
+  - JTON (arXiv 2604.05865, one author, April 2026; Rust implementation with Python bindings, code licence not stated): JSON
+    superset with a header-once "Zen Grid" for arrays of same-shaped objects; 15-60 % fewer tokens on such arrays (o200k_base),
+    0 % on GitHub data without bare strings. Comprehension 59.1 % JSON vs 59.4 % JTON over 350 questions on 10 models (one
+    question; GPT-5.1 -8.6 pp), no confidence intervals, no Claude comprehension test, no accuracy comparison with TOON.
+  - If a format is tested: pre-registered agent-answer bench on our own questions with Claude, lean JSON vs Markdown vs JTON,
+    accuracy and tokens. MCP's JSON-RPC envelope stays JSON; only the tool result text can change, opt-in.
+- **Internal serialization: not pursued** (Johan's options of 16 Nov: MessagePack, Bincode, CBOR, FlatBuffers). Vectors are
+  already binary blobs in SQLite (388 bytes each), chunks are SQLite columns, Tantivy has its own format; the JSON left (jobs,
+  config and policy, crawl-hosts, receipts, CLI output) is meant to be read by people, the launcher and scripts, and is a few KB
+  written rarely. Bincode is not self-describing (a struct change breaks stored data). Reopen only if profiling (index build,
+  the daemon's ~285 requests/s plateau) shows JSON on a hot path; MessagePack first then.
 - Verify the DeepSeek memory hook. Product page v2 (`design/site/index.html`): QLoop review before commit.
 
 ## Footnote Alias, design notes
