@@ -89,6 +89,16 @@ fn normalize(mut u: Url) -> Url {
     u
 }
 
+/// One key per page whatever its form: `/guide/features`, `/guide/features/`, `.md`, `.html` and `/index.html` are the same page.
+fn page_key(u: &Url) -> String {
+    let s = u.as_str().trim_end_matches('/');
+    let s = s
+        .strip_suffix(".md")
+        .or_else(|| s.strip_suffix(".html"))
+        .unwrap_or(s);
+    s.strip_suffix("/index").unwrap_or(s).to_string()
+}
+
 /// Links of an HTML page or of an llms.txt (Markdown links), resolved against `base`.
 fn links(text: &str, base: &Url) -> Vec<Url> {
     static HREF: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -188,6 +198,7 @@ pub fn crawl(out: &Path, o: &Options, progress: &mut dyn FnMut(u64, u64)) -> Res
 
     let mut queue: VecDeque<Url> = VecDeque::new();
     let mut seen: HashSet<String> = HashSet::new();
+    let mut written: HashSet<String> = HashSet::new(); // page keys already saved (llms.txt `.md` first, then HTML)
     for u in seeds {
         if in_scope(&u, &start, &o.exclude) && seen.insert(u.to_string()) {
             queue.push_back(u);
@@ -226,6 +237,9 @@ pub fn crawl(out: &Path, o: &Options, progress: &mut dyn FnMut(u64, u64)) -> Res
         if text.trim().len() < 50 {
             skipped += 1; // empty main content: probably rendered by JavaScript
             continue;
+        }
+        if !written.insert(page_key(&last)) {
+            continue; // the same page in another form (Markdown and HTML both listed)
         }
         pages += 1;
         bytes += text.len() as u64;
@@ -272,6 +286,24 @@ mod tests {
             &start,
             &fr
         ));
+    }
+
+    #[test]
+    fn page_forms_share_one_key() {
+        let k = |s: &str| page_key(&Url::parse(s).unwrap());
+        let a = k("https://vite.dev/guide/features");
+        for other in [
+            "https://vite.dev/guide/features.md",
+            "https://vite.dev/guide/features/",
+            "https://vite.dev/guide/features.html",
+        ] {
+            assert_eq!(k(other), a);
+        }
+        assert_eq!(
+            k("https://vite.dev/guide/index.html"),
+            k("https://vite.dev/guide/")
+        );
+        assert_ne!(k("https://vite.dev/guide/cli"), a);
     }
 
     #[test]
