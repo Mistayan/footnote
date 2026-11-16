@@ -53,22 +53,32 @@ Plan and decisions: [P1-PLAN.md](P1-PLAN.md) (engine commands first, then design
 14. **Documentation ingestion in Footnote Library** (Johan 15 Nov): crawl and index a documentation site on demand, one index per
     library version, so agents search docs locally, offline, without credits. Cheapest first: `llms.txt` and published `.md` pages,
     then sitemap and plain HTML to Markdown; JavaScript rendering only if needed. Rust crawler candidates to check (licence,
-    Windows). Measure first against Grounded Docs (P3).
+    Windows). Measure first against Grounded Docs (P3). Mistral's documented website-ingestion controls and the public-source
+    limitations are recorded in [MISTRAL-LIBRARIES-CRAWLER-2026-11-15.md](../research/MISTRAL-LIBRARIES-CRAWLER-2026-11-15.md).
 
 ## P3: benchmarks, when a decision needs them
 
 - Model matrix and setup playbook (feeds item 8).
 - Test 5 stage A3 (Octen-4B, F2LLM-v2-1.7B, harrier-oss-v1) and the llama.cpp speed grid (`-fa`, `-ub`, runtime versions).
+  Recheck Qwen3-4B with a single terminal token and a fresh embedding cache: the earlier server configuration appended one automatically
+  in addition to the lab suffix. The historical double-token measurements remain recorded in `LLAMACPP-MODELS.md`.
   llama.cpp b12421 (15 Nov) ships Windows builds for Vulkan and, new for the RX 6800, ROCm 10.0 (HIP): re-run the GPU speed on
   both against b11901 Vulkan. The product's `llama-cpp-2` crate is still 0.1.161 (its own bundled llama.cpp): upgrade when it follows.
 - Storage backends: SQLite + Tantivy against Postgres + pgvector, LanceDB, HelixDB, Omnigraph; Qdrant for large companies only.
-  Ask before installing Postgres or Docker.
+  Johan authorized PostgreSQL and Docker installation for this work. PostgreSQL + pgvector were provisioned in an isolated benchmark
+  environment; Docker has not been installed. Component checks and their limits are recorded in
+  [POSTGRES-PGVECTOR-2026-11-16.md](../../bench/experiments/POSTGRES-PGVECTOR-2026-11-16.md),
+  [QDRANT-STORAGE-2026-11-15.md](../../bench/experiments/QDRANT-STORAGE-2026-11-15.md) and
+  [GRAPH-STORES-2026-11-16.md](../../bench/experiments/GRAPH-STORES-2026-11-16.md).
 - Memory rematch (mem0, Cognee graph, Hindsight, Graphiti, OpenViking, EverOS), after the review.
 - Documentation search against Grounded Docs (`arabold/docs-mcp-server`, MIT, TypeScript, SQLite FTS5 + sqlite-vec, embeddings
   through external providers, telemetry on by default), on its own published set: 59 queries over react, python, fastapi, vite and
   a fifth library, MRR, Recall@k, nDCG@5, Hit@3. Same pages indexed by both. Parked by Johan 15 Nov (about 2 hours); protocol and
   rule ready in [DOCS-VS-GROUNDED.md](../../bench/experiments/DOCS-VS-GROUNDED.md), needs his go to run their tool through npx.
-  Feeds item 14.
+  Feeds item 14. **Run 15 Nov:** not shown equivalent (nDCG@5 0.564, 0.600 with hits grouped by page, against 0.635). Johan: good
+  enough for a V1. Later, each measured before adoption: hits grouped by page (first), crawler improvements, page-cleaning passes
+  before embedding, more retrieval techniques, and a larger embedding model for documentation only (indexed rarely, per version,
+  so a slower build for better precision is an acceptable trade).
 
 ## Later: company deployment (not urgent, Johan 15 Nov)
 
@@ -96,6 +106,16 @@ every hook on the critical path. Feeds the IT security (SSI) entry of the compli
 
 ## Ideas, unranked
 
+- **AI sobriety: one view of usage, cost and savings** (Johan, 15 Nov). Explore a Footnote-family workspace that combines the
+  token/cost visibility Johan values in T3 Code with optimizations inspired by RTK, caveman and ponytail. Show input, output and
+  cached tokens, model/provider and cost where authoritative usage and applicable prices are available; distinguish invoice or API
+  usage from local estimates and subscription usage whose marginal cost is unknown. Attribute RTK-style filtered output, smaller
+  context and response policies to their source without counting the same saving twice. For each saving, show the baseline,
+  assumptions and uncertainty: the avoided model tokens and cost are counterfactual estimates, not invoices. Compare equivalent
+  tasks with and without optimizations, including correctness and task completion so token cuts do not hide worse outcomes.
+  Support multiple agents/providers in one view when their usage data is available; identify gaps explicitly. Local-first,
+  opt-in aggregation with no per-employee monitoring or prompt retention by default. Research the T3 Code implementation, RTK
+  accounting, provider data, pricing and licences before choosing integrations or presenting quantified business value.
 - UI study of T3 Code (https://github.com/pingdotgg/t3code): rounded look, typography, links in chat; check the licence; take
   structure, layout and motion.
 - Footnote Roadmap (visual roadmap from memories and Beads) and the project node map.

@@ -38,3 +38,40 @@ Footnote returns passages; each maps to its page URL.
 - Reported, not judged: MRR, Recall@5, Hit@3, per intent; keyword against full-text; index build time; query latency only on an
   idle machine.
 - 59 queries is small: an interval crossing zero means "not distinguishable", never "better".
+
+## Results (15 November, run `bench/work/gd/run1`)
+
+Crawl (Grounded Docs 3.4.1, its CI recipe): react 219 pages, python 500, fastapi 152, vite 28, tailwindcss 223. Both engines search
+this same text. Scores on the 59 queries, their metric code:
+
+| System | nDCG@5 | MRR | Recall@5 | Hit@3 |
+|---|---|---|---|---|
+| Grounded Docs hybrid (EmbeddingGemma 300M) | **0.635** | **0.676** | **0.689** | **0.780** |
+| Grounded Docs full-text | 0.492 | 0.505 | 0.559 | 0.593 |
+| Footnote hybrid, one database per library | 0.564 | 0.604 | 0.599 | 0.661 |
+| Footnote keyword, one database per library | 0.521 | 0.531 | 0.579 | 0.610 |
+| Footnote hybrid, one global database | 0.545 | 0.591 | 0.599 | 0.661 |
+
+- **Primary verdict: worse.** Footnote hybrid minus Grounded Docs hybrid, nDCG@5 −0.071 [−0.148, +0.002]: the lower bound is below
+  −0.05, so equivalence is not shown (the interval touches zero, so the gap is not proven either).
+- **Global database against one per library:** −0.019 [−0.065, +0.021], no measurable pollution. Documentation can go in one
+  database or several without a quality cost on this set; per-source databases stay the choice for updates and sharing.
+- Reported: keyword 0.521 against Grounded Docs' full-text 0.492. The gap is in tailwindcss (0.368 against 0.550) and fastapi
+  (0.624 against 0.811); Footnote leads on react (0.620 against 0.562), is close on python and vite.
+- Index build, Footnote (shipped pair, CPU): 754 s for the five libraries, 739 s for the global database. Query latency not
+  measured (not an idle-machine run).
+
+### Exploratory, after the results: hits grouped by page
+
+Diagnosis: Footnote returns passages, and the same page often fills two or three of the five places (`body`, `body`, `body`); the
+metric counts each page once, while Grounded Docs assembles its results per page. Re-scored with Footnote's top 20 passages
+collapsed to their first 5 distinct pages (`docs_vs_grounded_grouped.py`):
+
+| System | nDCG@5 | MRR | Recall@5 | Hit@3 | vs Grounded Docs hybrid |
+|---|---|---|---|---|---|
+| Footnote hybrid, grouped | 0.600 | 0.616 | 0.672 | 0.661 | −0.035 [−0.107, +0.036] |
+| Footnote keyword, grouped | 0.531 | 0.538 | 0.588 | 0.644 | −0.104 [−0.177, −0.031] |
+
+Grouping halves the gap; equivalence is still not shown. Not a verdict (decided after seeing the data). What it suggests, to be
+pre-registered before any re-run: (1) documentation search should return pages, not passages; (2) the remaining gap may be the
+embedding model (EmbeddingGemma 300M against the small pair), which a same-model run would isolate.

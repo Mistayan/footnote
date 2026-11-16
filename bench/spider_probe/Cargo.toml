@@ -1,0 +1,16 @@
+[package]
+name = "footnote-spider-probe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# An isolated benchmark dependency: it is not linked into the Footnote product.
+[workspace]
+
+[dependencies]
+spider = { version = "=2.53.9", default-features = false, features = ["regex", "sitemap", "reqwest_native_tls_native_roots"] }
+dom_smoothie = "0.19"
+htmd = "0.5"
+url = "2"
+serde_json = "1"
+anyhow = "1"

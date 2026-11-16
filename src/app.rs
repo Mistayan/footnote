@@ -200,6 +200,19 @@ enum Action {
         #[arg(long, default_value_t = 30)]
         top: usize,
     },
+    /// Crawl a documentation site into Markdown files for `index` (llms.txt, sitemap, then links under the start URL).
+    #[cfg(feature = "library")]
+    Crawl {
+        url: String,
+        /// Folder for the pages (`<n>.md`) and `urls.json`.
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long, default_value_t = 1000)]
+        max_pages: usize,
+        /// Skip pages whose URL matches this regular expression (for example translated mirrors).
+        #[arg(long)]
+        exclude: Option<String>,
+    },
     /// What is installed, on, registered and running, and what memory did this week.
     Status,
     /// Running and recent long steps (downloads, indexing) with their progress, whoever started them.
@@ -388,6 +401,30 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Audit { action } => return audit_command(action),
         Action::Status => return crate::status::status(),
+        #[cfg(feature = "library")]
+        Action::Crawl {
+            url,
+            out,
+            max_pages,
+            exclude,
+        } => {
+            let options = footnote_library::crawl::Options {
+                start: url,
+                max_pages: *max_pages,
+                exclude: exclude.as_deref().map(regex::Regex::new).transpose()?,
+            };
+            let mut job = footnote_core::jobs::Job::start(
+                &crate::state::state_dir()?,
+                "library.crawl",
+                url,
+                "pages",
+            )?;
+            let done = footnote_library::crawl::crawl(out, &options, &mut |pages, _| {
+                job.progress(pages, Some(*max_pages as u64))
+            });
+            job.finish(&done);
+            return done;
+        }
         Action::Jobs => return footnote_core::jobs::list(&crate::state::state_dir()?),
         #[cfg(feature = "memory")]
         Action::Activity { days } => return crate::activity::activity(*days),
@@ -557,6 +594,8 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Uninstall { .. } | Action::Activity { .. } => {
             unreachable!("dispatched before the database is opened")
         }
+        #[cfg(feature = "library")]
+        Action::Crawl { .. } => unreachable!("dispatched before the database is opened"),
         Action::Audit { .. }
         | Action::Options
         | Action::Config { .. }
@@ -620,6 +659,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Audit { .. } => "audit",
         Action::Options => "options",
         Action::Status => "status",
+        #[cfg(feature = "library")]
+        Action::Crawl { .. } => "crawl",
         Action::Jobs => "jobs",
         #[cfg(feature = "memory")]
         Action::Activity { .. } => "activity",

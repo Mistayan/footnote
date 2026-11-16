@@ -159,11 +159,12 @@ pub fn list(state: &Path) -> Result<Value> {
 }
 
 fn agent() -> ureq::Agent {
-    use ureq::tls::{TlsConfig, TlsProvider};
+    use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
     ureq::Agent::config_builder()
         .tls_config(
             TlsConfig::builder()
                 .provider(TlsProvider::NativeTls)
+                .root_certs(RootCerts::PlatformVerifier) // system roots, so company TLS proxies work (as in crawl.rs)
                 .build(),
         )
         .build()
