@@ -1,6 +1,6 @@
 # Footnote backlog
 
-Last updated 15 November 2026. One prioritised list; Beads stays the authority for tracked tasks. Order inside a tier is the order
+Last updated 16 November 2026. One prioritised list; Beads stays the authority for tracked tasks. Order inside a tier is the order
 of work. "Johan" marks items waiting for his go.
 
 ## Recently done
@@ -9,6 +9,13 @@ of work. "Johan" marks items waiting for his go.
 - Test 6 ([results](../../bench/experiments/LLAMACPP-INPROCESS.md)): Jina v5 nano in-process, wired into the product
   (`--features llama`), held-out quality passes on the product: Alloprof +0.103 [+0.090, +0.115], mix-fr-en +0.083 [+0.074, +0.093].
 - Audit-chain fork fixed (two concurrent MCP sessions); Rust-encoder build with metrics installed (15 Nov).
+- Documentation optimisation (16 Nov, [protocol and results](../../bench/experiments/DOCS-OPTIMIZE-2026-11-16.md)), PRs #19
+  and #20: adaptive crawl (x3.6), heading path (+0.044), structure-aware chunks (+0.051), one passage per page (+0.029),
+  extraction fix for footer-only pages, lean search output (-42 % characters, rankings identical). Installed (metrics build).
+- **Sealed final against Grounded Docs: worse** (-0.203 nDCG@5): equivalent on Hono, lost on Flask, whose crawl Cloudflare
+  blocked after Grounded's scrape; Footnote also trails on Grounded's own Flask pages (-0.073). Next: look at Sphinx-built
+  docs (Flask, Python) on the development sets, and fix the final's design (alternate order or cool-down between systems)
+  before a new sealed set.
 
 ## P0: protect and finish what exists (small, this week)
 
@@ -107,6 +114,15 @@ Advice for every company: classify data before connecting agents; adding it late
 and MCP call, measured on an idle machine and turned into a cost per 1,000 users. Shared virtual desktops (VDI, Citrix) host dozens
 of users per server, so a light per-call footprint decides whether agents can be switched on for everyone; chained agents also put
 every hook on the critical path. Feeds the IT security (SSI) entry of the compliance kit.
+
+**Shared daemon throughput** (measured 16 Nov on an idle machine, `bench/work/mcp-load-idle-20261116/`, React docs, hybrid):
+the shared daemon plateaus at 281-286 requests/s from 20 clients on, p50 rising in step with the clients (70 ms at 20, 140 ms at
+40), while one server per client reaches 776 requests/s at 20 clients for 9.5 GB summed working set (daemon: 0.7 GB). Cause,
+from the code: every query's inference runs while holding the one global encoder-pool lock (`semantic.rs`, `ENCODERS`), and
+the keyword search holds the Tantivy cache lock (`lexical.rs`, `OPEN`), so about 3.5 ms per request is serialized across all
+sessions. Fix when company scale matters: a lock per model and a small pool of query sessions (2 threads each), the Tantivy
+reader shared without a lock (it is thread-safe); verify with the same load bench and identical rankings. Not needed for a
+handful of agents on one machine.
 
 ## Ideas, unranked
 
