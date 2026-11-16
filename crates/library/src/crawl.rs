@@ -158,14 +158,11 @@ pub fn crawl(out: &Path, o: &Options, progress: &mut dyn FnMut(u64, u64)) -> Res
     }
     fs::create_dir_all(out)?;
     let agent = agent();
-    // The scope follows a redirect to another host (vitejs.dev/guide/ answers from vite.dev/guide/) but keeps the start path:
-    // tailwindcss.com/docs redirects to one page, /docs/installation/using-vite, and the scope must stay /docs.
+    // The scope follows a redirect to another host (vitejs.dev/guide/ answers from vite.dev/guide/; docs.pydantic.dev/latest/
+    // from pydantic.dev/docs/validation/latest/) but not one within the site: tailwindcss.com/docs redirects to one page,
+    // /docs/installation/using-vite, and the scope must stay /docs.
     let start = match get(&agent, &start) {
-        Some((_, last, _)) if last.host_str() != start.host_str() => {
-            let mut moved = normalize(last);
-            moved.set_path(start.path());
-            moved
-        }
+        Some((_, last, _)) if last.host_str() != start.host_str() => normalize(last),
         _ => start,
     };
     let robots = start

@@ -25,7 +25,7 @@ def main():
     manifest = {}
     for lib in g.RECIPE:
         manifest.update(c.urls_of("minimal", lib))
-    paths = [Path(g.FOOTNOTE), g.REPO / "bench/work/gd/dataset.yaml", c.GD / "gd-hybrid.json", Path(__file__),
+    paths = [Path(g.FOOTNOTE), g.DATASET, c.GD / "gd-hybrid.json", Path(__file__),
              *[Path(m) / "manifest.json" for m in g.MODELS],
              *[base / "footnote" / f"{lib}.db" for lib in g.RECIPE],
              *[base / lib / "urls.json" for lib in g.RECIPE]]

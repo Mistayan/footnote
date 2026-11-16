@@ -22,12 +22,12 @@ ARGS, sys.argv = sys.argv, sys.argv[:1]  # docs_vs_grounded reads its run folder
 sys.path.insert(0, str(Path(__file__).parent))
 import docs_vs_grounded as g  # noqa: E402
 
-WORK = g.REPO / "bench/work/crawl"
-GD = g.REPO / "bench/work/gd/run1"
+WORK = Path(g.os.environ.get("DOCS_CRAWL_WORK", g.REPO / "bench/work/crawl"))
+GD = g.RUN
 
 
 def queries() -> list[dict]:
-    return [e["vars"] for e in yaml.safe_load((g.REPO / "bench/work/gd/dataset.yaml").read_text(encoding="utf-8"))["entries"]]
+    return [e["vars"] for e in yaml.safe_load((g.DATASET).read_text(encoding="utf-8"))["entries"]]
 
 
 def log(variant: str, msg: str) -> None:
@@ -81,7 +81,7 @@ def endtoend(variant: str, search_args: list[str]) -> None:
     result_path = WORK / variant / "endtoend.json"
     if result_path.exists():
         raise FileExistsError(f"refusing to overwrite {result_path}")
-    input_paths = [Path(g.FOOTNOTE), g.REPO / "bench/work/gd/dataset.yaml", GD / "gd-hybrid.json",
+    input_paths = [Path(g.FOOTNOTE), g.DATASET, GD / "gd-hybrid.json",
                    g.REPO / "bench/experiments/DOCS-CRAWL.md", Path(__file__), Path(g.__file__),
                    *[Path(m) / "manifest.json" for m in g.MODELS]]
     input_paths += [p for lib in g.RECIPE for p in (WORK / variant / lib).glob("*.md")]

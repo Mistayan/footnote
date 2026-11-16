@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import docs_vs_grounded as g  # noqa: E402
 
 ROOT = g.REPO
-SOURCE = ROOT / "bench/work/gd/run1"
+SOURCE = g.RUN
 BIN = ROOT / "target/llama/release/footnote.exe"
 MODEL = ROOT / "bench/work/gd/gemma-profile"
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -106,7 +106,7 @@ def main():
     if (OUT / "results.json").exists():
         raise FileExistsError("completed run is immutable; choose a new output directory")
     sources = {lib: SOURCE / "footnote" / f"{lib}.db" for lib in g.RECIPE}
-    inputs = [BIN, MODEL / "manifest.json", MODEL / "model.gguf", ROOT / "bench/work/gd/dataset.yaml",
+    inputs = [BIN, MODEL / "manifest.json", MODEL / "model.gguf", g.DATASET,
               SOURCE / "manifest.json", SOURCE / "gd-hybrid.json", ROOT / "bench/experiments/DOCS-FOLLOWUPS-2026-11-15.md",
               Path(__file__), *sources.values()]
     hashes = {str(p): sha(p) for p in inputs}
@@ -161,7 +161,7 @@ def main():
         print(f"built {lib}: {chunks} vectors, {time.monotonic() - t:.1f} s", flush=True)
         dbs[lib] = db
 
-    questions = [e["vars"] for e in yaml.safe_load((ROOT / "bench/work/gd/dataset.yaml").read_text(encoding="utf-8"))["entries"]]
+    questions = [e["vars"] for e in yaml.safe_load((g.DATASET).read_text(encoding="utf-8"))["entries"]]
     manifest = json.loads((SOURCE / "manifest.json").read_text(encoding="utf-8"))
     grounded = json.loads((SOURCE / "gd-hybrid.json").read_text(encoding="utf-8"))
     runs = []

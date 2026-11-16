@@ -28,8 +28,8 @@ def sha(path: Path) -> str:
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=False)
-    source = g.REPO / "bench/work/gd/run1"
-    dataset = g.REPO / "bench/work/gd/dataset.yaml"
+    source = g.RUN
+    dataset = g.DATASET
     questions = [e["vars"] for e in yaml.safe_load(dataset.read_text(encoding="utf-8"))["entries"]]
     files = {"dataset": dataset, "binary": Path(g.FOOTNOTE), "page_manifest": source / "manifest.json",
              "grounded_hybrid": source / "gd-hybrid.json", "original_hybrid": source / "fn-hybrid.json",

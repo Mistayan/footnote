@@ -24,7 +24,9 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
-RUN = Path(sys.argv[1]) if len(sys.argv) > 1 else REPO / "bench/work/gd/run1"
+RUN = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(os.environ.get("DOCS_RUN", REPO / "bench/work/gd/run1"))
+# Another question set and crawl recipe (bench/datasets/docs-confirm): DOCS_DATASET=<yaml>, DOCS_RECIPE=<json file>.
+DATASET = Path(os.environ.get("DOCS_DATASET", REPO / "bench/work/gd/dataset.yaml"))
 STORE = RUN / "store"
 NPX = ["npx.cmd" if os.name == "nt" else "npx", "-y", "@arabold/docs-mcp-server@3.4.1"]
 FOOTNOTE = str(REPO / "target/release/footnote.exe")
@@ -40,6 +42,8 @@ RECIPE = {
     "vite": ("https://vitejs.dev/guide/", 200, None),
     "tailwindcss": ("https://tailwindcss.com/docs", 300, None),
 }
+if os.environ.get("DOCS_RECIPE"):
+    RECIPE = {k: tuple(v) for k, v in json.loads(Path(os.environ["DOCS_RECIPE"]).read_text(encoding="utf-8")).items()}
 
 
 def log(msg: str) -> None:
@@ -222,7 +226,7 @@ def cached(name: str, make):
 
 def main() -> None:
     RUN.mkdir(parents=True, exist_ok=True)
-    data = yaml.safe_load((REPO / "bench/work/gd/dataset.yaml").read_text(encoding="utf-8"))
+    data = yaml.safe_load(DATASET.read_text(encoding="utf-8"))
     queries = [e["vars"] for e in data["entries"]]
     log(f"run {RUN}: {len(queries)} queries")
     need_server = not all(scraped(lib) for lib in RECIPE) or not (RUN / "gd-hybrid.json").exists()

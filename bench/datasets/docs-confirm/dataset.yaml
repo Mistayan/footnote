@@ -1,0 +1,328 @@
+description: 'Footnote confirmation set, written 16 Nov 2026 by Claude from the sites''
+  page lists before any system was run on these libraries. Graded page URLs: 3 primary,
+  2 related.'
+entries:
+- vars:
+    library: pydantic
+    query: field alias for a JSON key
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/alias/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/fields/
+      grade: 2
+- vars:
+    library: pydantic
+    query: model_config extra forbid
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/config/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/models/
+      grade: 2
+- vars:
+    library: pydantic
+    query: field_validator mode before
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/validators/
+      grade: 3
+- vars:
+    library: pydantic
+    query: model_dump exclude_none
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/serialization/
+      grade: 3
+- vars:
+    library: pydantic
+    query: validate a list of ints without a model
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/type_adapter/
+      grade: 3
+- vars:
+    library: pydantic
+    query: strict mode without type coercion
+    intent: conceptual
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/strict_mode/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/conversion_table/
+      grade: 2
+- vars:
+    library: pydantic
+    query: discriminated union on a tag field
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/unions/
+      grade: 3
+- vars:
+    library: pydantic
+    query: generate a JSON schema from a model
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/json_schema/
+      grade: 3
+- vars:
+    library: pydantic
+    query: load settings from environment variables
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/
+      grade: 3
+- vars:
+    library: pydantic
+    query: pydantic dataclass vs BaseModel
+    intent: comparison
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/dataclasses/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/models/
+      grade: 2
+- vars:
+    library: pydantic
+    query: computed_field property included in output
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/fields/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/serialization/
+      grade: 2
+- vars:
+    library: pydantic
+    query: migrate a v1 validator to v2
+    intent: troubleshooting
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/get-started/migration/
+      grade: 3
+- vars:
+    library: pydantic
+    query: PydanticUserError undefined forward reference
+    intent: troubleshooting
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/errors/usage_errors/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/forward_annotations/
+      grade: 2
+- vars:
+    library: pydantic
+    query: list of ValidationError error types
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/errors/validation_errors/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/errors/errors/
+      grade: 2
+- vars:
+    library: pydantic
+    query: tips to speed up validation
+    intent: conceptual
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/performance/
+      grade: 3
+- vars:
+    library: pydantic
+    query: validate function arguments with a decorator
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/validation_decorator/
+      grade: 3
+- vars:
+    library: pydantic
+    query: parse a JSON string into a model
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/json/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/models/
+      grade: 2
+- vars:
+    library: pydantic
+    query: self-referencing recursive model
+    intent: conceptual
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/concepts/forward_annotations/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/examples/cyclic_references/
+      grade: 2
+- vars:
+    library: pydantic
+    query: create a model dynamically at runtime
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/examples/dynamic_models/
+      grade: 3
+    - url: https://pydantic.dev/docs/validation/latest/concepts/models/
+      grade: 2
+- vars:
+    library: pydantic
+    query: mypy plugin configuration
+    intent: api-lookup
+    qrels:
+    - url: https://pydantic.dev/docs/validation/latest/integrations/dev-tools/mypy/
+      grade: 3
+- vars:
+    library: svelte
+    query: reactive state with the $state rune
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/$state
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/what-are-runes
+      grade: 2
+- vars:
+    library: svelte
+    query: derived value computed from other state
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/$derived
+      grade: 3
+- vars:
+    library: svelte
+    query: run a side effect when state changes
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/$effect
+      grade: 3
+- vars:
+    library: svelte
+    query: $effect vs $derived, when to use which
+    intent: comparison
+    qrels:
+    - url: https://svelte.dev/docs/svelte/$effect
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/$derived
+      grade: 3
+- vars:
+    library: svelte
+    query: component props with default values
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/$props
+      grade: 3
+- vars:
+    library: svelte
+    query: two-way binding to a child component prop
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/$bindable
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/bind
+      grade: 2
+- vars:
+    library: svelte
+    query: loop over an array in markup with a key
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/each
+      grade: 3
+- vars:
+    library: svelte
+    query: 'pass content to a child: snippets vs slots'
+    intent: comparison
+    qrels:
+    - url: https://svelte.dev/docs/svelte/snippet
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/legacy-slots
+      grade: 2
+    - url: https://svelte.dev/docs/svelte/@render
+      grade: 2
+- vars:
+    library: svelte
+    query: handle click events on an element
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/basic-markup
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/legacy-on
+      grade: 2
+- vars:
+    library: svelte
+    query: scoped CSS styles in a component
+    intent: conceptual
+    qrels:
+    - url: https://svelte.dev/docs/svelte/scoped-styles
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/global-styles
+      grade: 2
+- vars:
+    library: svelte
+    query: fade an element in and out with a transition
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/transition
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/svelte-transition
+      grade: 2
+- vars:
+    library: svelte
+    query: catch errors thrown in a component tree
+    intent: troubleshooting
+    qrels:
+    - url: https://svelte.dev/docs/svelte/svelte-boundary
+      grade: 3
+- vars:
+    library: svelte
+    query: share state across components with context
+    intent: conceptual
+    qrels:
+    - url: https://svelte.dev/docs/svelte/context
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/stores
+      grade: 2
+- vars:
+    library: svelte
+    query: writable store and subscribe
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/stores
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/svelte-store
+      grade: 2
+- vars:
+    library: svelte
+    query: onMount and onDestroy lifecycle
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/lifecycle-hooks
+      grade: 3
+- vars:
+    library: svelte
+    query: migrate export let from Svelte 4 to 5
+    intent: troubleshooting
+    qrels:
+    - url: https://svelte.dev/docs/svelte/v5-migration-guide
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/legacy-export-let
+      grade: 2
+- vars:
+    library: svelte
+    query: render a raw HTML string
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/@html
+      grade: 3
+- vars:
+    library: svelte
+    query: await a promise in the template with a loading state
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/await
+      grade: 3
+    - url: https://svelte.dev/docs/svelte/await-expressions
+      grade: 2
+- vars:
+    library: svelte
+    query: TypeScript types for component props
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/typescript
+      grade: 3
+- vars:
+    library: svelte
+    query: compile a component to a custom element
+    intent: api-lookup
+    qrels:
+    - url: https://svelte.dev/docs/svelte/custom-elements
+      grade: 3
