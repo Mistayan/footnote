@@ -36,6 +36,12 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 # Model downloads (src/models.rs), the only network access in the product; already in the tree through ort.
 ureq = { version = "3.5", default-features = false, features = ["native-tls"] }
 assert_cmd = "2"
+# Documentation crawler (crates/library/src/crawl.rs; licences checked 15 Nov 2026, docs/research/DOCS-INGESTION-STUDY.md).
+url = "2"
+regex = "1"
+dom_smoothie = "0.19"
+htmd = "0.5"
+texting_robots = "0.2"
 
 [package]
 name = "footnote"
@@ -73,6 +79,7 @@ time.workspace = true
 interprocess.workspace = true
 getrandom.workspace = true
 ureq.workspace = true
+regex.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

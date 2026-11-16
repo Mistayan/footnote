@@ -1,0 +1,6 @@
+query nearest_rust($stack: String, $q: Vector(2)) {
+    match { $d: Item { stack: $stack } }
+    return { $d.name, nearest($d.embedding, $q) as distance }
+    order { nearest($d.embedding, $q) }
+    limit 2
+}

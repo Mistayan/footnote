@@ -1,5 +1,17 @@
 # Test 5: stronger embedding models through llama.cpp (Footnote Library only)
 
+> **Tokenizer qualification, 15 November:** subsequent tokenizer probing found
+> that b11901 adds the terminal token from the Qwen3-Embedding-4B GGUF itself,
+> while the lab's Qwen3 configuration also explicitly appends `<|endoftext|>`.
+> The Qwen3-4B rows below therefore measure that double-token recipe; they do not
+> establish the result of the model's standard single-token input. The server's
+> token IDs matched the original tokenizer on three short fixtures without the
+> extra suffix. Other Qwen3 configurations share the lab suffix and also need
+> checking. Re-run with an isolated cache and validate more thoroughly before
+> drawing a conclusion about the model itself. Existing receipts are preserved.
+> The single-token dev recheck is recorded in
+> [QWEN4-TERMINAL-TOKEN-RESULTS-2026-11-16.md](QWEN4-TERMINAL-TOKEN-RESULTS-2026-11-16.md).
+
 Written 14 November 2026, before any run. Agent memory (Footnote Memory) is out of scope: it keeps today's pair.
 
 ## Why

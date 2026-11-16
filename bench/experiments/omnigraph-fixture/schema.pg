@@ -1,0 +1,5 @@
+node Item {
+    name: String
+    stack: String
+    embedding: Vector(2)
+}

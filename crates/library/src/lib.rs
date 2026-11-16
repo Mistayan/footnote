@@ -10,6 +10,7 @@ use std::{
 };
 use walkdir::WalkDir;
 
+pub mod crawl;
 pub mod extract;
 
 use footnote_core::{metrics, state};

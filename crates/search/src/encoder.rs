@@ -53,7 +53,7 @@ pub struct Encoder {
 }
 enum Backend {
     Onnx {
-        tokenizer: Tokenizer,
+        tokenizer: Box<Tokenizer>,
         query: Session,
         bulk: Session,
     },
@@ -154,7 +154,7 @@ impl Encoder {
             backend: Backend::Onnx {
                 query: session(2)?,
                 bulk: session((cpus / 2).max(2))?,
-                tokenizer,
+                tokenizer: Box::new(tokenizer),
             },
             m,
         })

@@ -78,3 +78,18 @@ Held-out split, both engines as an agent uses them (one resident MCP session).
   against 42 and 40 MB (768-wide vectors).
 - **Latency and build times are not valid:** the machine was in use during the runs (nano p95 64.6 and 70.1 ms against ~26 ms in
   test 6). They are re-measured only on an idle machine, on Johan's go.
+
+## Product latency on an idle machine (15 November evening)
+
+Re-measured as asked above, same product runs (held-out, one resident MCP session), machine not in active use (Steam and iCUE open in the background at the start; Process Lasso, a governor, always on):
+
+| Corpus | Pair p50 / p95 | Nano p50 / p95 | Nano p95 / pair p95 |
+|---|---|---|---|
+| Alloprof | 21.2 / 37.4 ms | 27.3 / 65.0 ms | 1.74 |
+| mix-fr-en | 25.5 / 42.3 ms | 31.1 / 68.8 ms | 1.63 |
+
+- These are whole searches as an agent sees them (encoding, lexical and vector search, fusion), not encoding alone, so they are
+  not comparable with test 6's 26 ms.
+- Nano adds about 6 ms at p50 and 26 to 28 ms at p95 per search, under twice the pair's p95 on both corpora. The first Alloprof
+  nano run (p95 64.6 ms) was not noise: the re-run gives 65.0 ms.
+- Reported, not judged (the product rule judges quality only).

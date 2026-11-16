@@ -1,0 +1,3 @@
+{"type":"Item","id":"one","data":{"name":"one","stack":"rust","embedding":[1,0]}}
+{"type":"Item","id":"two","data":{"name":"two","stack":"python","embedding":[0.8,0.6]}}
+{"type":"Item","id":"three","data":{"name":"three","stack":"rust","embedding":[0,1]}}
