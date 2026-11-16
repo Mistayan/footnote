@@ -7,7 +7,7 @@ import json, sys, time, yaml
 from concurrent.futures import ThreadPoolExecutor
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent))
 import docs_vs_grounded as g
-qs = [e["vars"] for e in yaml.safe_load((g.REPO / "bench/work/gd/dataset.yaml").read_text(encoding="utf-8"))["entries"]]
+qs = [e["vars"] for e in yaml.safe_load(g.DATASET.read_text(encoding="utf-8"))["entries"]]
 manifest = json.loads((g.RUN / "manifest.json").read_text())
 db = lambda lib: g.RUN / "footnote" / f"{lib}.db"
 out = {}

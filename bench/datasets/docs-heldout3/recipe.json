@@ -1,0 +1,12 @@
+{
+ "hono": [
+  "https://hono.dev/docs/",
+  200,
+  "/llms-[a-z]+\\.txt$/"
+ ],
+ "flask": [
+  "https://flask.palletsprojects.com/en/stable/",
+  200,
+  "/llms-[a-z]+\\.txt$/"
+ ]
+}

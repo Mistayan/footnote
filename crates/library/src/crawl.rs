@@ -89,6 +89,18 @@ fn normalize(mut u: Url) -> Url {
     u
 }
 
+/// The address a reader would cite: a Markdown copy listed by llms.txt (`/guide/features.md`, `/concepts/config/index.md`)
+/// stands for its HTML page (`/guide/features`, `/concepts/config/`).
+fn page_url(u: &Url) -> String {
+    let s = u.as_str();
+    match s.strip_suffix(".md") {
+        Some(page) => page
+            .strip_suffix("/index")
+            .map_or(page.to_string(), |dir| format!("{dir}/")),
+        None => s.to_string(),
+    }
+}
+
 /// One key per page whatever its form: `/guide/features`, `/guide/features/`, `.md`, `.html` and `/index.html` are the same page.
 fn page_key(u: &Url) -> String {
     let s = u.as_str().trim_end_matches('/');
@@ -242,7 +254,7 @@ pub fn crawl(out: &Path, o: &Options, progress: &mut dyn FnMut(u64, u64)) -> Res
         bytes += text.len() as u64;
         let file = format!("{pages}.md");
         fs::write(out.join(&file), &text)?;
-        urls.insert(file, json!(last.as_str()));
+        urls.insert(file, json!(page_url(&last)));
         progress(pages as u64, bytes);
     }
     fs::write(out.join("urls.json"), serde_json::to_string_pretty(&urls)?)?;
@@ -283,6 +295,23 @@ mod tests {
             &start,
             &fr
         ));
+    }
+
+    #[test]
+    fn markdown_copies_cite_their_page() {
+        let p = |s: &str| page_url(&Url::parse(s).unwrap());
+        assert_eq!(
+            p("https://vite.dev/guide/features.md"),
+            "https://vite.dev/guide/features"
+        );
+        assert_eq!(
+            p("https://pydantic.dev/docs/v/concepts/config/index.md"),
+            "https://pydantic.dev/docs/v/concepts/config/"
+        );
+        assert_eq!(
+            p("https://docs.python.org/3/library/os.html"),
+            "https://docs.python.org/3/library/os.html"
+        );
     }
 
     #[test]

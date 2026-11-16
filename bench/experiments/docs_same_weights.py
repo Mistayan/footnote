@@ -121,7 +121,7 @@ def main():
     if not profile.exists():
         profile.write_text((MODEL / "manifest.json").read_text(encoding="utf-8"), encoding="utf-8")
     dbs = {}
-    for lib in ("vite", "tailwindcss", "fastapi", "react", "python"):
+    for lib in g.RECIPE:
         source = sources[lib]
         db = OUT / f"{lib}.db"
         source_index = Path(str(source) + ".tantivy")

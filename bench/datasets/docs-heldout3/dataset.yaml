@@ -1,0 +1,308 @@
+description: Footnote held-out documentation set 3, written 16 Nov 2026 by Claude
+  from the sites' page lists before any system ran on these libraries; reserved for
+  the final decision after tuning on docs-confirm and Grounded Docs' set.
+entries:
+- vars:
+    library: hono
+    query: validate a request body with zod
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/guides/validation
+      grade: 3
+- vars:
+    library: hono
+    query: enable the CORS middleware
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/middleware/builtin/cors
+      grade: 3
+- vars:
+    library: hono
+    query: protect routes with a JWT
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/middleware/builtin/jwt
+      grade: 3
+    - url: https://hono.dev/docs/helpers/jwt
+      grade: 2
+- vars:
+    library: hono
+    query: basic auth with username and password
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/middleware/builtin/basic-auth
+      grade: 3
+- vars:
+    library: hono
+    query: type-safe RPC client between server and frontend
+    intent: conceptual
+    qrels:
+    - url: https://hono.dev/docs/guides/rpc
+      grade: 3
+- vars:
+    library: hono
+    query: deploy to Cloudflare Workers
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/getting-started/cloudflare-workers
+      grade: 3
+- vars:
+    library: hono
+    query: run the app on a Node.js server
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/getting-started/nodejs
+      grade: 3
+- vars:
+    library: hono
+    query: read and set cookies
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/helpers/cookie
+      grade: 3
+- vars:
+    library: hono
+    query: stream a response with server-sent events
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/helpers/streaming
+      grade: 3
+- vars:
+    library: hono
+    query: test routes without starting a server
+    intent: troubleshooting
+    qrels:
+    - url: https://hono.dev/docs/guides/testing
+      grade: 3
+    - url: https://hono.dev/docs/helpers/testing
+      grade: 2
+- vars:
+    library: hono
+    query: path parameters and regular expressions in routes
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/api/routing
+      grade: 3
+- vars:
+    library: hono
+    query: set and get variables on the context
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/api/context
+      grade: 3
+- vars:
+    library: hono
+    query: throw an HTTPException and handle errors globally
+    intent: troubleshooting
+    qrels:
+    - url: https://hono.dev/docs/api/exception
+      grade: 3
+    - url: https://hono.dev/docs/api/hono
+      grade: 2
+- vars:
+    library: hono
+    query: write a custom middleware with createMiddleware
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/guides/middleware
+      grade: 3
+    - url: https://hono.dev/docs/helpers/factory
+      grade: 2
+- vars:
+    library: hono
+    query: RegExpRouter vs TrieRouter, which is faster
+    intent: comparison
+    qrels:
+    - url: https://hono.dev/docs/concepts/routers
+      grade: 3
+    - url: https://hono.dev/docs/api/presets
+      grade: 2
+- vars:
+    library: hono
+    query: render JSX on the server
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/guides/jsx
+      grade: 3
+    - url: https://hono.dev/docs/middleware/builtin/jsx-renderer
+      grade: 2
+- vars:
+    library: hono
+    query: limit the request body size
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/middleware/builtin/body-limit
+      grade: 3
+- vars:
+    library: hono
+    query: breaking changes when migrating to v5
+    intent: troubleshooting
+    qrels:
+    - url: https://hono.dev/docs/guides/migrating-to-v5
+      grade: 3
+- vars:
+    library: hono
+    query: handle a websocket upgrade
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/helpers/websocket
+      grade: 3
+- vars:
+    library: hono
+    query: get the client IP address
+    intent: api-lookup
+    qrels:
+    - url: https://hono.dev/docs/helpers/conninfo
+      grade: 3
+    - url: https://hono.dev/docs/middleware/builtin/ip-restriction
+      grade: 2
+- vars:
+    library: flask
+    query: application factory pattern with create_app
+    intent: conceptual
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/appfactories/
+      grade: 3
+    - url: https://flask.palletsprojects.com/en/stable/tutorial/factory/
+      grade: 2
+- vars:
+    library: flask
+    query: organize an app with blueprints
+    intent: conceptual
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/blueprints/
+      grade: 3
+- vars:
+    library: flask
+    query: handle file uploads
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/fileuploads/
+      grade: 3
+- vars:
+    library: flask
+    query: flash messages to the user
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/flashing/
+      grade: 3
+- vars:
+    library: flask
+    query: custom 404 error page
+    intent: troubleshooting
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/errorhandling/
+      grade: 3
+- vars:
+    library: flask
+    query: load configuration from environment variables
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/config/
+      grade: 3
+- vars:
+    library: flask
+    query: test client with pytest fixtures
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/testing/
+      grade: 3
+    - url: https://flask.palletsprojects.com/en/stable/tutorial/tests/
+      grade: 2
+- vars:
+    library: flask
+    query: application context vs request context
+    intent: comparison
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/appcontext/
+      grade: 3
+    - url: https://flask.palletsprojects.com/en/stable/reqcontext/
+      grade: 3
+- vars:
+    library: flask
+    query: use async view functions
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/async-await/
+      grade: 3
+- vars:
+    library: flask
+    query: deploy behind a production WSGI server
+    intent: conceptual
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/deploying/
+      grade: 3
+- vars:
+    library: flask
+    query: Jinja template inheritance with a base layout
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/templateinheritance/
+      grade: 3
+    - url: https://flask.palletsprojects.com/en/stable/templating/
+      grade: 2
+- vars:
+    library: flask
+    query: register a custom CLI command
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/cli/
+      grade: 3
+- vars:
+    library: flask
+    query: subscribe to the request_started signal
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/signals/
+      grade: 3
+- vars:
+    library: flask
+    query: use SQLAlchemy with Flask
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/sqlalchemy/
+      grade: 3
+- vars:
+    library: flask
+    query: stream a response from a generator
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/streaming/
+      grade: 3
+- vars:
+    library: flask
+    query: class-based views with MethodView
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/views/
+      grade: 3
+- vars:
+    library: flask
+    query: protect against XSS and set security headers
+    intent: conceptual
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/web-security/
+      grade: 3
+- vars:
+    library: flask
+    query: turn on debug mode and the debugger
+    intent: troubleshooting
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/debugging/
+      grade: 3
+    - url: https://flask.palletsprojects.com/en/stable/quickstart/
+      grade: 2
+- vars:
+    library: flask
+    query: configure logging
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/logging/
+      grade: 3
+- vars:
+    library: flask
+    query: run background tasks with Celery
+    intent: api-lookup
+    qrels:
+    - url: https://flask.palletsprojects.com/en/stable/patterns/celery/
+      grade: 3

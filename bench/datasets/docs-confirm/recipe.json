@@ -1,2 +1,12 @@
-{"pydantic": ["https://pydantic.dev/docs/validation/latest/", 200, null],
- "svelte": ["https://svelte.dev/docs/svelte/", 200, null]}
+{
+ "pydantic": [
+  "https://pydantic.dev/docs/validation/latest/",
+  200,
+  "/llms-[a-z]+\\.txt$/"
+ ],
+ "svelte": [
+  "https://svelte.dev/docs/svelte/",
+  200,
+  "/llms-[a-z]+\\.txt$/"
+ ]
+}
