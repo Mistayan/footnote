@@ -339,6 +339,23 @@ def aggregate():
     return summary
 
 
+def usage_limited(cell):
+    """The plan's usage limit stopped the worker, at its first call or partway."""
+    return (stream(cell)[1] or {}).get('api_error') == 'usage_limit_reached'
+
+
+def reset(entry):
+    """Put a cell back as prepared: fresh workspace from the level's controls, no run files, no Footnote state."""
+    cell, work = Path(entry['cell_dir']), Path(entry['workspace'])
+    for f in ('stream.jsonl', 'stderr.txt', 'run.json', 'result.json', 'harness-settings.json', 'harness-mcp.json'):
+        (cell / f).unlink(missing_ok=True)
+    shutil.rmtree(cell / 'footnote-state', ignore_errors=True)
+    fresh = ROOT / 'controls' / entry['level'] / 'baseline/workspace'
+    shutil.rmtree(work)
+    shutil.copytree(fresh, work)
+    assert workspace_hashes(work) == workspace_hashes(fresh), entry['cell_id']
+
+
 def run_all():
     for entry in manifest()['cells']:
         cell = Path(entry['cell_dir'])
@@ -353,7 +370,14 @@ def run_all():
         if spent >= TOKEN_CAP:
             print(json.dumps({'stopped': 'token cap', 'spent': spent, 'next': entry['cell_id']}), flush=True)
             break
-        launch(entry)
+        while True:
+            launch(entry)
+            if not usage_limited(cell):
+                break
+            # The plan's usage window ran out: not a result, so start the cell over once the window resets.
+            reset(entry)
+            print(json.dumps({'waiting': 'usage limit', 'cell_id': entry['cell_id'], 'retry_in_s': 900}), flush=True)
+            time.sleep(900)
         r = collect(entry['cell_id'])
         print(json.dumps({k: r[k] for k in ('sequence', 'cell_id', 'accepted', 'wall_seconds')} |
                          {'usd': r['usage']['api_price_usd'] if r['usage'] else None, 'setup_ok': r['setup']['ok']}), flush=True)
@@ -371,6 +395,11 @@ def self_test():
     assert not setup_check('harness', {**harness, 'mcp_servers': []}, ['SessionStart'])['ok']
     cell = ROOT / 'cells/abc123'
     work = str(cell / 'workspace')
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / 'stream.jsonl').write_text(json.dumps({'type': 'result', 'api_error': 'usage_limit_reached', 'num_turns': 1}), encoding='utf-8')
+        assert usage_limited(Path(tmp))
+        (Path(tmp) / 'stream.jsonl').write_text(json.dumps({'type': 'result', 'is_error': False}), encoding='utf-8')
+        assert not usage_limited(Path(tmp))
     with tempfile.TemporaryDirectory() as tmp:
         def scan_calls(*calls):
             f = Path(tmp) / f's{len(list(Path(tmp).iterdir()))}.jsonl'
