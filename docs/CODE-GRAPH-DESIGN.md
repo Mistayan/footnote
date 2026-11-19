@@ -420,3 +420,15 @@ one narrowed candidate. A bare call also links to a method of an enclosing class
 Same javac scoring, precision stays 1.00 everywhere; recall: gson 0.85, jsoup 0.70, commons-lang 0.79, Spring 0.71 (from 0.85,
 0.65, 0.78, 0.63). Next: the same rule on Python and TypeScript against scip-python and scip-typescript, then receivers that go
 through generics.
+
+**Inherited methods in Python and TypeScript (#179, 19 November 2026).** The superclass walk from Java now also reads
+`class A(B)` (Python), `extends` and `implements` (TypeScript, JavaScript) and interface `extends`. A `self.m()` or `this.m()`
+that the class does not define reaches the nearest base that does, across files, and stays unlinked when a base is outside the
+project. Scored on the six held-out projects of #216 (hono, nest, zustand; click, httpx, rich) against fresh scip-typescript and
+scip-python graphs, with and without the rule. A class that declares the name as a field (hono's `match = match`) now stops the
+walk: the first run linked 13 calls to the interface's method instead, the compiler's conflict rate rose to 0.006, and the field
+check brought it back to 0.000. Final: TypeScript `receiver_type` 2,164 to 2,384 links, 2,041 to 2,197 correct, precision on
+analyzed lines 0.954 to 0.950, no conflicts; Python 1,814 to 1,855 links, 1,711 to 1,752 correct, 0.953 to 0.954 (36 same-file
+links became receiver links). Recall over every compiler reference in the covered files (not calls only): TypeScript 0.0969 to
+0.0992 (+156), Python 0.1775 to 0.1776 (+5). Small gains: most inherited calls in these projects were already same-file links.
+Next: receivers through generics.
