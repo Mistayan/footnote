@@ -143,6 +143,13 @@ nav .sp{flex:1}
 .pfoot{display:flex;gap:18px;padding:10px 20px;border-top:1px solid rgba(234,240,235,.12);font:12px var(--mono);color:var(--muted)}
 
 /* results: mint block */
+.more{margin-top:20px}
+.more>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font:500 14px var(--body);color:var(--glow);padding:6px 0}
+.more>summary::-webkit-details-marker{display:none}
+.more>summary span{display:inline-block;transition:transform .25s var(--ease)}
+.more[open]>summary span{transform:rotate(180deg)}
+.procedure{display:inline-flex;gap:8px;margin-top:22px;font:500 14px var(--body);color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line);padding-bottom:2px}
+.procedure:hover{color:var(--glow);border-color:var(--glow)}
 .proof{margin-top:48px;background:var(--mint);color:var(--mint-ink);border-radius:28px;padding:clamp(24px,4vw,48px);display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:40px;align-items:center}
 .proof .big{font:600 clamp(4rem,10vw,7.5rem)/.9 var(--display);letter-spacing:-.06em}
 .proof .big + p{font:500 1.15rem/1.4 var(--display);margin-top:14px;max-width:26ch}
@@ -246,23 +253,20 @@ footer .sp{flex:1}
       <a class="pcard" href="#together">
         <div class="head"><h3><span>Footnote</span> Library</h3><span class="arrow" aria-hidden="true">↗</span></div>
         <div class="stage"><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-lib"/></svg></span></div>
-        <div class="tags"><span class="tag main">documents</span><span class="tag on">available</span><span class="tag">read-only</span></div>
-        <p>Your documents, searchable by your agents, every passage tied to the exact bytes it came from. Best quality on all five corpora we tested.</p>
-        <div class="meta"><span>Markdown · text · PDF</span><span>works alone</span></div>
+        <p>Your documents, searchable by your agents, every passage tied to the exact bytes it came from.</p>
+        <div class="meta"><span>Markdown · text · PDF</span></div>
       </a>
       <a class="pcard" href="#together">
         <div class="head"><h3><span>Footnote</span> Memory</h3><span class="arrow" aria-hidden="true">↗</span></div>
         <div class="stage"><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-mem"/></svg></span></div>
-        <div class="tags"><span class="tag main">agents</span><span class="tag on">available</span><span class="tag">4 tools</span></div>
         <p>Preferences, decisions, fixes and sessions, remembered across Claude Code, Codex, Grok and DeepSeek Harness. Extraction runs on your own LLM.</p>
-        <div class="meta"><span>footnote install --memory</span><span>works alone</span></div>
+        <div class="meta"><span>footnote install --memory</span></div>
       </a>
       <a class="pcard" href="#together">
         <div class="head"><h3><span>Footnote</span> Code</h3><span class="arrow" aria-hidden="true">↗</span></div>
         <div class="stage"><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-code"/></svg></span></div>
-        <div class="tags"><span class="tag main">codebase</span><span class="tag">in development</span></div>
         <p>Memory of your codebase: which functions exist, what calls what, and the decisions and documents behind them.</p>
-        <div class="meta"><span>not available yet</span><span>soon</span></div>
+        <div class="meta"><span>in development</span></div>
       </a>
     </div>
   </section>
@@ -315,6 +319,8 @@ footer .sp{flex:1}
         <div class="bar"><span>Cognee</span><span style="grid-column:2/4;font-size:12px;color:var(--mint-muted)">failed on this corpus</span></div>
       </div>
     </div>
+    <details class="more">
+    <summary>All five corpora <span aria-hidden="true">↓</span></summary>
     <div class="tablebox" tabindex="0" role="region" aria-label="Quality per corpus">
       <table>
         <thead><tr><th>Corpus</th><th>Footnote</th><th>mem0</th><th>ICM</th><th>Cognee</th></tr></thead>
@@ -327,12 +333,14 @@ footer .sp{flex:1}
         </tbody>
       </table>
     </div>
-    <p class="tnote">Δ is Footnote over the competitor; significant in 24 of 26 comparisons (paired bootstrap, 10,000 resamples). mem0 without LLM extraction, Cognee on its chunk index, ICM keyword-only. Footnote takes longer to index: 712 s for the mixed corpus, against 336 s for mem0 and 98 s for ICM. Every figure comes from a stored receipt in <a href="#">bench/receipts</a>.</p>
+    </details>
+    <a class="procedure" href="#">See the benchmark procedure and disclaimers <span aria-hidden="true">→</span></a>
   </section>
 
   <section id="install" class="wrap">
     <p class="label">Install</p>
-    <h2 class="blocks" style="margin-top:14px"><span>Three commands.</span></h2>
+    <h2 class="blocks" style="margin-top:14px"><span>Three commands, from source.</span></h2>
+    <p class="note" style="margin-top:14px;color:var(--muted);max-width:60ch">A Windows installer and the desktop launcher are coming; until then this is the developer path.</p>
     <div class="install">
       <div class="step"><h3>1 · Build</h3><p>One Rust binary; the embedding models are checked by hash.</p><div class="cmd"><code>cargo build --release</code><button class="copy" type="button">Copy</button></div></div>
       <div class="step"><h3>2 · Library</h3><p>Index a folder you allow. Skip it if you only want memory.</p><div class="cmd"><code>footnote --db kb.db index --root ./docs --allow ./docs</code><button class="copy" type="button">Copy</button></div></div>
