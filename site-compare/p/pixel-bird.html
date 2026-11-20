@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Footnote: pixel bird prototype</title>
+<style>
+:root{--bg:#09120b;--text:#eaf0eb;--muted:#a2afa5;--accent:#2b9185;--accent-ink:#101114;--glow:#5fd3c3;--line:#29332c;
+  --display:"Plus Jakarta Sans",system-ui,sans-serif;--body:"Hanken Grotesk",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:17px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--glow);outline-offset:3px;border-radius:6px}
+.hero{position:relative;min-height:760px;overflow:hidden;display:flex;align-items:center;padding:96px 6vw 120px;isolation:isolate}
+#field{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;image-rendering:pixelated}
+.hero::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,rgba(9,18,11,.86) 0%,rgba(9,18,11,.55) 38%,rgba(9,18,11,0) 66%)}
+.copy{max-width:640px}
+.label{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--glow)}
+h1{font:600 clamp(40px,6vw,68px)/1.06 var(--display);letter-spacing:-.02em;margin:14px 0 18px}
+h1 em{font-style:normal;color:var(--glow)}
+.sub{color:var(--muted);max-width:52ch;margin-bottom:28px}
+.btn{display:inline-block;padding:12px 20px;border-radius:999px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);margin-right:8px}
+.hint{margin-top:18px;font:12px var(--mono);color:var(--muted)}
+</style>
+</head>
+<body>
+<section class="hero" id="hero">
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="copy">
+    <p class="label">Footnote</p>
+    <h1>What comes into focus is <em>your company's knowledge.</em></h1>
+    <p class="sub">Local memory your coding agents can cite. Every answer comes back with its source: the file, the line, the date, and whether it changed since.</p>
+    <a class="btn primary" href="#">Install Footnote</a><a class="btn" href="#">View on GitHub</a>
+    <p class="hint">runs on your machine · no account · no telemetry</p>
+  </div>
+</section>
+<script>
+// Pixel bird: drawn on a small canvas (one logical pixel = PX screen pixels) and scaled up unsmoothed.
+// A bird glides across the hero over three layers of drifting pixel stars, flapping and bobbing; near the pointer it is drawn towards it.
+(function () {
+  const hero = document.getElementById("hero"), c = document.getElementById("field"), g = c.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const PX = 5, LIGHT = "#bff3ea", MID = "#5fd3c3", DARK = "#2b9185", DIM = "#1b5d56";
+  let w, h, stars = [], ptr = { x: 0, y: 0, on: false }, bird = { x: -20, y: 0, vy: 0 }, running = false, visible = true;
+
+  function build() {
+    w = Math.ceil(hero.clientWidth / PX); h = Math.ceil(hero.clientHeight / PX); c.width = w; c.height = h;
+    stars = Array.from({ length: Math.round(w * h / 160) }, () => ({ x: Math.random() * w, y: Math.random() * h, z: 1 + (Math.random() * 3 | 0) }));
+    bird.y = h * .42;
+  }
+  const px = (x, y, col) => { g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), 1, 1); };
+  function line(x0, y0, x1, y1, col) {                      // a one-pixel line, the pixel-art way
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) | 0 || 1;
+    for (let i = 0; i <= n; i++) px(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n, col);
+  }
+  function wing(x, y, flap, col, edge) {                    // wing = filled triangle from the shoulder to a tip that swings up and down
+    const tx = x - 3 - Math.abs(flap) * 2, ty = y - flap * 9, bx = x - 6, by = y + 1;
+    for (let i = 0; i <= 10; i++) { const t = i / 10; line(x + 1, y, tx + (bx - tx) * t, ty + (by - ty) * t, col); }
+    line(x + 1, y, tx, ty, edge);
+  }
+  function drawBird(x, y, t) {
+    const flap = Math.sin(t * 9);
+    wing(x, y, -flap * .8, DARK, DIM);                      // far wing, out of phase, darker
+    for (let dx = -5; dx <= 3; dx++) for (let dy = 0; dy <= 1; dy++) px(x + dx, y + dy, dy ? MID : LIGHT);   // body
+    for (let dx = -8; dx <= -6; dx++) px(x + dx, y + (dx === -8 ? 1 : 0), MID);                             // tail
+    px(x + 4, y - 1, LIGHT); px(x + 5, y - 1, LIGHT); px(x + 4, y, MID); px(x + 5, y, MID);                  // head
+    px(x + 6, y, "#f2b84b");                                                                               // beak
+    px(x + 5, y - 1, "#09120b");                                                                           // eye
+    wing(x, y, flap, MID, LIGHT);                           // near wing
+  }
+  function draw(t, dt) {
+    g.clearRect(0, 0, w, h);
+    for (const s of stars) {                                // drifting stars: nearer layers move faster
+      s.x -= dt * s.z * 3; if (s.x < 0) s.x += w;
+      px(s.x, s.y, s.z === 3 ? MID : s.z === 2 ? DARK : DIM);
+    }
+    bird.x += dt * 14; if (bird.x > w + 20) bird.x = -20;   // glide across, then re-enter
+    let ty = h * .42 + Math.sin(t * 1.2) * h * .06;
+    if (ptr.on) { const near = Math.max(0, 1 - Math.hypot(bird.x - ptr.x, bird.y - ptr.y) / (h * .5)); ty += (ptr.y - ty) * near * .6; }
+    bird.vy += (ty - bird.y) * .06; bird.vy *= .8; bird.y += bird.vy;
+    drawBird(bird.x, bird.y + Math.sin(t * 9) * -.6, t);
+    for (let i = 1; i <= 6; i++) px(bird.x - 9 - i * 2, bird.y + 1 + Math.sin(t * 9 - i) * .5, i < 3 ? MID : DIM);   // wake
+  }
+  let last = 0, T = 0;
+  function frame(now) { if (!running) return; const dt = Math.min(.05, (now - last) / 1000); last = now; T += dt; draw(T, dt); requestAnimationFrame(frame); }
+  function start() { if (!running && !reduce && visible && !document.hidden) { running = true; last = performance.now(); requestAnimationFrame(frame); } }
+  build(); bird.x = w * .66; draw(0.4, 0);                  // reduced motion: one still frame, bird mid-flight
+  if (!reduce) {
+    hero.addEventListener("pointermove", e => { const r = hero.getBoundingClientRect(); ptr.x = (e.clientX - r.left) / PX; ptr.y = (e.clientY - r.top) / PX; ptr.on = true; });
+    hero.addEventListener("pointerleave", () => { ptr.on = false; });
+    new IntersectionObserver(es => { visible = es[0].isIntersecting; visible ? start() : (running = false); }).observe(hero);
+    document.addEventListener("visibilitychange", () => document.hidden ? (running = false) : start());
+    start();
+  }
+  let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { build(); if (!running) draw(0.4, 0); }, 120); });
+})();
+</script>
+</body>
+</html>

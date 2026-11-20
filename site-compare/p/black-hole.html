@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Footnote: black hole prototype</title>
+<style>
+:root{--bg:#09120b;--text:#eaf0eb;--muted:#a2afa5;--accent:#2b9185;--accent-ink:#101114;--glow:#5fd3c3;--line:#29332c;
+  --display:"Plus Jakarta Sans",system-ui,sans-serif;--body:"Hanken Grotesk",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:17px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--glow);outline-offset:3px;border-radius:6px}
+.hero{position:relative;min-height:760px;overflow:hidden;display:flex;align-items:center;padding:96px 6vw 120px;isolation:isolate}
+#field{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+.hero.nogl{background:radial-gradient(circle at 74% 50%,#09120b 0 9%,#5fd3c3 10%,#1b5d56 14%,#09120b 30%)}  /* no WebGL: a still ring */
+.hero::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(90deg,rgba(9,18,11,.86) 0%,rgba(9,18,11,.55) 38%,rgba(9,18,11,0) 62%)}
+.copy{max-width:640px}
+.label{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--glow)}
+h1{font:600 clamp(40px,6vw,68px)/1.06 var(--display);letter-spacing:-.02em;margin:14px 0 18px}
+h1 em{font-style:normal;color:var(--glow)}
+.sub{color:var(--muted);max-width:52ch;margin-bottom:28px}
+.btn{display:inline-block;padding:12px 20px;border-radius:999px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);margin-right:8px}
+.hint{margin-top:18px;font:12px var(--mono);color:var(--muted)}
+</style>
+</head>
+<body>
+<section class="hero" id="hero">
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="copy">
+    <p class="label">Footnote</p>
+    <h1>What comes into focus is <em>your company's knowledge.</em></h1>
+    <p class="sub">Local memory your coding agents can cite. Every answer comes back with its source: the file, the line, the date, and whether it changed since.</p>
+    <a class="btn primary" href="#">Install Footnote</a><a class="btn" href="#">View on GitHub</a>
+    <p class="hint">runs on your machine · no account · no telemetry</p>
+  </div>
+</section>
+<script>
+// Black hole: one fragment shader. A tilted accretion disk of gas and orbiting speckles (inner parts orbit faster, the side turning towards
+// the viewer is brighter), the far side of the disk bent over and under the hole, a thin photon ring and a black shadow.
+// It is an approximation of the look, not a ray tracer. The pointer tilts the disk. No libraries, no network.
+(function () {
+  const hero = document.getElementById("hero"), cv = document.getElementById("field");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const gl = cv.getContext("webgl", { antialias: false, alpha: false, powerPreference: "low-power" });
+  if (!gl) { hero.classList.add("nogl"); return; }
+  const VS = "attribute vec2 a;void main(){gl_Position=vec4(a,0.,1.);}";
+  const FS = `precision highp float;
+uniform vec2 R; uniform float T; uniform vec2 M;
+float h21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+  return mix(mix(h21(i),h21(i+vec2(1.,0.)),f.x),mix(h21(i+vec2(0.,1.)),h21(i+vec2(1.,1.)),f.x),f.y);}
+float fbm(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+7.1;a*=.5;}return s;}
+vec3 ramp(float x){vec3 a=vec3(.02,.10,.09),b=vec3(.17,.56,.52),c=vec3(.37,.83,.76),d=vec3(.92,1.,.97);
+  return x<.5?mix(a,b,x*2.):x<.85?mix(b,c,(x-.5)/.35):mix(c,d,(x-.85)/.15);}
+// emission of a disk at radius rr (in hole radii) and angle an: swirling gas plus orbiting speckles, inner parts faster
+vec4 disk(float rr,float an){
+  float om=1.4/pow(rr,1.5);
+  float a2=an-T*om;
+  float gas=fbm(vec2(a2*2.2,rr*7.))*1.2;
+  vec2 cell=vec2(floor(rr*26.),floor(a2*rr*5.));
+  vec2 fc=vec2(fract(rr*26.),fract(a2*rr*5.))-.5;
+  float dots=step(.9,h21(cell))*smoothstep(.34,.0,length(fc));
+  float boost=1.+.75*cos(an);                                  // the side turning towards us is brighter
+  float inten=(.28+gas+dots*1.6)*boost*pow(1.7/rr,1.5);
+  return vec4(ramp(clamp(inten*.8,0.,1.))*inten,inten);
+}
+void main(){
+  float asp=R.x/R.y;
+  vec2 uv=(gl_FragCoord.xy-.5*R)/R.y;
+  vec2 c=asp>1.15?vec2(asp*.2,-.01):vec2(0.,-.26);
+  float Rs=asp>1.15?.15:.17;
+  vec2 p=uv-c;
+  float roll=(M.x-.5)*.3; p=mat2(cos(roll),-sin(roll),sin(roll),cos(roll))*p;
+  float tilt=mix(.14,.34,clamp(M.y,0.,1.));
+  vec3 col=vec3(.035,.07,.043);
+  float st=h21(floor(gl_FragCoord.xy/2.));                      // distant stars
+  col+=vec3(.5,.75,.7)*step(.9985,st)*(.3+.7*h21(floor(gl_FragCoord.xy/2.)+9.));
+  float r=length(p);
+  // far side of the disk, bent over and under the hole
+  if(r>Rs){
+    float rr=r/Rs, an=atan(p.y,p.x);
+    float vis=smoothstep(1.,1.12,rr)*exp(-(rr-1.)*1.5);
+    float up=.3+.7*smoothstep(-.4,1.,p.y/r);
+    vec4 d=disk(1.15+ (rr-1.)*1.3, an);
+    col+=d.rgb*vis*up*1.6;
+  }
+  col+=ramp(.97)*exp(-pow((r-Rs*1.03)/(Rs*.02),2.))*1.3;       // photon ring
+  col+=ramp(.7)*exp(-pow((r-Rs*1.03)/(Rs*.10),2.))*.18;
+  if(r<Rs) col=vec3(0.);                                       // the shadow
+  // the disk itself, seen from a tilt: its back half passes behind the hole, its front half in front
+  vec2 q=vec2(p.x,p.y/tilt);
+  float rd=length(q)/Rs, ang=atan(q.y,q.x);
+  float mask=smoothstep(1.5,1.9,rd)*(1.-smoothstep(4.2,5.4,rd));
+  if(q.y>0. && r<Rs*1.02) mask=0.;
+  vec4 d=disk(rd,ang);
+  col+=d.rgb*mask*1.5;
+  col=1.-exp(-col*1.5);
+  col*=1.-.35*smoothstep(.55,1.05,length(uv/vec2(asp*.5,.5)));  // vignette
+  gl_FragColor=vec4(col,1.);
+}`;
+  function sh(t, s) { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; }
+  let pr;
+  try { pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr); }
+  catch (e) { console.warn(e); hero.classList.add("nogl"); return; }
+  gl.useProgram(pr);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(pr, "a"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const uR = gl.getUniformLocation(pr, "R"), uT = gl.getUniformLocation(pr, "T"), uM = gl.getUniformLocation(pr, "M");
+  let scale = Math.min(devicePixelRatio || 1, 1.5), m = [.5, .5], target = [.5, .5], t0 = performance.now(), running = false, visible = true, slow = 0, last = 0;
+  function size() { cv.width = Math.round(hero.clientWidth * scale); cv.height = Math.round(hero.clientHeight * scale); gl.viewport(0, 0, cv.width, cv.height); }
+  function render(t) { gl.uniform2f(uR, cv.width, cv.height); gl.uniform1f(uT, t); gl.uniform2f(uM, m[0], m[1]); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+  function frame(now) {
+    if (!running) return;
+    const dt = now - last; last = now;
+    slow = dt > 28 ? slow + 1 : Math.max(0, slow - 1);
+    if (slow > 40 && scale > .6) { scale *= .8; slow = 0; size(); }          // thin out the pixel count on a slow device
+    m[0] += (target[0] - m[0]) * .06; m[1] += (target[1] - m[1]) * .06;
+    render((now - t0) / 1000); requestAnimationFrame(frame);
+  }
+  function start() { if (!running && !reduce && visible && !document.hidden) { running = true; last = performance.now(); requestAnimationFrame(frame); } }
+  size(); render(3.2);                                                        // reduced motion: this one still frame
+  if (!reduce) {
+    hero.addEventListener("pointermove", e => { const r = hero.getBoundingClientRect(); target = [(e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height]; });
+    hero.addEventListener("pointerleave", () => { target = [.5, .5]; });
+    new IntersectionObserver(es => { visible = es[0].isIntersecting; visible ? start() : (running = false); }).observe(hero);
+    document.addEventListener("visibilitychange", () => document.hidden ? (running = false) : start());
+    start();
+  }
+  let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { size(); if (!running) render(3.2); }, 120); });
+})();
+</script>
+</body>
+</html>

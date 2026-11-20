@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Footnote: particle field prototype</title>
+<style>
+:root{--bg:#09120b;--text:#eaf0eb;--muted:#a2afa5;--accent:#2b9185;--accent-ink:#101114;--glow:#5fd3c3;--line:#29332c;
+  --display:"Plus Jakarta Sans",system-ui,sans-serif;--body:"Hanken Grotesk",system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,monospace}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:17px/1.6 var(--body);-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--glow);outline-offset:3px;border-radius:6px}
+.hero{position:relative;min-height:760px;overflow:hidden;display:flex;align-items:center;padding:96px 6vw 120px;isolation:isolate}
+#field{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+/* keeps text AA over the brightest crests: a soft scrim on the text side only */
+.hero::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:linear-gradient(90deg,rgba(9,18,11,.86) 0%,rgba(9,18,11,.55) 38%,rgba(9,18,11,0) 66%)}
+.copy{max-width:640px}
+.label{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--glow)}
+h1{font:600 clamp(40px,6vw,68px)/1.06 var(--display);letter-spacing:-.02em;margin:14px 0 18px}
+h1 em{font-style:normal;color:var(--glow)}
+.sub{color:var(--muted);max-width:52ch;margin-bottom:28px}
+.btn{display:inline-block;padding:12px 20px;border-radius:999px;font-weight:600;text-decoration:none;border:1px solid var(--line);color:var(--text)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);margin-right:8px}
+.hint{margin-top:18px;font:12px var(--mono);color:var(--muted)}
+</style>
+</head>
+<body>
+<section class="hero" id="hero">
+  <canvas id="field" aria-hidden="true"></canvas>
+  <div class="copy">
+    <p class="label">Footnote</p>
+    <h1>What comes into focus is <em>your company's knowledge.</em></h1>
+    <p class="sub">Local memory your coding agents can cite. Every answer comes back with its source: the file, the line, the date, and whether it changed since.</p>
+    <a class="btn primary" href="#">Install Footnote</a><a class="btn" href="#">View on GitHub</a>
+    <p class="hint">runs on your machine · no account · no telemetry</p>
+  </div>
+</section>
+<script>
+// Particle field: a perspective grid of points riding a travelling wave. Near points are larger and brighter, far points fade into the ground.
+// The pointer pushes nearby points away; each is on a spring and settles back. No libraries, no network.
+(function () {
+  const hero = document.getElementById("hero"), c = document.getElementById("field"), g = c.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const BUCKETS = 7, GLOW = [95, 211, 195];
+  let W, H, k, cols, rows, n, u, v, ox, oy, vx, vy, scale = 1;
+  const ptr = { x: -1e4, y: -1e4, on: false };
+  let running = false, visible = true, last = 0, slow = 0, frames = 0;
+
+  function build() {
+    k = Math.min(devicePixelRatio || 1, 2);
+    W = hero.clientWidth; H = hero.clientHeight; c.width = W * k; c.height = H * k;
+    const base = W < 700 ? [64, 36] : [210, 96];
+    cols = Math.max(24, Math.round(base[0] * scale)); rows = Math.max(14, Math.round(base[1] * scale));
+    n = cols * rows;
+    u = new Float32Array(n); v = new Float32Array(n);
+    ox = new Float32Array(n); oy = new Float32Array(n); vx = new Float32Array(n); vy = new Float32Array(n);
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const p = j * cols + i;
+      u[p] = (i / (cols - 1)) * 2 - 1 + (Math.random() - .5) * .004;
+      v[p] = j / (rows - 1);
+    }
+  }
+  const wave = (a, b, t) =>
+    Math.sin(a * 3.1 + t * .55 + b * 2.2) + .6 * Math.sin(a * 7.3 - t * .8 + b * 5.1) + .35 * Math.sin(b * 9 + t * .5 + a);
+
+  function draw(t) {
+    g.setTransform(k, 0, 0, k, 0, 0); g.clearRect(0, 0, W, H);
+    const buckets = Array.from({ length: BUCKETS }, () => []);
+    const reach = Math.min(W, H) * .3;
+    for (let p = 0; p < n; p++) {
+      const depth = v[p], s = 1 / (.5 + depth * 1.1);               // perspective: 1 at the horizon side, large near the camera
+      const h = wave(u[p], depth, t) * .5;
+      let sx = W * .5 + u[p] * W * .62 * s;
+      let sy = H * .36 + s * H * (.17 - h * .085);
+      if (ptr.on) {                                                 // pointer: push away, then spring back
+        const dx = sx + ox[p] - ptr.x, dy = sy + oy[p] - ptr.y, d2 = dx * dx + dy * dy;
+        if (d2 < reach * reach) {
+          const d = Math.sqrt(d2) + .001, f = (1 - d / reach) ** 1.6 * 3.6;      // wide, strongest at the centre, light at the rim
+          vx[p] += dx / d * f; vy[p] += dy / d * f;
+        }
+      }
+      vx[p] += -ox[p] * .06; vy[p] += -oy[p] * .06; vx[p] *= .86; vy[p] *= .86;
+      ox[p] += vx[p]; oy[p] += vy[p];
+      sx += ox[p]; sy += oy[p];
+      if (sx < -4 || sx > W + 4 || sy < -4 || sy > H + 4) continue;
+      const crest = (h + 1) / 2, fade = Math.min(1, (1 - depth) * 1.5 + .25);
+      const a = Math.min(1, (.22 + .9 * crest * crest) * fade * (.6 + .4 * Math.min(1, s / 1.8)));
+      buckets[Math.min(BUCKETS - 1, (a * BUCKETS) | 0)].push(sx, sy, Math.max(1, Math.min(2.6, s * 1.15)));
+    }
+    for (let b = 0; b < BUCKETS; b++) {
+      const arr = buckets[b]; if (!arr.length) continue;
+      g.fillStyle = `rgba(${GLOW[0]},${GLOW[1]},${GLOW[2]},${((b + .5) / BUCKETS).toFixed(3)})`;
+      for (let i = 0; i < arr.length; i += 3) g.fillRect(arr[i] - arr[i + 2] / 2, arr[i + 1] - arr[i + 2] / 2, arr[i + 2], arr[i + 2]);
+    }
+  }
+  function frame(now) {
+    if (!running) return;
+    const dt = now - last; last = now;
+    if (dt > 0) {                                                    // adapt density to the device: if it is slow for a while, thin out
+      slow = dt > 24 ? slow + 1 : Math.max(0, slow - 1);
+      if (slow > 40 && ++frames && scale > .4) { scale *= .8; slow = 0; build(); }
+    }
+    draw(now / 1000);
+    requestAnimationFrame(frame);
+  }
+  function start() { if (running || reduce || !visible || document.hidden) return; running = true; last = performance.now(); requestAnimationFrame(frame); }
+  function stop() { running = false; }
+
+  build(); draw(2.4);                                                // reduced motion: this one still frame is the whole page background
+  if (!reduce) {
+    hero.addEventListener("pointermove", e => { const r = hero.getBoundingClientRect(); ptr.x = e.clientX - r.left; ptr.y = e.clientY - r.top; ptr.on = true; });
+    hero.addEventListener("pointerleave", () => { ptr.on = false; });
+    new IntersectionObserver(es => { visible = es[0].isIntersecting; visible ? start() : stop(); }).observe(hero);
+    document.addEventListener("visibilitychange", () => document.hidden ? stop() : start());
+    start();
+  }
+  let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { build(); if (!running) draw(2.4); }, 120); });
+})();
+</script>
+</body>
+</html>
