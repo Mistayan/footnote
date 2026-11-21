@@ -67,7 +67,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             default: json!(false),
             range: None,
             gain: "Agents adapt the skills you reuse to your projects: they get footnote_skill_edit, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
-            cost: "Agent tokens: one extra agent turn per edit request (reading the skill, writing the change), an edited skill is new text that later sessions read again, and an edit that does worse is rolled back and may be redone. A change to a skill's scripts waits for your review (`footnote memory-review`). Off by default",
+            cost: "Agent tokens: one extra agent turn per edit request, measured at 3 more model calls that re-read the context from the prompt cache (about 3 times the context in cache reads, plus about 2k written and 1k output tokens; bench/experiments/SKILL-EDIT-COST-2026-11-21.md). An edited skill is new text that later sessions read again, and an edit that does worse is rolled back and may be redone. A change to a skill's scripts waits for your review (`footnote memory-review`). Off by default",
         },
         OptionSpec {
             key: "memory.skill_trial_uses",

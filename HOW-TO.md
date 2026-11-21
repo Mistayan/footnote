@@ -183,10 +183,12 @@ footnote skills reject css-transitions       # refuse it; it stays in the histor
 
 What one request costs:
 - **The request text:** about 560 characters, roughly 150 tokens.
-- **The extra agent turn:** the agent re-reads its whole context, at the prompt-cache price when the cache is warm, may read the skill, and writes the full text of any file it changes. With a 100k-token context that is one more 100k-token cache read, plus a few hundred to a few thousand output tokens.
-- **Later sessions:** they read the changed skill when it is suggested.
+- **The extra agent turn:** the agent re-reads its whole context, at the prompt-cache price when the cache is warm, may read the skill, and writes the full text of any file it changes. Measured on two real Claude Code sessions (Sonnet 5.5), the request caused 3 more model calls:
+  - at a 40k-token context: 121k tokens read from the cache, 2k written, 0.8k output;
+  - at a 148k-token context: 444k read, 2k written, 1k output.
 
-Measured numbers on real sessions are tracked in #456.
+  That is about 3 times the context in cache reads. Where a cache read costs a tenth of a fresh input token, that is about the price of sending 30% of the context once as fresh input, plus about 1k output tokens. Method and limits: `bench/experiments/SKILL-EDIT-COST-2026-11-21.md`.
+- **Later sessions:** they read the changed skill when it is suggested.
 
 **Trials.** Each agent edit that goes live, or that you approve, is on trial against the version it replaced. For a first edit, that is the curated skill. Once the edit has been suggested `memory.skill_trial_uses` times (5 by default), the next Stop compares those suggestions with the last 5 of the version it replaced. If the edit's scripts fail more often, or it is read less than half as often, it is rolled back as a new revision; otherwise it is kept. A trial costs no tokens: it only reads the outcome log. Trials run only while `skill_rewrite` is on, and your own `revise`, `restore` or `drop` ends one. With 5 uses this catches clear regressions, not small ones; it is a guardrail, not a statistical test. `footnote skills stats` lists the trials in progress, and `footnote skills revisions <name>` shows each verdict with its counts.
 

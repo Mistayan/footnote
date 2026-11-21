@@ -139,7 +139,7 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
     - Threat model: SECURITY.md, "Agent skill edits".
 - **Rewriting is opt-in** (`skill_rewrite`, off by default). The user is told what it is for and what it costs before turning it on: one extra agent turn per edit request, edited skills re-read by later sessions, and possible roll-back and re-edit cycles (#446, #447). Built in #446:
   - Stop asks once per session, only when the agent read a suggested skill and one of its scripts then failed. The request comes alone, before the periodic save, which waits one Stop. If the save went first, the agent's own `stop_active` Stop would come next and the skill request could be put off indefinitely.
-  - The request text is about 150 tokens. The real cost is the agent turn it causes. Measuring that on real sessions is #456, and the launcher switch is #457.
+  - The request text is about 150 tokens. The real cost is the agent turn it causes. Measured on two real sessions (#456, `bench/experiments/SKILL-EDIT-COST-2026-11-21.md`), it caused 3 more model calls: about 3 times the context in cache reads, plus about 2k written and 1k output tokens. The launcher switch is #457.
 - **Trials (#447).**
   - Outcome rows record the agent revision and scope that were served.
   - An agent edit, made live or approved, is on trial against the revision it replaced. For the curated copy, the baseline is the curated skill's rows.
