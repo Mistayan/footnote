@@ -15,3 +15,7 @@ tauri-build = { version = "=2.7.6", features = [] }
 [dependencies]
 tauri = { version = "=2.12.7", features = ["tray-icon"] }
 serde_json = "1"
+
+[features]
+# Enables embedded `../dist` assets in release builds (`tauri build`); left off in `tauri dev` so `devUrl` works.
+custom-protocol = ["tauri/custom-protocol"]
