@@ -323,7 +323,7 @@ pub fn index(root: &Path, db: &Path) -> Result<Value> {
 
 /// Where compiler indexers run: the root when it has a marker file, plus every top-level Rust project in a subfolder (a Tauri
 /// app's `src-tauri`, `crates/<name>`), so a project whose Rust is not at the top still gets a compiler graph (#218).
-fn roots(root: &Path) -> Vec<String> {
+pub(crate) fn roots(root: &Path) -> Vec<String> {
     const VENDORED: &[&str] = &[
         "vendor",
         "third_party",

@@ -57,11 +57,21 @@ pub trait Env {
     fn install(&mut self, tool: &Tool) -> Result<()>;
 }
 
-/// The indexer `index()` would pick for the project's top folder (same marker files, same order).
+/// The indexer `index()` would pick: the top folder's first (same marker files, same order), else the one for the first Rust
+/// project in a subfolder that `index()` also runs (a Tauri app's `src-tauri`, `backend/Cargo.toml`).
 #[must_use]
 pub fn tool_for(root: &Path) -> Option<&'static Tool> {
-    let has = |f: &str| root.join(f).is_file();
-    // shortcut: top folder only; a Rust crate in a subfolder is not checked here, `index()` still tries it. Upgrade when asked.
+    marked(root).or_else(|| {
+        crate::roots(root)
+            .iter()
+            .filter(|sub| !sub.is_empty())
+            .find_map(|sub| marked(&root.join(sub)))
+    })
+}
+
+/// The indexer for the marker files in `dir` itself.
+fn marked(dir: &Path) -> Option<&'static Tool> {
+    let has = |f: &str| dir.join(f).is_file();
     if has("Cargo.toml") {
         Some(&RUST)
     } else if has("tsconfig.json") {
@@ -269,6 +279,32 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join("tsconfig.json"), "{}").unwrap();
         d
+    }
+
+    fn launcher_for(files: &[&str]) -> Option<&'static str> {
+        let d = tempfile::tempdir().unwrap();
+        for f in files {
+            let p = d.path().join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, "").unwrap();
+        }
+        tool_for(d.path()).map(|t| t.launcher)
+    }
+
+    #[test]
+    fn a_rust_crate_in_a_subfolder_is_found_and_the_top_folder_wins() {
+        assert_eq!(launcher_for(&["sub/Cargo.toml"]), Some(RUST.launcher));
+        assert_eq!(
+            launcher_for(&["apps/desktop/src-tauri/Cargo.toml"]),
+            Some(RUST.launcher)
+        );
+        assert_eq!(
+            launcher_for(&["tsconfig.json", "backend/Cargo.toml"]),
+            Some(TYPESCRIPT.launcher)
+        );
+        // `index()` skips vendored and hidden folders, so this does too.
+        assert_eq!(launcher_for(&["vendor/lib/Cargo.toml"]), None);
+        assert_eq!(launcher_for(&["README.md"]), None);
     }
 
     fn run(mode: Mode, present: bool, yes: bool) -> (Fake, Value) {
