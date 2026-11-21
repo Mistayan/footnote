@@ -748,6 +748,18 @@ enum SkillsAction {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Serve the agent's pending change to a skill's scripts (#445); `footnote memory-review` lists them.
+    Approve {
+        name: String,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Refuse the agent's pending change to a skill; it stays in the history as rejected.
+    Reject {
+        name: String,
+        #[arg(long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1217,6 +1229,16 @@ fn execute(cli: Cli) -> Result<Value> {
                     *revision,
                 ),
                 SkillsAction::Drop { name, project } => crate::agent_skills::drop_version(
+                    &state,
+                    name,
+                    project.as_deref().unwrap_or("global"),
+                ),
+                SkillsAction::Approve { name, project } => crate::agent_skills::approve(
+                    &state,
+                    name,
+                    project.as_deref().unwrap_or("global"),
+                ),
+                SkillsAction::Reject { name, project } => crate::agent_skills::reject(
                     &state,
                     name,
                     project.as_deref().unwrap_or("global"),

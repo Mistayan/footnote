@@ -23,12 +23,19 @@ fn overlap(a: &HashSet<String>, b: &HashSet<String>) -> f64 {
     if union == 0.0 { 0.0 } else { inter / union }
 }
 
+const SKILLS_HOW: &str = "A pending skill change shows its files in `files`: read them, then `footnote skills approve <name> [--project P]` serves it, `footnote skills reject <name> [--project P]` refuses it.";
+
 pub fn review(limit: usize) -> Result<Value> {
     let state = crate::state::state_dir()?;
+    // Agents' changes to skill scripts, held back until the user reviews them (#445).
+    #[cfg(feature = "library")]
+    let skills_pending = crate::agent_skills::pending(&state);
+    #[cfg(not(feature = "library"))]
+    let skills_pending: Vec<Value> = vec![];
     let db = crate::status::memory_db(&state)?;
     if !db.exists() {
         return Ok(
-            json!({"pending": [], "duplicates": [], "old_sessions": [], "unused": [], "counts": {}, "note": "no memories yet"}),
+            json!({"pending": [], "skills_pending": skills_pending, "duplicates": [], "old_sessions": [], "unused": [], "counts": {}, "note": "no memories yet", "how": SKILLS_HOW}),
         );
     }
     let c = crate::app::open(&db, false)?;
@@ -106,9 +113,9 @@ pub fn review(limit: usize) -> Result<Value> {
     let counts = json!({"pending": pending.len(), "memories": live.len(), "duplicates": duplicates.len(), "old_sessions": old_sessions.len(), "unused": unused.len()});
     let take = |v: Vec<Value>| v.into_iter().take(limit).collect::<Vec<_>>();
     Ok(json!({
-        "pending": take(pending), "duplicates": take(duplicates), "old_sessions": take(old_sessions), "unused": take(unused), "counts": counts,
+        "pending": take(pending), "skills_pending": skills_pending, "duplicates": take(duplicates), "old_sessions": take(old_sessions), "unused": take(unused), "counts": counts,
         "unused_since": since, "older_than": old,
-        "how": "Nothing was changed. `footnote memory-restore <id>` approves a pending memory or brings a retired one back; `footnote forget <id>` rejects or retires one (kept as history).",
+        "how": format!("Nothing was changed. `footnote memory-restore <id>` approves a pending memory or brings a retired one back; `footnote forget <id>` rejects or retires one (kept as history). {SKILLS_HOW}"),
     }))
 }
 

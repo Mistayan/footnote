@@ -131,7 +131,12 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
   - The layer is indexed as the reserved theme `agent`.
   - `suggest` serves the project's version, then the global one, then the curated skill.
   - A copy records the curated `SKILL.md` hash, and `footnote skills list` flags it as behind when that skill changes; nothing is merged automatically.
-  - Changes come from `footnote skills revise` (the user, live at once). The agent's tool and its gates come in #445.
+  - Changes come from `footnote skills revise` (the user, live at once) or the agent's `footnote_skill_edit` (#445).
+  - The agent's tool is listed only with `skill_rewrite` on.
+    - A Markdown-only change must pass the skill-check FAIL rules, then goes live.
+    - Any other change waits as pending, one at a time, until `footnote skills approve`, which is refused if the skill changed since. Session start and `memory-review` show it.
+    - The server never runs a skill's tests: running code the agent just wrote, before the user reads it, would defeat the review. The agent runs them in its own shell, under its own permission prompts.
+    - Threat model: SECURITY.md, "Agent skill edits".
 - **Rewriting is opt-in** (`skill_rewrite`, off by default). The user is told what it is for and what it costs before turning it on: one extra agent turn per edit request, edited skills re-read by later sessions, and possible roll-back and re-edit cycles (#446, #447).
 - **The signal is passive and free** (#443): the Stop hook reads the session file written since its last check and logs, per suggested skill, whether the agent read its `SKILL.md` and how its scripts ran. No LLM grades a session, and the agent never grades itself. These logs decide when to ask for an edit, whether an edit survives its trial, and which never-read skills stop being suggested (#448).
 

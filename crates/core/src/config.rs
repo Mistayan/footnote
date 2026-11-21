@@ -63,6 +63,13 @@ pub fn catalogue() -> Vec<OptionSpec> {
             cost: "About 1 in 3 prompts that a skill fits get it; a wrong one on about 1 in 25 (bench/experiments/SKILL-RANKING-2026-11-21.md); a few ms per theme per prompt",
         },
         OptionSpec {
+            key: "memory.skill_rewrite",
+            default: json!(false),
+            range: None,
+            gain: "Agents adapt the skills you reuse to your projects: they get footnote_skill_edit, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
+            cost: "Agent tokens: one extra agent turn per edit request (reading the skill, writing the change), an edited skill is new text that later sessions read again, and an edit that does worse is rolled back and may be redone. A change to a skill's scripts waits for your review (`footnote memory-review`). Off by default",
+        },
+        OptionSpec {
             key: "memory.idle_seconds",
             default: json!(1800),
             range: Some((60, 86_400)),

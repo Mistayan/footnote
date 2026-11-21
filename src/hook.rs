@@ -21,6 +21,8 @@ const SAVE: &str = r#"Footnote memory: before you stop, save what is worth remem
 Then tell the user in one short line what you saved (count and ids), or that nothing was worth keeping. Then stop."#;
 /// At this many memories waiting for review (#207), the session start reminds the user, so the queue is never missed.
 const REVIEW_AT: usize = 5;
+#[cfg(feature = "library")]
+const SKILLS_REVIEW: &str = "Footnote: {n} change(s) an agent made to skill scripts are waiting for the user's review and are not used until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote skills approve <name>` serves one, `footnote skills reject <name>` refuses it).";
 const REVIEW: &str = "Footnote: {n} global preferences that agents saved are waiting for the user's review, and no agent sees them until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote memory-restore <id>` approves one, `footnote forget <id>` rejects it).";
 const VISIBLE: &str = "Footnote memory: when one of these memories, or one recalled later in this session, shapes your answer, say so in a few words (for example \"from memory: ...\"). Do not mention memories that played no part.";
 const HANDOFF: &str = r#"Footnote: this session's context is {tokens} tokens, and every call re-reads all of it. Before you stop, save one handoff memory with the footnote_remember tool (MCP server footnote-memory): kind "session", scope "{project}", observed_at "{today}", tags ["handoff"], one self-contained paragraph with the task, the decisions made, what is done and left, the next step, and the files and issues involved. Then tell the user in one short line that you saved the handoff (its id); the next compaction or /clear picks it up, as Footnote brings it back first. Then stop."#;
@@ -779,6 +781,19 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                     } else {
                         format!("{text}\n\n{line}")
                     };
+                }
+                // An agent's change to a skill's scripts waits for the user (#445): every one is worth a line.
+                #[cfg(feature = "library")]
+                {
+                    let skills = crate::agent_skills::pending(state).len();
+                    if skills > 0 {
+                        let line = SKILLS_REVIEW.replace("{n}", &skills.to_string());
+                        text = if text.is_empty() {
+                            line
+                        } else {
+                            format!("{text}\n\n{line}")
+                        };
+                    }
                 }
                 out = context(&e, text);
             }

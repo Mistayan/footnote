@@ -479,3 +479,136 @@ fn serve_without_the_mcp_flag_fails_with_a_clear_error() {
     let stderr = String::from_utf8(out).unwrap();
     assert!(stderr.contains("--mcp"), "stderr: {stderr}");
 }
+
+/// #445: `footnote_skill_edit` exists only with `memory.skill_rewrite` on; a Markdown change goes live, a script change waits
+/// for the user's review (approve or reject), only one at a time; paths and links stay inside the skill.
+#[test]
+fn skill_edit_gates_script_changes_behind_review() {
+    let t = tmp();
+    let db = fixture(&t);
+    let state = t.path().join("state");
+    let curated = t.path().join("skills").join("css-transitions");
+    fs::create_dir_all(curated.join("scripts")).unwrap();
+    let md =
+        "---\nname: css-transitions\ndescription: Add CSS transitions to dropdowns.\n---\n# Body\n";
+    fs::write(curated.join("SKILL.md"), md).unwrap();
+    fs::write(curated.join("scripts").join("check.mjs"), "old\n").unwrap();
+    let run = |args: &[&str]| -> Value {
+        let out = cmd(&db)
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice(&out).unwrap()
+    };
+    fs::create_dir_all(&state).unwrap();
+    let skills_dir = t.path().join("skills");
+    run(&["skills", "index", "web", skills_dir.to_str().unwrap()]);
+    let rpc = |lines: &[Value]| -> Vec<Value> {
+        let input: String = lines.iter().map(|v| format!("{v}\n")).collect();
+        let out = cmd(&db)
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .args(["serve", "--mcp"])
+            .write_stdin(input)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        responses(&String::from_utf8(out).unwrap())
+    };
+    let listed = || -> bool {
+        rpc(&[json!({"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}})])[0]["result"]
+            ["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "footnote_skill_edit")
+    };
+    let edit = |files: Value| -> Value {
+        let args = json!({"name": "css-transitions", "scope": "global", "reason": "the check missed reduced motion", "files": files});
+        rpc(&[
+            json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"footnote_skill_edit","arguments":args}}),
+        ])[0]["result"]
+            .clone()
+    };
+    let live = state
+        .join("skills")
+        .join("agent")
+        .join("global")
+        .join("css-transitions");
+
+    assert!(!listed(), "off by default");
+    let r = edit(json!({"SKILL.md": md}));
+    assert_eq!(r["isError"], true);
+    assert!(text(&r).contains("skill rewriting is off"), "{r}");
+
+    fs::write(state.join("memory.json"), r#"{"skill_rewrite":true}"#).unwrap();
+    assert!(listed());
+    for bad in [
+        json!({"../escape.md": "x"}),
+        json!({"SKILL.md": md.replace("# Body", "# Body\nSee [notes](notes.md).")}),
+    ] {
+        let r = edit(bad);
+        assert_eq!(r["isError"], true, "{r}");
+    }
+
+    let prose = md.replace("# Body", "# Body\nHonour prefers-reduced-motion.");
+    let r: Value = serde_json::from_str(&text(&edit(json!({"SKILL.md": prose})))).unwrap();
+    assert_eq!(r["status"], "live");
+    assert_eq!(fs::read_to_string(live.join("SKILL.md")).unwrap(), prose);
+
+    let r: Value =
+        serde_json::from_str(&text(&edit(json!({"scripts/check.mjs": "new\n"})))).unwrap();
+    assert_eq!(r["status"], "pending");
+    assert!(r["note"].as_str().unwrap().contains("memory-review"));
+    assert_eq!(
+        fs::read_to_string(live.join("scripts/check.mjs")).unwrap(),
+        "old\n"
+    );
+    let r = edit(json!({"SKILL.md": prose}));
+    assert!(text(&r).contains("waiting for the user's review"), "{r}");
+
+    let review = run(&["memory-review"]);
+    assert_eq!(
+        review["skills_pending"][0]["name"], "css-transitions",
+        "{review}"
+    );
+    run(&["skills", "reject", "css-transitions"]);
+    assert_eq!(
+        fs::read_to_string(live.join("scripts/check.mjs")).unwrap(),
+        "old\n"
+    );
+    let revs = run(&["skills", "revisions", "css-transitions"]);
+    assert!(
+        revs["revisions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["status"] == "rejected" && r["by"] == "agent"),
+        "{revs}"
+    );
+
+    let r: Value =
+        serde_json::from_str(&text(&edit(json!({"scripts/check.mjs": "newer\n"})))).unwrap();
+    assert_eq!(r["status"], "pending");
+    run(&["skills", "approve", "css-transitions"]);
+    assert_eq!(
+        fs::read_to_string(live.join("scripts/check.mjs")).unwrap(),
+        "newer\n"
+    );
+    assert_eq!(
+        fs::read_to_string(curated.join("scripts/check.mjs")).unwrap(),
+        "old\n",
+        "the curated skill was written"
+    );
+    assert!(
+        run(&["memory-review"])["skills_pending"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}

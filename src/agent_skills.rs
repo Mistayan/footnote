@@ -153,7 +153,90 @@ fn next_revision(hist: &Path) -> u64 {
         + 1
 }
 
-/// Records a new revision: the files of `from` (when given) with `changes` applied on top, checked, then made live.
+/// Who asked for a change. An agent's change also passes `lint`, and one that touches anything but Markdown waits for the
+/// user's review (#445).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    User,
+    Agent,
+}
+
+/// SKILL.md description, as the Agent Skills format allows it.
+const MAX_DESCRIPTION: usize = 1024;
+/// SKILL.md lines, as the Agent Skills format recommends.
+const MAX_LINES: usize = 500;
+
+/// The skill-check rules an agent's change must pass (`skills/write-a-skill/scripts/skill-check`, its FAIL rules): a
+/// description of at most 1024 characters, a SKILL.md of at most 500 lines, and relative links in Markdown files that
+/// resolve to a file inside the skill.
+fn lint(files: &Path) -> Result<()> {
+    let md = fs::read_to_string(files.join("SKILL.md"))?;
+    let (_, desc) = crate::skills::front_matter(&md).context("SKILL.md has no description")?;
+    ensure!(
+        desc.chars().count() <= MAX_DESCRIPTION,
+        "the description is {} characters (at most {MAX_DESCRIPTION})",
+        desc.chars().count()
+    );
+    ensure!(
+        md.lines().count() <= MAX_LINES,
+        "SKILL.md is {} lines (at most {MAX_LINES}); move detail to references/",
+        md.lines().count()
+    );
+    for e in walkdir::WalkDir::new(files) {
+        let e = e?;
+        if !e.file_type().is_file() || e.path().extension().is_none_or(|x| x != "md") {
+            continue;
+        }
+        let text = fs::read_to_string(e.path())?;
+        let dir = e.path().parent().unwrap_or(files);
+        for target in md_links(&text) {
+            let resolved = normalize(&dir.join(&target));
+            ensure!(
+                resolved.starts_with(normalize(files)) && resolved.is_file(),
+                "{} links to {target}, which is not a file in the skill",
+                e.path().strip_prefix(files).unwrap_or(e.path()).display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Relative link targets of a Markdown text: `](target)` without a scheme, anchor removed.
+fn md_links(text: &str) -> Vec<String> {
+    let mut out = vec![];
+    let mut rest = text;
+    while let Some(i) = rest.find("](") {
+        rest = &rest[i + 2..];
+        let end = rest.find([')', ' ', '\t', '\n']).unwrap_or(rest.len());
+        let target = rest[..end].split('#').next().unwrap_or_default();
+        let scheme = target
+            .split_once(':')
+            .is_some_and(|(s, _)| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphabetic()));
+        if !target.is_empty() && !scheme {
+            out.push(target.to_string());
+        }
+    }
+    out
+}
+
+/// `a/./b/../c` as `a/c`, without touching the disk.
+fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Records a new revision: the files of `from` (when given) with `changes` applied on top, checked, then made live unless
+/// it waits for review.
+#[allow(clippy::too_many_arguments)]
 fn commit(
     state: &Path,
     name: &str,
@@ -161,6 +244,8 @@ fn commit(
     from: Option<&Path>,
     changes: &Map<String, Value>,
     reason: &str,
+    origin: Origin,
+    make_live: bool,
 ) -> Result<u64> {
     let stem = crate::skills::file_stem(name);
     let hist = history(state, scope, &stem);
@@ -190,7 +275,11 @@ fn commit(
         let (found, _) = crate::skills::front_matter(&md)
             .context("SKILL.md needs front matter with a name and a description")?;
         ensure!(found == name, "SKILL.md names `{found}`, not `{name}`");
-        fits(&files) // the caps apply to the result too
+        fits(&files)?; // the caps apply to the result too
+        if origin == Origin::Agent {
+            lint(&files)?;
+        }
+        Ok(())
     })();
     if let Err(e) = made {
         let _ = fs::remove_dir_all(&rev);
@@ -201,14 +290,33 @@ fn commit(
         .unwrap_or_default();
     write_json(
         &rev.join("meta.json"),
-        &json!({"revision": n, "at": at, "reason": reason}),
+        &json!({
+            "revision": n, "at": at, "reason": reason,
+            "by": if origin == Origin::Agent { "agent" } else { "user" },
+            "status": if make_live { "live" } else { "pending" },
+            "changed": changes.keys().collect::<Vec<_>>(),
+        }),
     )?;
-    let target = live(state, scope, &stem);
-    if target.exists() {
-        fs::remove_dir_all(&target)?;
+    if make_live {
+        make_live_from(&files, &live(state, scope, &stem))?;
     }
-    copy_skill(&files, &target)?;
     Ok(n)
+}
+
+fn make_live_from(files: &Path, target: &Path) -> Result<()> {
+    if target.exists() {
+        fs::remove_dir_all(target)?;
+    }
+    copy_skill(files, target)
+}
+
+/// A change that only touches Markdown: instructions, not code.
+fn prose_only(changes: &Map<String, Value>) -> bool {
+    changes.keys().all(|k| {
+        Path::new(k)
+            .extension()
+            .is_some_and(|x| x.eq_ignore_ascii_case("md"))
+    })
 }
 
 fn meta_path(state: &Path, scope: &str, stem: &str) -> PathBuf {
@@ -218,12 +326,16 @@ fn meta_path(state: &Path, scope: &str, stem: &str) -> PathBuf {
 /// Changes a skill in the agent layer. The first change copies the curated skill of that name, if any, as a revision of its
 /// own; a skill with no curated original starts from `changes`, which must then hold its `SKILL.md`. `changes` maps a path
 /// inside the skill folder to its new text, or to null to delete that file.
-pub fn revise(
+///
+/// The user's change is live at once. An agent's change must also pass `lint`; when it touches anything but Markdown it is
+/// kept as a pending revision, not served, until the user approves it, and no other agent change is taken meanwhile.
+pub fn change(
     state: &Path,
     name: &str,
     scope: &str,
     changes: &Map<String, Value>,
     reason: &str,
+    origin: Origin,
 ) -> Result<Value> {
     let stem = check(name, scope)?;
     ensure!(!changes.is_empty(), "no change given");
@@ -232,6 +344,10 @@ pub fn revise(
     fs::create_dir_all(history(state, scope, &stem))?;
     let mut meta = read_json(&meta_file)
         .unwrap_or_else(|| json!({"name": name, "scope": scope, "dropped": true}));
+    ensure!(
+        origin == Origin::User || meta["pending"].is_null(),
+        "a change to `{name}` that touches its scripts is waiting for the user's review; tell the user that `footnote skills approve {name}` or `reject` settles it"
+    );
     let target = live(state, scope, &stem);
     let from = if meta["dropped"] == false && target.is_dir() {
         Some(target.clone())
@@ -243,6 +359,8 @@ pub fn revise(
             Some(&folder),
             &Map::new(),
             &format!("copied from the curated skill (theme {theme})"),
+            Origin::User,
+            true,
         )?;
         meta["base"] = json!(format!(
             "{name}@{}",
@@ -250,16 +368,127 @@ pub fn revise(
         ));
         meta["base_path"] = json!(folder);
         meta["revision"] = json!(n);
+        meta["dropped"] = json!(false);
         Some(target.clone())
     } else {
         None
     };
-    let n = commit(state, name, scope, from.as_deref(), changes, reason)?;
-    meta["revision"] = json!(n);
-    meta["dropped"] = json!(false);
+    let goes_live = origin == Origin::User || prose_only(changes);
+    let n = commit(
+        state,
+        name,
+        scope,
+        from.as_deref(),
+        changes,
+        reason,
+        origin,
+        goes_live,
+    )?;
+    if goes_live {
+        meta["revision"] = json!(n);
+        meta["dropped"] = json!(false);
+    } else {
+        let base = if meta["dropped"] == false {
+            meta["revision"].clone()
+        } else {
+            Value::Null
+        };
+        meta["pending"] = json!({"revision": n, "base_revision": base});
+    }
     write_json(&meta_file, &meta)?;
     reindex(state)?;
-    Ok(json!({"name": name, "scope": scope, "revision": n, "path": target.join("SKILL.md")}))
+    Ok(json!({
+        "name": name, "scope": scope, "revision": n,
+        "status": if goes_live { "live" } else { "pending" },
+        "path": target.join("SKILL.md")
+    }))
+}
+
+/// The user's change: live at once.
+pub fn revise(
+    state: &Path,
+    name: &str,
+    scope: &str,
+    changes: &Map<String, Value>,
+    reason: &str,
+) -> Result<Value> {
+    change(state, name, scope, changes, reason, Origin::User)
+}
+
+fn set_status(state: &Path, scope: &str, stem: &str, n: u64, status: &str) -> Result<()> {
+    let path = history(state, scope, stem)
+        .join(n.to_string())
+        .join("meta.json");
+    let mut m = read_json(&path).context("revision metadata")?;
+    m["status"] = json!(status);
+    write_json(&path, &m)
+}
+
+/// Serves the pending agent change to a skill. Refused when the live skill changed since the change was proposed.
+pub fn approve(state: &Path, name: &str, scope: &str) -> Result<Value> {
+    let stem = check(name, scope)?;
+    let meta_file = meta_path(state, scope, &stem);
+    let mut meta = read_json(&meta_file)
+        .with_context(|| format!("no agent version of `{name}` for scope {scope}"))?;
+    let pending = meta["pending"].clone();
+    let n = pending["revision"]
+        .as_u64()
+        .with_context(|| format!("no change to `{name}` is waiting for review"))?;
+    let live_now = if meta["dropped"] == false {
+        meta["revision"].clone()
+    } else {
+        Value::Null
+    };
+    ensure!(
+        pending["base_revision"] == live_now,
+        "`{name}` changed since this edit was proposed; reject it (`footnote skills reject {name}`) and let the agent propose again"
+    );
+    let files = history(state, scope, &stem)
+        .join(n.to_string())
+        .join("files");
+    make_live_from(&files, &live(state, scope, &stem))?;
+    set_status(state, scope, &stem, n, "approved")?;
+    meta["revision"] = json!(n);
+    meta["dropped"] = json!(false);
+    meta["pending"] = Value::Null;
+    write_json(&meta_file, &meta)?;
+    reindex(state)?;
+    Ok(json!({"name": name, "scope": scope, "revision": n, "status": "approved"}))
+}
+
+/// Refuses the pending agent change to a skill; it stays in the history as rejected.
+pub fn reject(state: &Path, name: &str, scope: &str) -> Result<Value> {
+    let stem = check(name, scope)?;
+    let meta_file = meta_path(state, scope, &stem);
+    let mut meta = read_json(&meta_file)
+        .with_context(|| format!("no agent version of `{name}` for scope {scope}"))?;
+    let n = meta["pending"]["revision"]
+        .as_u64()
+        .with_context(|| format!("no change to `{name}` is waiting for review"))?;
+    set_status(state, scope, &stem, n, "rejected")?;
+    meta["pending"] = Value::Null;
+    write_json(&meta_file, &meta)?;
+    Ok(json!({"name": name, "scope": scope, "revision": n, "status": "rejected"}))
+}
+
+/// Agent changes waiting for the user's review, with what they change and why.
+pub fn pending(state: &Path) -> Vec<Value> {
+    all(state)
+        .into_iter()
+        .filter_map(|m| {
+            let n = m["pending"]["revision"].as_u64()?;
+            let (name, scope) = (m["name"].as_str()?, m["scope"].as_str()?);
+            let rev = read_json(
+                &history(state, scope, &crate::skills::file_stem(name))
+                    .join(n.to_string())
+                    .join("meta.json"),
+            )?;
+            Some(json!({
+                "name": name, "scope": scope, "revision": n, "reason": rev["reason"], "changed": rev["changed"],
+                "files": history(state, scope, &crate::skills::file_stem(name)).join(n.to_string()).join("files"),
+            }))
+        })
+        .collect()
 }
 
 /// Every revision of a skill, oldest first, with the live one marked.
@@ -296,6 +525,8 @@ pub fn restore(state: &Path, name: &str, scope: &str, n: u64) -> Result<Value> {
         Some(&files),
         &Map::new(),
         &format!("restored revision {n}"),
+        Origin::User,
+        true,
     )?;
     meta["revision"] = json!(made);
     meta["dropped"] = json!(false);
@@ -496,6 +727,62 @@ mod tests {
         assert_eq!(r["revisions"].as_array().unwrap().len(), 3);
         assert_eq!(restore(s, "tidy", "acme", 2).unwrap()["revision"], 4);
         assert_eq!(fs::read_to_string(&md).unwrap(), v2);
+    }
+
+    #[test]
+    fn links_are_relative_targets_without_scheme_or_anchor() {
+        let text = "See [a](references/a.md#top), [web](https://x.y), [mail](mailto:a@b), [up](../x.md) and [here](#h).";
+        assert_eq!(md_links(text), vec!["references/a.md", "../x.md"]);
+    }
+
+    #[test]
+    fn agent_changes_pass_lint_and_script_changes_wait() {
+        let t = tempfile::tempdir().unwrap();
+        let s = t.path();
+        let base = skill_md("lintme", "Check things.");
+        revise(
+            s,
+            "lintme",
+            "global",
+            &changes(&[("SKILL.md", &base)]),
+            "first",
+        )
+        .unwrap();
+        let agent =
+            |c: &[(&str, &str)]| change(s, "lintme", "global", &changes(c), "why", Origin::Agent);
+        let long = format!("{base}{}", "line\n".repeat(MAX_LINES));
+        assert!(agent(&[("SKILL.md", &long)]).is_err());
+        let escaping = format!("{base}[x](../../outside.md)\n");
+        assert!(agent(&[("SKILL.md", &escaping)]).is_err());
+        let linked = format!("{base}[x](references/x.md)\n");
+        assert_eq!(
+            agent(&[("SKILL.md", &linked), ("references/x.md", "detail")]).unwrap()["status"],
+            "live"
+        );
+        let r = agent(&[("scripts/run.sh", "echo hi")]).unwrap();
+        assert_eq!(r["status"], "pending");
+        assert!(!live(s, "global", "lintme").join("scripts/run.sh").exists());
+        assert!(
+            agent(&[("SKILL.md", &linked)]).is_err(),
+            "one pending change at a time"
+        );
+        // The user may still change the skill; the pending change then no longer applies.
+        revise(
+            s,
+            "lintme",
+            "global",
+            &changes(&[("SKILL.md", &base)]),
+            "user",
+        )
+        .unwrap();
+        assert!(
+            approve(s, "lintme", "global")
+                .unwrap_err()
+                .to_string()
+                .contains("changed since")
+        );
+        reject(s, "lintme", "global").unwrap();
+        assert!(pending(s).is_empty());
     }
 
     #[test]

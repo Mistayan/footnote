@@ -1,6 +1,6 @@
 # Security policy
 
-Footnote is a local tool that serves your own documents to your own agents. It opens outbound network connections only in commands you run yourself (`footnote models install`, `footnote crawl <url>`, `footnote docs add`, `footnote docs refresh`, `footnote docs install <url>`) and in `footnote find`'s fetch on miss, which reads up to 3 pages of an already cached docs site when no cached passage matches well and never sends your query (`FOOTNOTE_NO_LIVE_FETCH=1` turns it off; see the README's security model), and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database. Agent memories are written by the agent you already use, into a local file; no other model receives your conversation.
+Footnote is a local tool that serves your own documents to your own agents. It opens outbound network connections only in commands you run yourself (`footnote models install`, `footnote crawl <url>`, `footnote docs add`, `footnote docs refresh`, `footnote docs install <url>`) and in `footnote find`'s fetch on miss, which reads up to 3 pages of an already cached docs site when no cached passage matches well and never sends your query (`FOOTNOTE_NO_LIVE_FETCH=1` turns it off; see the README's security model), and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database and, only when you turn on `memory.skill_rewrite`, change a copy of a skill in the state folder (see [Agent skill edits](#agent-skill-edits)). Agent memories are written by the agent you already use, into a local file; no other model receives your conversation.
 The model that describes what it defends against is in the README under [Security model](README.md#security-model).
 
 ## Reporting a vulnerability
@@ -17,6 +17,16 @@ Include what you did, what you expected, what happened, and the version (`footno
 - Weaknesses in the daemon's local socket authentication, the audit log's hash chain or MAC, or the private state folder. (Known limit, not a vulnerability: a hash chain cannot show that its newest entries were cut off; keep the last verified hash elsewhere.)
 - A way to make the embedding encoder load a model that does not match its pinned manifest.
 - Resource exhaustion through a query, a document or a helper response that the documented bounds should have stopped.
+- Any way for `footnote_skill_edit` to write outside the agent skill layer, change a curated skill, or make a change to a skill's scripts served without the user's approval.
+
+## Agent skill edits
+
+With `memory.skill_rewrite` on (off by default), agents get `footnote_skill_edit`. Skills are instructions that every later agent follows, and some carry scripts that agents run. An agent that read hostile text could try to turn one injected instruction into a standing one, or into code. The defences:
+- **Only copies are written.** Edits go to the agent skill layer in the state folder (`skills/agent/`). The curated skill is never written. Paths must stay inside the skill folder, and a skill holds at most 200 files and 2 MB.
+- **Every revision is kept.** `footnote skills revisions` shows each one, with who made it and why. `restore` and `drop` undo any of them.
+- **Script changes wait for the user.** A change that touches anything but Markdown is stored as pending and is not served until `footnote skills approve`. Only one can wait at a time. Session start and `footnote memory-review` say that it is waiting. The approval is refused if the skill changed in the meantime.
+- **Footnote never runs a skill's scripts.** It does not run them to check a change either. The agent runs them in its own shell, under its own permission prompts.
+- **What remains:** a Markdown change goes live without review, so an injected instruction can still reach later sessions through prose. It is limited to the skill's own folder, visible in the revision history, and reversible. Treat `skill_rewrite` like any setting that lets agents write instructions for other agents.
 
 ## Out of scope
 

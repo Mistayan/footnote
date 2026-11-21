@@ -381,6 +381,12 @@ fn handle(shared: &Shared, request: &Value, session: &str) -> Option<Value> {
         "ping" => rpc_ok(id, json!({})),
         "tools/list" => {
             let mut tools = tool_definitions();
+            #[cfg(all(feature = "memory", feature = "library"))]
+            if skill_rewrite_on()
+                && let Some(list) = tools.as_array_mut()
+            {
+                list.push(skill_edit_definition());
+            }
             if let Some(list) = tools.as_array_mut() {
                 list.retain(|t| {
                     switched_on(product_of(&shared.db, t["name"].as_str().unwrap_or("")))
@@ -504,9 +510,11 @@ fn tool_envelope(text: String, is_error: bool) -> Value {
 fn product_of(db: &Path, name: &str) -> &'static str {
     match name {
         "footnote_code" => "code",
-        "footnote_remember" | "footnote_forget" | "footnote_tag" | "footnote_memory_recall" => {
-            "memory"
-        }
+        "footnote_remember"
+        | "footnote_forget"
+        | "footnote_tag"
+        | "footnote_memory_recall"
+        | "footnote_skill_edit" => "memory",
         #[cfg(feature = "memory")]
         _ if !(db.exists()
             && read_db(db)
@@ -525,6 +533,74 @@ fn switched_on(product: &str) -> bool {
     crate::state::state_dir()
         .and_then(|state| footnote_core::config::product_settings(&state, product))
         .map_or(true, |v| v["enabled"].as_bool().unwrap_or(true))
+}
+
+/// `memory.skill_rewrite` (#445, #446): agents may change skills. Off by default and when the settings cannot be read.
+#[cfg(all(feature = "memory", feature = "library"))]
+fn skill_rewrite_on() -> bool {
+    crate::state::state_dir()
+        .and_then(|state| footnote_core::config::product_settings(&state, "memory"))
+        .is_ok_and(|v| v["skill_rewrite"] == true)
+}
+
+#[cfg(all(feature = "memory", feature = "library"))]
+fn skill_edit_definition() -> Value {
+    json!({
+        "name": "footnote_skill_edit",
+        "description": "Fix a skill you followed that was wrong. .md: live; scripts: user review.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "files": {"type": "object", "description": "path -> full text; null deletes"},
+                "reason": {"type": "string"},
+                "scope": {"type": "string", "description": "global or repo name"}
+            },
+            "required": ["name", "files", "reason", "scope"],
+            "additionalProperties": false
+        }
+    })
+}
+
+/// `footnote_skill_edit` (#445): fails closed unless `memory.skill_rewrite` is on. The server never runs a skill's scripts:
+/// a change to them is held for the user, who reads it before anything executes it outside the agent's own shell.
+#[cfg(all(feature = "memory", feature = "library"))]
+fn skill_edit(args: &Value) -> Result<Value> {
+    ensure!(
+        skill_rewrite_on(),
+        "skill rewriting is off; the user turns it on with `footnote config set memory.skill_rewrite true`"
+    );
+    let text = |k: &str, max: usize| -> Result<String> {
+        let v = args[k]
+            .as_str()
+            .with_context(|| format!("`{k}` is required"))?;
+        ensure!(
+            !v.trim().is_empty() && v.len() <= max,
+            "`{k}` must be 1 to {max} characters"
+        );
+        Ok(v.to_string())
+    };
+    let files = args["files"]
+        .as_object()
+        .context("`files` is an object: path in the skill folder -> new text, or null to delete")?;
+    ensure!(
+        (1..=20).contains(&files.len()),
+        "`files` holds 1 to 20 paths"
+    );
+    let mut result = crate::agent_skills::change(
+        &crate::state::state_dir()?,
+        &text("name", 100)?,
+        &text("scope", 200)?,
+        files,
+        &text("reason", 2000)?,
+        crate::agent_skills::Origin::Agent,
+    )?;
+    if result["status"] == "pending" {
+        result["note"] = json!(
+            "This change touches scripts, so it waits for the user's review: tell the user in one line that `footnote memory-review` lists it. Run the skill's tests yourself if it has some."
+        );
+    }
+    Ok(result)
 }
 
 fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
@@ -601,6 +677,8 @@ fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
         }
         #[cfg(feature = "memory")]
         "footnote_forget" => crate::memory::forget(&mut memory_db(db)?, int_arg(args, "id")?),
+        #[cfg(all(feature = "memory", feature = "library"))]
+        "footnote_skill_edit" => skill_edit(args),
         #[cfg(feature = "memory")]
         "footnote_tag" => {
             let list = |k| -> Result<Vec<String>> { tags_arg(&json!({"tags": args[k]})) };
@@ -1249,6 +1327,14 @@ fn tool_definitions() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Listed only with `memory.skill_rewrite` on, whose cost the option states; kept small all the same (#445).
+    #[cfg(all(feature = "memory", feature = "library"))]
+    #[test]
+    fn the_opt_in_skill_tool_stays_small() {
+        let bytes = serde_json::to_vec(&skill_edit_definition()).unwrap().len();
+        assert!(bytes <= 500, "footnote_skill_edit is {bytes} bytes");
+    }
 
     #[test]
     fn tool_definitions_stay_within_byte_budget() {

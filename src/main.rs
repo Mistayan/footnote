@@ -28,8 +28,9 @@ mod refresh;
 #[cfg(feature = "memory")]
 mod review;
 mod run;
-// Skills the agent revised from use (#444), served in place of curated ones.
+// Skills the agent revised from use (#444), served in place of curated ones; review and the hook need Memory.
 #[cfg(feature = "library")]
+#[cfg_attr(not(feature = "memory"), allow(dead_code))]
 mod agent_skills;
 // Written by the Memory hook, read by `footnote skills stats` (Library).
 #[cfg_attr(not(all(feature = "memory", feature = "library")), allow(dead_code))]

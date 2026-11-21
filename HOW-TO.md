@@ -169,6 +169,14 @@ footnote skills drop css-transitions --project my-app        # back to the curat
 footnote skills list            # agent skills too, with `behind` when the curated skill changed since the copy
 ```
 
+**Letting agents change skills (opt-in).** `footnote config set memory.skill_rewrite true` gives agents the `footnote_skill_edit` tool. It costs agent tokens: one extra turn for each change, and later sessions re-read the changed skill; `footnote options` gives the details. A change to Markdown files must pass the skill-check rules (description of at most 1024 characters, SKILL.md of at most 500 lines, links that resolve inside the skill), then goes live. A change that touches anything else, such as a script, waits for you, and Footnote never runs it:
+
+```bash
+footnote memory-review                       # `skills_pending`: what changes, why, and the folder to read
+footnote skills approve css-transitions      # serve it (add --project for a project's version)
+footnote skills reject css-transitions       # refuse it; it stays in the history as rejected
+```
+
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
 Installs the fast SQLite-free `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles:
