@@ -177,6 +177,15 @@ footnote skills approve css-transitions      # serve it (add --project for a pro
 footnote skills reject css-transitions       # refuse it; it stays in the history as rejected
 ```
 
+**When agents are asked to change a skill.** With `skill_rewrite` on, the hook asks at most once per session, and only on evidence: the agent read a suggested skill and one of that skill's scripts then failed. This needs `memory.activity`, which is on by default, because it relies on the outcome log above. The request comes at the end of a turn, alone. It goes before the periodic save request, which then waits one Stop. The agent judges whether the skill was wrong or its own code was. If the skill was right, it changes nothing.
+
+What one request costs:
+- **The request text:** about 560 characters, roughly 150 tokens.
+- **The extra agent turn:** the agent re-reads its whole context, at the prompt-cache price when the cache is warm, may read the skill, and writes the full text of any file it changes. With a 100k-token context that is one more 100k-token cache read, plus a few hundred to a few thousand output tokens.
+- **Later sessions:** they read the changed skill when it is suggested.
+
+Measured numbers on real sessions are tracked in #456.
+
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
 Installs the fast SQLite-free `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles:

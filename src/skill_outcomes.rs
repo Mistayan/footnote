@@ -22,6 +22,9 @@ pub struct Watch {
     /// Already counted as read since it was last suggested.
     #[serde(default)]
     pub read: bool,
+    /// One of its scripts failed since it was last suggested: with `read`, the evidence for a skill edit request (#446).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
 }
 
 /// What a watched skill went through, in session-file order.
@@ -191,7 +194,7 @@ mod tests {
             name: "debug-and-test".into(),
             theme: "dev".into(),
             dir: dir.into(),
-            read: false,
+            ..Default::default()
         }
     }
 

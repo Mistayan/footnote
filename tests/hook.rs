@@ -973,3 +973,113 @@ fn agent_skill_layer_shadows_curated_skills_by_scope() {
     .unwrap();
     assert_eq!(behind(), vec![true, true]);
 }
+
+/// #446: with `skill_rewrite` on, Stop asks once per session for a skill edit, only when the agent read a suggested skill and
+/// one of its scripts failed, and never at the same Stop as a save request. Off by default: no Stop mentions skills.
+#[test]
+fn skill_rewrite_asks_for_an_edit_only_on_evidence() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let dir = state.join("my-skills").join("css-transitions");
+    fs::create_dir_all(dir.join("scripts")).unwrap();
+    fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: css-transitions\ndescription: Add CSS transitions to dropdowns, modals and toasts.\n---\n# Body\n",
+    )
+    .unwrap();
+    command(state)
+        .args(["skills", "index", "web"])
+        .arg(state.join("my-skills"))
+        .assert()
+        .success();
+    let line = |v: Value| format!("{v}\n");
+    let read = line(
+        json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "r", "name": "Read", "input": {"file_path": dir.join("SKILL.md")}}]}}),
+    );
+    let failing_run = |id: &str| {
+        line(
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": id, "name": "Bash", "input": {"command": format!("node {}", dir.join("scripts").join("check.mjs").display())}}]}}),
+        ) + &line(
+            json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": id, "is_error": true, "content": "Exit code 1"}]}}),
+        )
+    };
+    // One session: suggest, then append what the agent did, then Stop.
+    let run = |session: &str, did: &str| -> String {
+        let transcript = state.join(format!("{session}.jsonl"));
+        fs::write(&transcript, "").unwrap();
+        let mut ev = event_in(
+            session,
+            "UserPromptSubmit",
+            "add a transition to the dropdown",
+        );
+        ev["transcript_path"] = json!(transcript);
+        assert!(hook(state, ev.clone()).contains("css-transitions"));
+        fs::write(&transcript, did).unwrap();
+        ev["hook_event_name"] = json!("Stop");
+        hook(state, ev)
+    };
+    let stop_again = |session: &str, did: &str| -> String {
+        let transcript = state.join(format!("{session}.jsonl"));
+        let mut text = fs::read_to_string(&transcript).unwrap();
+        text.push_str(did);
+        fs::write(&transcript, text).unwrap();
+        let mut ev = event_in(session, "Stop", "");
+        ev["transcript_path"] = json!(transcript);
+        hook(state, ev)
+    };
+
+    fs::write(state.join("memory.json"), r#"{"skills":true}"#).unwrap();
+    let off = run("off", &(read.clone() + &failing_run("a")));
+    assert!(
+        !off.contains("footnote_skill_edit"),
+        "off by default: {off}"
+    );
+
+    fs::write(
+        state.join("memory.json"),
+        r#"{"skills":true,"skill_rewrite":true}"#,
+    )
+    .unwrap();
+    let ask = run("on", &(read.clone() + &failing_run("b")));
+    let v: Value = serde_json::from_str(&ask).unwrap();
+    assert_eq!(v["decision"], "block", "{ask}");
+    let reason = v["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("footnote_skill_edit") && reason.contains("\"css-transitions\""),
+        "{reason}"
+    );
+    assert!(
+        !stop_again("on", &failing_run("c")).contains("footnote_skill_edit"),
+        "asked once per session"
+    );
+    assert!(
+        !run("read-only", &read).contains("footnote_skill_edit"),
+        "no failure, no request"
+    );
+    assert!(
+        !run("failed-unread", &failing_run("d")).contains("footnote_skill_edit"),
+        "a failure in a skill never read is no evidence"
+    );
+
+    // With a save request due at the same Stop, the skill request goes first, alone; the save comes at the next Stop
+    // (the agent's own Stop after a request, `stop_hook_active`, asks for nothing).
+    fs::write(
+        state.join("memory.json"),
+        r#"{"skills":true,"skill_rewrite":true,"every_turns":1}"#,
+    )
+    .unwrap();
+    let first = run("busy", &(read + &failing_run("e")));
+    assert!(
+        first.contains("footnote_skill_edit") && !first.contains("footnote_remember"),
+        "{first}"
+    );
+    let mut own = event_in("busy", "Stop", "");
+    own["stop_hook_active"] = json!(true);
+    own["transcript_path"] = json!(state.join("busy.jsonl"));
+    assert!(hook(state, own).trim().is_empty());
+    let next = stop_again("busy", "");
+    assert!(
+        next.contains("footnote_remember") && !next.contains("footnote_skill_edit"),
+        "{next}"
+    );
+}

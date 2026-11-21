@@ -137,7 +137,9 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
     - Any other change waits as pending, one at a time, until `footnote skills approve`, which is refused if the skill changed since. Session start and `memory-review` show it.
     - The server never runs a skill's tests: running code the agent just wrote, before the user reads it, would defeat the review. The agent runs them in its own shell, under its own permission prompts.
     - Threat model: SECURITY.md, "Agent skill edits".
-- **Rewriting is opt-in** (`skill_rewrite`, off by default). The user is told what it is for and what it costs before turning it on: one extra agent turn per edit request, edited skills re-read by later sessions, and possible roll-back and re-edit cycles (#446, #447).
+- **Rewriting is opt-in** (`skill_rewrite`, off by default). The user is told what it is for and what it costs before turning it on: one extra agent turn per edit request, edited skills re-read by later sessions, and possible roll-back and re-edit cycles (#446, #447). Built in #446:
+  - Stop asks once per session, only when the agent read a suggested skill and one of its scripts then failed. The request comes alone, before the periodic save, which waits one Stop. If the save went first, the agent's own `stop_active` Stop would come next and the skill request could be put off indefinitely.
+  - The request text is about 150 tokens. The real cost is the agent turn it causes. Measuring that on real sessions is #456, and the launcher switch is #457.
 - **The signal is passive and free** (#443): the Stop hook reads the session file written since its last check and logs, per suggested skill, whether the agent read its `SKILL.md` and how its scripts ran. No LLM grades a session, and the agent never grades itself. These logs decide when to ask for an edit, whether an edit survives its trial, and which never-read skills stop being suggested (#448).
 
 ## 8. Built so far (14 November 2026)

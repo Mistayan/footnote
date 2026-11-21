@@ -21,6 +21,8 @@ const SAVE: &str = r#"Footnote memory: before you stop, save what is worth remem
 Then tell the user in one short line what you saved (count and ids), or that nothing was worth keeping. Then stop."#;
 /// At this many memories waiting for review (#207), the session start reminds the user, so the queue is never missed.
 const REVIEW_AT: usize = 5;
+/// Asked once per session when the agent read a suggested skill and one of its scripts failed (#446).
+const SKILL_EDIT: &str = r#"Footnote: you read the skill "{name}" ({path}) and one of its scripts failed. Decide whether the skill itself was wrong or missed a step, not your own code or input. If it was, fix it with footnote_skill_edit (MCP server footnote-memory): name "{name}", scope "{project}" if the fix only holds for this project or "global", the full new text of each file you change, and one paragraph on what failed and why. Script changes wait for the user's review. If the skill was right, change nothing. Tell the user in one short line what you did. Then stop."#;
 #[cfg(feature = "library")]
 const SKILLS_REVIEW: &str = "Footnote: {n} change(s) an agent made to skill scripts are waiting for the user's review and are not used until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote skills approve <name>` serves one, `footnote skills reject <name>` refuses it).";
 const REVIEW: &str = "Footnote: {n} global preferences that agents saved are waiting for the user's review, and no agent sees them until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote memory-restore <id>` approves one, `footnote forget <id>` rejects it).";
@@ -131,6 +133,9 @@ struct Settings {
     idle_handoff_minutes: u64,
     /// Minimum context tokens before idle-expiry handoff triggers (#379).
     idle_handoff_min_tokens: u64,
+    /// Agents may change skills (#445), and Stop asks once per session for an edit when a skill they read had a script
+    /// fail (#446). Off by default: it spends agent tokens (`footnote options`).
+    skill_rewrite: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -146,6 +151,7 @@ impl Default for Settings {
             idle_seconds: 1800,
             infer_tags: false,
             skills: false,
+            skill_rewrite: false,
             handoff_tokens: 140_000,
             idle_handoff_minutes: 55,
             idle_handoff_min_tokens: 60_000,
@@ -191,6 +197,9 @@ struct Session {
     scan_from: u64,
     /// Whether this session was already asked for a handoff (#250).
     handoff_asked: bool,
+    /// Whether this session was already asked for a skill edit (#446): at most once.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    skill_edit_asked: bool,
     /// Recorded at UserPromptSubmit when resuming after idle cache expiry: `(idle_minutes, tokens)` (#379).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     idle_handoff_due: Option<(u64, u64)>,
@@ -227,7 +236,7 @@ fn watch_skills(state: &Path, st: &mut Session, e: &Event, project: &str, picked
             name: name.into(),
             theme: p["theme"].as_str().unwrap_or_default().into(),
             dir,
-            read: false,
+            ..Default::default()
         };
         crate::skill_outcomes::append(state, project, &w, "suggested", None);
         match st.skill_watch.iter_mut().find(|x| x.name == w.name) {
@@ -269,6 +278,7 @@ fn scan_skills(state: &Path, st: &mut Session, e: &Event, project: &str) {
             }
             crate::skill_outcomes::Seen::Read => {}
             crate::skill_outcomes::Seen::Run { ok } => {
+                w.failed |= !ok;
                 crate::skill_outcomes::append(state, project, w, "run", Some(ok));
             }
         }
@@ -939,6 +949,20 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                     .replace("{today}", &today)
                     .replace("{project}", &project)
                     + &changed_hint(&git(&e.cwd, &["status", "--porcelain"]));
+                out = Some(stop_ask(&e, reason));
+            } else if let Some(w) = (s.skill_rewrite && !st.skill_edit_asked)
+                .then(|| st.skill_watch.iter().find(|w| w.read && w.failed))
+                .flatten()
+            {
+                // Evidence only (#446): the agent read the skill and one of its scripts failed. Once per session, never
+                // with another request. It goes before the periodic save, while the failure is fresh; the save waits one
+                // Stop (the agent's own Stop after a request is `stop_active`, so a save first could starve it).
+                st.skill_edit_asked = true;
+                let path = Path::new(&w.dir).join("SKILL.md");
+                let reason = SKILL_EDIT
+                    .replace("{name}", &w.name)
+                    .replace("{path}", &path.to_string_lossy())
+                    .replace("{project}", &project);
                 out = Some(stop_ask(&e, reason));
             } else if st.turns.saturating_sub(st.asked_at) >= s.every_turns {
                 st.asked_at = st.turns;
