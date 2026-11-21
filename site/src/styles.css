@@ -63,13 +63,13 @@ header.top nav .sp{flex:1}
 
 /* hero: the stream and the lens */
 .hero{position:relative;min-height:640px;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);align-items:center;padding-block:34px 17px}
-#stream{opacity:0;transition:opacity .8s var(--ease);position:absolute;left:0;right:0;top:-80px;height:780px;width:100%;z-index:-1;pointer-events:none}
+#stream{opacity:0;transition:opacity .32s var(--ease);position:absolute;left:0;right:0;top:-80px;height:780px;width:100%;z-index:-1;pointer-events:none}
 #stream.on{opacity:1}
 /* placed by CSS alone (same numbers the canvas uses: centre at 74% / 310px, radius min(190px, 20%)), so nothing moves after load */
 .focus{position:absolute;z-index:-1;border-radius:50%;width:min(380px,40%);aspect-ratio:1;left:74%;top:310px;transform:translate(-50%,-50%);pointer-events:none}
 .focus::after{content:"";position:absolute;inset:6% 20% 62% 20%;border-radius:50%;background:linear-gradient(180deg,rgba(255,255,255,.14),transparent)}
 .hero h1{font-weight:600;font-size:clamp(2.6rem,5.6vw,4.25rem);line-height:1.04;letter-spacing:-.035em}
-.hero h1 .w{display:inline-block;animation:word .7s var(--ease) both}
+.hero h1 .w{display:inline-block;animation:word .32s var(--ease) both}
 .d1{animation-delay:.06s!important}.d2{animation-delay:.12s!important}.d3{animation-delay:.18s!important}.d4{animation-delay:.24s!important}.d5{animation-delay:.3s!important}.d6{animation-delay:.36s!important}.d7{animation-delay:.42s!important}
 .rel{position:relative}.mt14{margin-top:13px}
 .hero h1 em{font-style:normal;color:var(--glow)}
@@ -86,32 +86,41 @@ header.top nav .sp{flex:1}
 .blocks span:nth-child(2){margin-left:clamp(25px,10vw,180px);border-top-left-radius:0}
 .blocks span:nth-child(3){margin-left:clamp(50px,15vw,260px);border-top-left-radius:0;background:var(--accent);color:var(--accent-ink)}
 .intro{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr);gap:34px;align-items:end}
-#launcher .intro,#lean .intro{align-items:start}
+#launcher .intro{align-items:start}
 .intro p{color:var(--muted)}
 
 /* product cards */
-.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px;margin-top:50px;align-items:start}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:17px;margin-top:50px;align-items:start}
 .pcard{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:25px;display:flex;flex-direction:column;gap:17px;min-width:0;text-decoration:none;
   transition:transform .32s var(--ease),border-color .32s,background .32s}
 .pcard h3 a.stretch{text-decoration:none}
 .pcard h3 a.stretch::after{content:"";position:absolute;inset:0;border-radius:var(--r)}
 .pcard h3 a.stretch:focus-visible{outline:none}.pcard h3 a.stretch:focus-visible::after{outline:2px solid var(--glow);outline-offset:3px} /* the whole card is the target, so the ring wraps the card */
-.pcard:nth-child(3n+2){margin-top:50px}.pcard:nth-child(3n+3){margin-top:100px}
-.rv{opacity:0;transform:translateY(28px);transition:opacity .7s var(--ease),transform .7s var(--ease),border-color .32s,background .32s;transition-delay:calc(var(--i,0)*90ms)}
+.pcard:nth-child(2n){margin-top:50px}
+.rv{opacity:0;transform:translateY(28px);transition:opacity .32s var(--ease),transform .32s var(--ease),border-color .32s,background .32s;transition-delay:calc(var(--i,0)*90ms)}
 .rv.in{opacity:1;transform:none}
 .pcard:hover{transform:translateY(-6px);border-color:var(--line-strong);background:var(--raised)}
 .pcard .head{display:flex;justify-content:space-between;align-items:baseline}
-.pcard h3{font-weight:600;font-size:1.3rem;letter-spacing:-.02em}
+.pcard h3{font-weight:600;font-size:21px;letter-spacing:-.02em;display:flex;align-items:center;gap:13px}
+.pcard h3 .lens{font-size:34px}
 .pcard h3 span{color:var(--muted);font-weight:500}
 .arrow{font:400 20px/1 var(--body);color:var(--muted);transition:transform .32s var(--ease),color .32s}
 .pcard:hover .arrow{transform:translate(4px,-4px);color:var(--glow)}
-.stage{height:230px;display:grid;place-items:center;border-radius:16px;background:radial-gradient(60% 60% at 50% 50%,rgba(43,145,133,.16),transparent 70%)}
-.stage .lens{font-size:150px;position:relative;overflow:hidden;transition:transform .5s var(--ease)}
-.stage .lens::after{content:"";position:absolute;inset:-30%;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.18) 50%,transparent 60%);transform:translateX(-60%);transition:transform .8s var(--ease)}
-.pcard:hover .stage .lens{transform:scale(1.04)}
-.pcard:hover .stage .lens::after{transform:translateX(60%)}
-.stage .lens svg{width:52%;height:52%}
-.stage .mk{stroke-width:1.15}
+.snip{height:176px;overflow:hidden;border-radius:16px;background:var(--bg);border:1px solid var(--line);padding:8px;display:flex;flex-direction:column;gap:4px}
+.sq{display:flex;align-items:center;gap:8px;padding:4px 4px 8px;font:12.5px var(--mono);color:var(--muted);border-bottom:1px solid var(--line);margin-bottom:4px}
+.sq .t{font:500 11px var(--mono);color:var(--glow);border:1px solid rgba(95,211,195,.4);border-radius:8px;padding:2px 8px}
+.sl{display:flex;justify-content:space-between;align-items:center;gap:13px;padding:8px;border-radius:8px}
+.sq+.sl{background:rgba(234,240,235,.05)}
+.sl>span:first-child{min-width:0}
+.sl b{display:block;font-weight:500;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sl small{display:block;font:12px var(--mono);color:var(--muted);margin-top:2px}
+.cmap{width:100%;height:auto;margin-top:4px;font:12px var(--mono)}
+.cmap path{fill:none;stroke:var(--line-strong);stroke-width:1.2}
+.cmap rect{stroke:var(--glow);stroke-width:1.2;fill:rgba(95,211,195,.08)}
+.cmap text{fill:var(--muted)}.cmap text.on{fill:var(--glow)}
+.lb{display:grid;grid-template-columns:132px minmax(0,1fr);gap:13px;align-items:center;padding:8px 4px;font:12.5px var(--mono);color:var(--muted)}
+.lb i{display:block;height:13px;border-radius:4px;background:var(--bar)}
+.sq+.lb i{width:86%}.sq+.lb+.lb i{width:34%;opacity:.75}.sq+.lb+.lb+.lb i{width:20%;opacity:.6}
 .tags{display:flex;flex-wrap:wrap;gap:6px}
 .tag{font:500 11px var(--mono);letter-spacing:.05em;text-transform:uppercase;padding:4px 8px;border-radius:999px;background:var(--raised);color:var(--muted);border:1px solid var(--line)}
 .tag.main{background:var(--mint);color:var(--mint-ink);border-color:var(--mint)}
@@ -143,7 +152,7 @@ header.top nav .sp{flex:1}
 .q .t{font:500 11px var(--mono);color:var(--glow);border:1px solid rgba(95,211,195,.4);border-radius:8px;padding:2px 8px;flex:none}
 .q .text{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .hits{padding:8px}
-.hit{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:13px;align-items:center;padding:13px 13px;border-radius:14px;animation:rise .5s var(--ease) both}
+.hit{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:13px;align-items:center;padding:13px 13px;border-radius:14px;animation:rise .32s var(--ease) both}
 .hit:nth-child(2){animation-delay:.12s}.hit:nth-child(3){animation-delay:.24s}.hit:nth-child(4){animation-delay:.36s}
 .hit.sel{background:rgba(234,240,235,.06)}
 .hit .lens{font-size:30px}
@@ -166,7 +175,7 @@ header.top nav .sp{flex:1}
 .proof .src{font:12px var(--mono);color:var(--mint-muted);margin-top:13px}
 .bars{display:grid;gap:13px}
 .bar{display:grid;grid-template-columns:96px minmax(0,1fr) 54px;gap:13px;align-items:center;font:13px var(--mono);font-variant-numeric:tabular-nums}
-.bar i{display:block;height:34px;border-radius:10px;background:var(--bar);transform-origin:left;animation:grow 1s var(--ease) both}
+.bar i{display:block;height:34px;border-radius:10px;background:var(--bar);transform-origin:left;animation:grow .32s var(--ease) both}
 .bar.us i{background:var(--mint-ink)}
 .bar.us{font-weight:500}
 .bar .w1{width:97.8%}.bar .w2{width:68.6%;animation-delay:.1s}.bar .w3{width:68.4%;animation-delay:.2s}
@@ -209,13 +218,17 @@ td .d{color:var(--muted);font-size:12px;margin-left:6px}
 .install.two .step:nth-child(2) :focus-visible{outline-color:var(--glow)}
 
 /* sub-page hero, headings, prose, facts */
-.phero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.45fr);gap:34px;align-items:center;padding-block:50px 13px}
+.phero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:34px;align-items:center;padding-block:50px 13px}
 .phero h1{font-weight:600;font-size:clamp(2.4rem,5.2vw,4rem);line-height:1.05;letter-spacing:-.04em}
 .phero .sub{font:400 clamp(1.15rem,2vw,1.45rem)/1.3 var(--display);letter-spacing:-.02em;color:var(--glow);margin-top:17px}
 .phero p.lead{color:var(--muted);max-width:54ch;margin-top:17px}
-.phero .lens.big{font-size:clamp(140px,18vw,220px);justify-self:center;position:relative;overflow:hidden}
+.phero .lens.big{font-size:clamp(160px,24vw,320px);justify-self:center;position:relative;overflow:hidden}
 .phero .lens.big svg{width:52%;height:52%}
 .phero .lens.big .mk{stroke-width:1.15}
+#stream.p{top:-40px;height:calc(100% + 80px);left:50%;right:auto;width:100vw;margin-left:-50vw} /* product heroes: the stream sits behind the hero and settles into that product's mark */
+.phero .lens.big.start{justify-self:start} /* Lean: room on the right for its prompt card */
+.phero .lens.big svg{transition:opacity .32s var(--ease)}#stream.on~.phero .lens.big svg{opacity:0}
+#stream.on~.phero .lens.big{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(234,240,235,.025)} /* what sits under the product lens is in focus, so the lens does not blur it */
 h2.t{font-weight:600;font-size:clamp(1.7rem,3.2vw,2.45rem);line-height:1.12;letter-spacing:-.03em}
 .prose{color:var(--muted);max-width:64ch;margin-top:17px}
 .prose code,.facts code,.tnote code,.step p code{font:13.5px var(--mono);color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:1px 6px}
@@ -249,7 +262,7 @@ footer .sp{flex:1}
 @media (max-width:1000px){
   .focus{width:min(240px,40%);left:50%;top:739px}#stream{height:900px}
   .hero{grid-template-columns:1fr;min-height:0;padding-block:25px 340px}.lensnote{justify-self:start;margin:0}
-  .phero{grid-template-columns:1fr;gap:25px;padding-block:34px 8px}.phero .lens.big{justify-self:start;font-size:120px}
+  .phero{grid-template-columns:1fr;gap:25px;padding-block:34px 72px} /* room for the scene labels under the lens */.phero.room{padding-bottom:224px}.phero .lens.big.start{justify-self:center}.phero .lens.big{justify-self:center;font-size:200px}
   .intro,.proof{grid-template-columns:1fr}
   .cards{grid-template-columns:1fr}.pcard:nth-child(n){margin-top:0}
   .together{grid-template-columns:1fr}.orbit{max-width:360px;margin-inline:auto;width:100%}.bleed{margin-right:0}.palette{border-radius:24px;border-right:1px solid rgba(234,240,235,.2)}

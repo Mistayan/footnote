@@ -1,4 +1,6 @@
-  <div class="wrap phero">
+  <div class="wrap rel">
+  <canvas id="stream" class="p" data-scene="mem" data-lens="#plens" aria-hidden="true"></canvas>
+  <div class="phero">
     <div>
       <h1>What your agent learns stays with you.</h1>
       <p class="sub">Saved once, recalled in every session.</p>
@@ -6,7 +8,8 @@
       <div class="cta"><a class="btn primary" href="#start">Turn on Memory</a><a class="btn" href="#control">See and delete it</a></div>
       <p class="hint">one local file · no account · no telemetry</p>
     </div>
-    <span class="lens glass big" aria-hidden="true"><svg class="mk"><use href="#m-mem"/></svg></span>
+    <span class="lens glass big" id="plens" aria-hidden="true"><svg class="mk"><use href="#m-mem"/></svg></span>
+  </div>
   </div>
 
   <section id="how" class="wrap">

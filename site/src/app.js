@@ -3,7 +3,8 @@ const motion = matchMedia("(prefers-reduced-motion: reduce)");
 const canvas = document.getElementById("stream");
 // The decorative canvas starts once the page has loaded and the browser is idle, so text, fonts and layout get the main thread first.
 if (canvas) {
-  const start = () => import("./stream.js").then(m => { m.initStream(canvas, motion); canvas.classList.add("on"); });
+  // Home: the stream into the "1". Product pages (data-scene): their own scene around the lens.
+  const start = () => (canvas.dataset.scene ? import("./scenes.js").then(m => m.initScene(canvas, motion)) : import("./stream.js").then(m => m.initStream(canvas, motion))).then(() => canvas.classList.add("on"));
   const idle = () => (window.requestIdleCallback || setTimeout)(start, { timeout: 1500 });
   document.readyState === "complete" ? idle() : addEventListener("load", idle, { once: true });
 }

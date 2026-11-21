@@ -189,11 +189,12 @@ export async function check(browser, target, { grid = 4, minTarget = 44, input =
   await page.waitForTimeout(500);
   const findings = await page.evaluate(inPage, { grid, minTarget, touchInput: input === 'touch', cards, focusable: FOCUSABLE });
 
-  // A3 keyboard focus must change something visible: compare each element's focus ring signature before and after Tab.
-  const sigOf = (sel) => page.evaluate((s) => { const e = document.activeElement; const t = s === 'active' ? e : document.querySelectorAll(s)[0]; if (!t) return null; const c = getComputedStyle(t); return [c.outlineStyle, c.outlineWidth, c.boxShadow, c.borderColor, c.backgroundColor].join('|'); }, sel);
+  // A3 keyboard focus must change something visible: compare each element's focus ring signature before and after Tab,
+  // including ::before/::after, where a stretched-link card draws its ring.
+  const sigOf = (sel) => page.evaluate((s) => { const e = document.activeElement; const t = s === 'active' ? e : document.querySelectorAll(s)[0]; if (!t) return null; return [null, '::before', '::after'].map((p) => { const c = getComputedStyle(t, p); return [c.outlineStyle, c.outlineWidth, c.boxShadow, c.borderColor, c.backgroundColor].join('|'); }).join('/'); }, sel);
   const count = await page.evaluate((s) => document.querySelectorAll(s).length, FOCUSABLE);
   for (let i = 0; i < Math.min(count, 30); i++) {
-    const info = await page.evaluate(([s, i]) => { const e = document.querySelectorAll(s)[i]; const c = getComputedStyle(e); return { label: e.tagName + (e.id ? '#' + e.id : '') + ' ' + e.textContent.trim().slice(0, 20), sig: [c.outlineStyle, c.outlineWidth, c.boxShadow, c.borderColor, c.backgroundColor].join('|') }; }, [FOCUSABLE, i]);
+    const info = await page.evaluate(([s, i]) => { const e = document.querySelectorAll(s)[i]; return { label: e.tagName + (e.id ? '#' + e.id : '') + ' ' + e.textContent.trim().slice(0, 20), sig: [null, '::before', '::after'].map((p) => { const c = getComputedStyle(e, p); return [c.outlineStyle, c.outlineWidth, c.boxShadow, c.borderColor, c.backgroundColor].join('|'); }).join('/') }; }, [FOCUSABLE, i]);
     await page.keyboard.press('Tab');
     const after = await sigOf('active');
     if (after !== null && after === info.sig) findings.push({ id: 'C3-focus', severity: 'FAIL', source: 'WCAG 2.4.7', msg: `no visible focus change on ${info.label}` });

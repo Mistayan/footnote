@@ -9,7 +9,7 @@ site/src/partials/     shared defs.html, nav.html, footer.html (so pages cannot 
 site/md.mjs            HTML-to-Markdown converter used by build.mjs
 site/build.mjs         builds dist/: wraps pages, emits /llms.txt, /llms-full.txt, /*.md twins, sitemap.xml; hashes css/js/fonts; asserts CSP, links, anchors, single h1 and social cards (<300 KB)
 site/dist/             build output (git-ignored); this is what wrangler serves
-wrangler.jsonc         worker name `footnote`, assets = site/dist, not_found_handling = 404-page, no worker script
+wrangler.jsonc         worker name `footnote-alpha`, assets = site/dist, not_found_handling = 404-page, no worker script
 ```
 
 ## Build and test locally
@@ -21,20 +21,29 @@ curl -sI http://localhost:8787/  # check CSP, HSTS, Link: </llms.txt>; rel="llms
 curl -sI http://localhost:8787/index.md # Content-Type: text/markdown; charset=utf-8
 ```
 
-## Noindexed preview deploy
+## Alpha deploy (current public address)
+
+```sh
+node site/build.mjs
+npx wrangler@latest deploy   # worker "footnote-alpha" from wrangler.jsonc
+```
+
+The alpha lives at `https://footnote-alpha.johanproust.workers.dev` and is indexable.
+
+## Noindexed preview of a branch
 
 ```sh
 PREVIEW=1 node site/build.mjs
-npx wrangler@latest deploy --name footnote-preview
+npx wrangler@latest versions upload   # prints a https://<version>-footnote-alpha.johanproust.workers.dev preview URL
 ```
 
-`PREVIEW=1` adds `X-Robots-Tag: noindex, nofollow` to `dist/_headers` and switches `dist/robots.txt` to `Disallow: /` (with the `llms.txt` pointer). The files in `src/` stay production-ready.
+Cloudflare serves every uploaded version at its own `*-footnote-alpha` preview URL without touching production, so no separate preview worker is needed.
 
 ## Production deploy (manual step)
 
 ```sh
 SITE_URL=https://<canonical-domain> node site/build.mjs
-npx wrangler@latest deploy
+npx wrangler@latest deploy   # point a custom domain at the worker, then 301 footnote-alpha to it
 ```
 
 Then verify live headers on `/` (HSTS, CSP, `Link: </llms.txt>; rel="llms-txt"`), `/assets/*` (`immutable`), `/index.md` (`text/markdown; charset=utf-8` + `nosniff`), `/llms.txt`, `/llms-full.txt`, and `/og.png` (`200 image/png`).
@@ -42,7 +51,7 @@ Then verify live headers on `/` (HSTS, CSP, `Link: </llms.txt>; rel="llms-txt"`)
 ## Before the site is public
 
 1. **security.txt**: contact is `johan.velocity.lab@pm.me`, `Expires` is `2027-11-20`; move `Expires` forward before then.
-2. **Canonical URL**: `src/` keeps `%SITE_URL%` placeholders; `build.mjs` defaults to `https://footnote-preview.johanproust.workers.dev`, the canonical address until a custom domain exists. Then pass `SITE_URL=https://<domain>` (or change the default) and update the repository homepage.
+2. **Canonical URL**: `src/` keeps `%SITE_URL%` placeholders; `build.mjs` defaults to `https://footnote-alpha.johanproust.workers.dev`, the canonical address until a custom domain exists. Then pass `SITE_URL=https://<domain>` (or change the default) and update the repository homepage.
 3. **HSTS preload**: `_headers` sets `max-age=63072000; includeSubDomains`. Do not add `preload` on `workers.dev`. With a custom domain, add `; preload` and submit at hstspreload.org only once every subdomain is HTTPS.
 4. **Screen-reader pass**: automated axe-core and keyboard Tab checks are verified; a manual NVDA/VoiceOver pass is still open.
 

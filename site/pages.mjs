@@ -23,4 +23,9 @@ export const pages = [
     description: "Ask who calls a function and what it calls, answered from the compiler's own index. It would rather show no caller than a wrong one. Measured precision by language.",
     og: { title: "Footnote Code: who calls what, without guessing", description: "Callers and callees from the compiler's own index. It shows no caller rather than a wrong one.", alt: "Footnote Code: callers and callees from the compiler's own index.", card: ["Footnote Code", "Who calls this? <em>Not a guess.</em>", "Answers from the compiler's own index."] },
     line: "Callers and callees from the compiler's index, impact radius and architecture map; precision and recall by language." },
+  { slug: "lean", path: "/lean", name: "Footnote Lean", mark: "m-lean",
+    title: "Footnote Lean · Less shell noise for your coding agent",
+    description: "Footnote Lean trims noisy shell output before your coding agent reads it and keeps every line that says what failed. It also measures what MCP servers, rules and skills add to every turn. Early, one benchmark.",
+    og: { title: "Footnote Lean: noise goes, failures stay", description: "Shell output trimmed before your agent reads it, every failure line kept. Measured on 13 cases, early.", alt: "Footnote Lean: shell noise goes, every failure line stays.", card: ["Footnote Lean", "Noise goes. <em>Failures stay.</em>", "Less for your agent to read, every turn."] },
+    line: "Shell output filter that keeps every failure line, reversible full output, Turn-1 prefix audit, handoff prompt; one benchmark against RTK." },
 ];

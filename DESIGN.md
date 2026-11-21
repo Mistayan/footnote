@@ -46,6 +46,7 @@ Rule: the accent marks actions, Footnote's own results in charts, and sources. N
 |---|---|---|
 | small | 12 px | captions, meta rows (11 px floor for functional text) |
 | body | 16 to 18 px | prose, 60 to 70 characters per line |
+| card title | 21 px | product card titles (body size × 1.335) |
 | h3 | 29 px | block titles |
 | h2 | 38 px | section titles |
 | h1 | 68 px | hero statement |
@@ -76,9 +77,10 @@ Concept A, "the lens numeral": the word **Footnote** is the family; a small glas
 Work-in-progress logo sketches live outside the git repository. Still to do: final SVG geometry, a still version for places without motion, an app icon (concept B, the focus tile, is the candidate), and a pass by someone with real logo skills.
 
 ## 8. Motion (WIP)
-- Level: lively, with meaning. Durations 160 to 320 ms, ease-out, transform and opacity only.
+- Level: lively, with meaning. Durations 160 to 320 ms, ease-out, transform and opacity only. **320 ms is a hard cap** for every transition, entrance and hover; only ambient loops (the data stream, the orbit) run longer. Stagger delays may add up past it, each step may not.
 - Background: a slow field of dots flowing in bands (data stream), paused under reduced motion.
 - The lens drifts slightly over the data, as if reading it.
+- Product heroes each tell their own story around the lens (`site/src/scenes.js`), never a repeat of the home "1": Library is a magnifier over a page of docs that cites the line under it (file:line, current or changed since); Memory is a web of memories that grows from the conversation and lights a few at each session start; Code is a call graph with pulses through the function in focus, walking to the next one, with one unresolved caller left dashed and unnamed; Lean takes yellow noise and green failure lines in mixed, sinks the yellow to the bottom of the lens and drops it, and sends only the green into a structured prompt card headed by a real benchmark case.
 - Cards rise and reveal on entry and hover (reference 4); content is visible at rest and never waits at opacity 0.
 - Never: numbers counting up, parallax on text, motion that implies a result the tool did not measure.
 
@@ -114,6 +116,8 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
+| 2026-11-21 | Product heroes get their own canvas scene (magnifier, memory web, call graph) behind an unblurred lens | Each product page should feel alive like the home page but show what that product does | The home swarm settling into each product mark (read as the same animation with a different logo) |
+| 2026-11-21 | Home: four product cards (Lean added) in a 2 × 2 staggered grid, each with a static example snippet of its own output instead of the big glyph lens; 21 px card-title size; 320 ms motion cap | Cards looked identical; Lean shipped in v0.1.0-alpha.2; critics flagged ad-hoc title sizes and 0.5 to 1 s transitions | Lean inside the engine section; glyph lens on every card |
 | 2026-11-16 | Launcher: D1 structure (full window) + D2 lenses (mini mode), family palette and fonts | D2 is clean aesthetically but sparse in data; D1 surfaces all operational telemetry; shared palette unifies both modes | D3 Ledger (light paper, serif), D4 Palette (command box first) |
 | 2026-11-14 | Base direction D2 "Afterglow", tuned: green-black ground, teal accent, Jakarta + Hanken, radius 21, lively motion | Selected in design review; D1, D3 and D4 looked too similar to each other | D1 Workbench, D3 Living memory, D4 Paper |
 | 2026-11-14 | Slight liquid glass over a data-flow background | Visual metaphor: Footnote is transparent and brings data into focus | Flat dark cards only; glass everywhere |

@@ -21,6 +21,11 @@ test('aligned icon list passes, misaligned one trips A7-A9', async () => {
   for (const id of ['C7-icon-size', 'C8-icon-centre', 'C9-icon-gap']) assert.ok(bad.includes(id), `${id} missing: ${bad}`);
 });
 
+test('C3: a stretched link whose focus ring is drawn on ::after counts as visible focus', async () => {
+  const r = await check(b, fx('stretch-focus.html'));
+  assert.ok(!r.findings.some((f) => f.id === 'C3-focus'), JSON.stringify(r.findings));
+});
+
 test('bad card trips every check', async () => {
   const r = await check(b, fx('bad.html'), { input: 'touch' });
   const ids = r.findings.map((f) => f.id);

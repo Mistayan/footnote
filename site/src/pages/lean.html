@@ -1,0 +1,84 @@
+  <div class="wrap rel">
+  <canvas id="stream" class="p" data-scene="lean" data-lens="#plens" aria-hidden="true"></canvas>
+  <div class="phero room">
+    <div>
+      <h1>Noise goes. Failures stay.</h1>
+      <p class="sub">Less for your agent to read, every turn.</p>
+      <p class="lead">Lean trims noisy shell output before your coding agent reads it and keeps every line that says what failed. It also measures what your MCP servers, rules and skills add to every turn. It is early: the numbers below come from one benchmark.</p>
+      <div class="cta"><a class="btn primary" href="#start">Turn on Lean</a><a class="btn" href="#numbers">Read the numbers</a></div>
+      <p class="hint">Claude Code · Codex · Gemini CLI · runs on your machine</p>
+    </div>
+    <span class="lens glass big start" id="plens" aria-hidden="true"><svg class="mk"><use href="#m-lean"/></svg></span>
+  </div>
+  </div>
+
+  <section id="status" class="wrap">
+    <h2 class="t">Current scope</h2>
+    <p class="prose">The shell filter and the prefix audit ship in the default source build today. The filter has one benchmark, on this repository. The handoff prompt needs Footnote Memory. We have not measured what Lean saves on a real bill, and the rules that make an agent write less are an experiment, off by default.</p>
+  </section>
+
+  <section id="how" class="wrap">
+    <h2 class="t">How it works</h2>
+    <ul class="facts">
+      <li><b>Shell filter.</b> <code>footnote install --lean</code> adds a hook to Claude Code, Codex and Gemini CLI that routes noisy commands through <code>footnote run</code>: builds, tests, git, linters and search. Output that would not get smaller passes through untouched.</li>
+      <li><b>Nothing is lost.</b> The full output is kept on your machine. <code>footnote output &lt;id&gt;</code> brings it back. Output that looks like a credential is never stored.</li>
+      <li><b>Prefix audit.</b> <code>footnote audit-prefix --probe-mcp</code> measures the tool schemas of each MCP server, your instruction files and your skill headers: what every turn carries before you type. It only reads, and prints no contents or secrets.</li>
+      <li><b>Handoff.</b> With Footnote Memory, a session past 140,000 tokens, or resumed after 55 idle minutes with more than 60,000 tokens in context (the prompt cache has gone cold), is asked to save a one-paragraph handoff so you can start fresh without losing the thread.</li>
+    </ul>
+  </section>
+
+  <section id="numbers" class="wrap">
+    <h2 class="t">What we measured</h2>
+    <p class="prose">13 cases in 6 command families, 20 Nov 2026, on this repository. The bar was written before the run: keep at least 99 % of the lines that say what failed, save at least 20 % of the bytes, never make output bigger. Every family passed.</p>
+    <div class="tablebox" tabindex="0" role="region" aria-label="Shell filter results by command family">
+      <table>
+        <thead><tr><th>Family</th><th>Cases</th><th>Bytes saved</th><th>Failure lines kept</th></tr></thead>
+        <tbody>
+          <tr><td>cargo test</td><td>3</td><td class="us">88.8 %</td><td>9 of 9</td></tr>
+          <tr><td>cargo build</td><td>1</td><td class="us">80.6 %</td><td>6 of 6</td></tr>
+          <tr><td>test runners</td><td>2</td><td class="us">69.4 %</td><td>7 of 7</td></tr>
+          <tr><td>linters</td><td>2</td><td class="us">52.0 %</td><td>10 of 10</td></tr>
+          <tr><td>git</td><td>3</td><td class="us">24.7 %</td><td>27 of 27</td></tr>
+          <tr><td>search</td><td>2</td><td class="us">22.5 %</td><td>40 of 40</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul class="facts">
+      <li><b>Failure lines</b> are error codes, failing assertions, panic locations, diff anchors, match line numbers and lint rule codes.</li>
+      <li><b>Small set.</b> 13 cases, one repository, one run. Five are fixed recordings; eight are live commands.</li>
+    </ul>
+  </section>
+
+  <section id="others" class="wrap">
+    <h2 class="t">Against RTK 1.2.0: same commands</h2>
+    <p class="prose">RTK sometimes saves more bytes. It also drops lines that say what failed. On search it saves nothing.</p>
+    <div class="tablebox" tabindex="0" role="region" aria-label="Footnote Lean and RTK on the same live commands">
+      <table>
+        <thead><tr><th>Command</th><th>Footnote saved</th><th>Footnote kept</th><th>RTK saved</th><th>RTK kept</th></tr></thead>
+        <tbody>
+          <tr><td>cargo test</td><td class="us">88.0 %</td><td class="us">2 of 2</td><td>96.9 %</td><td>1 of 2</td></tr>
+          <tr><td>git diff, 3 commits</td><td class="us">10.2 %</td><td class="us">12 of 12</td><td>16.2 %</td><td>6 of 12</td></tr>
+          <tr><td>git log -20</td><td class="us">70.1 %</td><td class="us">10 of 10</td><td>56.7 %</td><td>10 of 10</td></tr>
+          <tr><td>rg, one pattern</td><td class="us">20.9 %</td><td class="us">20 of 20</td><td>0.0 %</td><td>20 of 20</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="next" class="wrap">
+    <h2 class="t">Not measured yet</h2>
+    <ul class="facts">
+      <li>What Lean saves on a real bill, end to end. That run is open; until it lands we make no claim about cost.</li>
+      <li>Prefix audit numbers across many real setups. Run it on yours and you will see your own.</li>
+      <li>The rules that make an agent write less (Lean B). A pilot of 6 runs per setup cut output tokens by 20 to 25 % at the same pass rate, too few runs to call a saving. Off by default.</li>
+    </ul>
+  </section>
+
+  <section id="start" class="wrap">
+    <h2 class="blocks"><span>Turn it on.</span></h2>
+    <p class="note">You need Footnote installed first: see <a href="/#install">install</a>.</p>
+    <div class="install two">
+      <div class="step"><h3>Filter</h3><p>Adds the shell filter hook to your agents.</p><div class="cmd"><code tabindex="0">footnote install --lean</code><button class="copy" type="button" aria-label="Copy the Lean install command">Copy</button></div></div>
+      <div class="step"><h3>Audit</h3><p>What every turn carries before you type.</p><div class="cmd"><code tabindex="0">footnote audit-prefix --probe-mcp</code><button class="copy" type="button" aria-label="Copy the prefix audit command">Copy</button></div></div>
+    </div>
+  </section>

@@ -13,8 +13,8 @@ import { htmlToMd } from "./md.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url)), src = join(root, "src"), out = join(root, "dist");
 const PREVIEW = !!process.env.PREVIEW;
-// No custom domain yet (#335): the workers.dev preview is the canonical address until one exists.
-const SITE_URL = (process.env.SITE_URL || "https://footnote-preview.johanproust.workers.dev").replace(/\/$/, "");
+// No custom domain yet (#335): the workers.dev alpha is the canonical address until one exists.
+const SITE_URL = (process.env.SITE_URL || "https://footnote-alpha.johanproust.workers.dev").replace(/\/$/, "");
 rmSync(out, { recursive: true, force: true });
 cpSync(src, out, { recursive: true });
 mkdirSync(join(out, "assets"));
@@ -28,11 +28,12 @@ const hash = b => createHash("sha256").update(b).digest("hex").slice(0, 10);
 const hashed = new Map(); // source path ("styles.css") -> output name ("styles.ab12cd34ef.css")
 const rename = (path, buf) => { const e = extname(path), n = basename(path, e) + "." + hash(buf) + e; writeFileSync(join(out, "assets", n), buf); rmSync(join(out, path)); hashed.set(path, n); return n; };
 
-// Leaves first, so a file's hash covers the hashed names it points to: fonts, then stream.js, app.js and styles.css.
+// Leaves first, so a file's hash covers the hashed names it points to: fonts, then stream.js and scenes.js, app.js and styles.css.
 for (const f of readdirSync(join(out, "fonts"))) rename("fonts/" + f, readFileSync(join(out, "fonts", f)));
 rmSync(join(out, "fonts"), { recursive: true });
 rename("stream.js", Buffer.from(text("stream.js")));
-rename("app.js", Buffer.from(text("app.js").replace('"./stream.js"', `"./${hashed.get("stream.js")}"`)));
+rename("scenes.js", Buffer.from(text("scenes.js")));
+rename("app.js", Buffer.from(text("app.js").replace('"./stream.js"', `"./${hashed.get("stream.js")}"`).replace('"./scenes.js"', `"./${hashed.get("scenes.js")}"`)));
 let css = text("styles.css"); for (const [p, n] of hashed) if (p.startsWith("fonts/")) css = css.replaceAll(p, n);
 rename("styles.css", Buffer.from(css));
 

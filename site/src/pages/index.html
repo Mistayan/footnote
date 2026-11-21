@@ -15,51 +15,65 @@
 
   <section id="products" class="wrap">
     <div class="intro">
-      <h2 class="blocks"><span>Three products,</span><span>one engine.</span><span>Use one, or all.</span></h2>
+      <h2 class="blocks"><span>Four products,</span><span>one engine.</span><span>Use one, or all.</span></h2>
       <p>Each one works on its own. They share one binary, one way of citing sources and one security model.</p>
     </div>
     <div class="cards">
       <article class="pcard">
-        <div class="head"><h3><a class="stretch" href="/library"><span>Footnote</span> Library</a></h3><span class="tag on">available</span></div>
-        <div class="stage" aria-hidden="true"><span class="lens glass"><svg class="mk"><use href="#m-lib"/></svg></span></div>
+        <div class="head"><h3><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-lib"/></svg></span><a class="stretch" href="/library"><span>Footnote</span> Library</a></h3><span class="tag on">available</span></div>
+        <div class="snip" aria-hidden="true">
+          <div class="sq"><span class="t">recall</span>cursor pagination</div>
+          <div class="sl"><span><b>Use a cursor, not an offset, past 10k rows</b><small>docs/api.md:142</small></span><span class="chip cur">current</span></div>
+          <div class="sl"><span><b>Offsets re-read every skipped row</b><small>notes/db.md:88</small></span><span class="chip stale">changed since</span></div>
+        </div>
         <p>Search your own notes, PDFs and the documentation of the libraries you use. Each result names the file, the line and whether the file changed since.</p>
         <div class="meta"><span>Markdown · text · PDF · library docs</span></div>
       </article>
       <article class="pcard">
-        <div class="head"><h3><a class="stretch" href="/memory"><span>Footnote</span> Memory</a></h3><span class="tag on">available</span></div>
-        <div class="stage" aria-hidden="true"><span class="lens glass"><svg class="mk"><use href="#m-mem"/></svg></span></div>
+        <div class="head"><h3><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-mem"/></svg></span><a class="stretch" href="/memory"><span>Footnote</span> Memory</a></h3><span class="tag on">available</span></div>
+        <div class="snip" aria-hidden="true">
+          <div class="sq"><span class="t">session start</span>3 memories recalled</div>
+          <div class="sl"><span><b>Paginate with cursors, not offsets</b><small>decision · 18 Nov</small></span><span class="chip memo">recalled</span></div>
+          <div class="sl"><span><b>Tests run against a real database</b><small>preference · 12 Nov</small></span><span class="chip memo">recalled</span></div>
+        </div>
         <p>Your agent saves what it learns, such as preferences, decisions and fixes, in one file on your machine, and gets the relevant ones back when a session starts.</p>
         <div class="meta"><span>footnote install --memory</span></div>
       </article>
       <article class="pcard">
-        <div class="head"><h3><a class="stretch" href="/code"><span>Footnote</span> Code</a></h3><span class="tag on">available</span></div>
-        <div class="stage" aria-hidden="true"><span class="lens glass"><svg class="mk"><use href="#m-code"/></svg></span></div>
+        <div class="head"><h3><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-code"/></svg></span><a class="stretch" href="/code"><span>Footnote</span> Code</a></h3><span class="tag on">available</span></div>
+        <div class="snip" aria-hidden="true">
+          <div class="sq"><span class="t">code</span>index</div>
+          <svg class="cmap" viewBox="0 0 320 112">
+            <path d="M92 20C130 20 120 56 136 56M92 56H136M92 92C130 92 120 56 136 56M184 56C200 56 190 20 228 20M184 56H228M184 56C200 56 190 92 228 92"/>
+            <rect x="136" y="44" width="48" height="24" rx="12"/>
+            <text x="160" y="60" text-anchor="middle" class="on">index</text>
+            <text x="88" y="24" text-anchor="end">cli::run</text><text x="88" y="60" text-anchor="end">watch::sync</text><text x="88" y="96" text-anchor="end">update</text>
+            <text x="232" y="24">crawl</text><text x="232" y="60">extract</text><text x="232" y="96">embed</text>
+          </svg>
+        </div>
         <p>Ask who calls a function and what it calls. The answer comes from the compiler's own index, not from a guess.</p>
         <div class="meta"><span>footnote code-index .</span></div>
       </article>
+      <article class="pcard">
+        <div class="head"><h3><span class="lens glass" aria-hidden="true"><svg class="mk"><use href="#m-lean"/></svg></span><a class="stretch" href="/lean"><span>Footnote</span> Lean</a></h3><span class="tag on">available</span></div>
+        <div class="snip" aria-hidden="true">
+          <div class="sq"><span class="t">audit-prefix</span>sent on every turn</div>
+          <div class="lb"><span>MCP tool schemas</span><i></i></div>
+          <div class="lb"><span>instruction files</span><i></i></div>
+          <div class="lb"><span>skill headers</span><i></i></div>
+        </div>
+        <p>Measures what your MCP servers, rules and skills cost on every turn, and trims noisy shell output without dropping a failure.</p>
+        <div class="meta"><span>footnote install --lean</span></div>
+      </article>
     </div>
-  </section>
-
-  <section id="lean" class="wrap">
-    <div class="intro">
-      <div>
-        <h2 class="t">Footnote Lean finds what your setup pays on every turn.</h2>
-      </div>
-      <p>Most developers install MCP servers, rules and skills over months and never look twice. Every active tool schema is re-sent as prompt cache on every call. Footnote Lean measures that fixed overhead locally, trims noisy shell output without dropping failure markers, and prompts for a clean handoff before stale caches re-bill.</p>
-    </div>
-    <ul class="facts">
-      <li><b>Audit your Turn-1 prefix.</b> <code>footnote audit-prefix --probe-mcp</code> measures every configured MCP server's exact <code>tools/list</code> schema, instruction files and skill headers across Claude Code, Codex, Gemini CLI and Antigravity — read-only, no contents or secrets printed.</li>
-      <li><b>Preservation-first shell filter.</b> <code>footnote install --lean</code> routes noisy command output through <code>footnote run</code> (100% failure-marker recall across 6 command families, reversible via <code>footnote output &lt;id&gt;</code>; see <code>bench/experiments/LEAN-D-RESULTS-2026-11-20.md</code>).</li>
-      <li><b>Idle-cache &amp; session handoff.</b> Watches context growth and 1-hour prompt-cache expiry so long or resumed sessions save a one-paragraph handoff instead of re-paying cold cache writes.</li>
-    </ul>
   </section>
 
   <section id="launcher" class="wrap">
     <div class="intro">
       <div>
-        <h2 class="t">The Launcher: one small window for all three.</h2>
+        <h2 class="t">The Launcher: one small window for all four.</h2>
       </div>
-      <p>A desktop window with a tray icon. Switch a product on or off, search Library, Memory and Code at once, see your projects and models, and check how many tokens your agents used.</p>
+      <p>A desktop window with a tray icon. Switch a product on or off, search Library, Memory and Code at once, see your projects and models, and check how many tokens your agents used and Lean saved.</p>
     </div>
     <ul class="facts">
       <li><b>Windows only for now.</b> Linux and macOS builds are not done.</li>

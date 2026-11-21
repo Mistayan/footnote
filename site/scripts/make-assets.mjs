@@ -1,4 +1,4 @@
-// One-off: renders favicon PNGs and the four 1200x630 social preview cards from pages.mjs.
+// One-off: renders favicon PNGs and the five 1200x630 social preview cards from pages.mjs.
 // The outputs are committed; rerun only to change them.
 // Needs (not in package.json, it is a design-time tool): npm i sharp playwright-core, and a Chromium path in CHROME_PATH.
 import sharp from "sharp";
