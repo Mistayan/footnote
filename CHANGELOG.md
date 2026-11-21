@@ -1,9 +1,60 @@
 # Changelog
 
-Notable changes to Footnote, newest first. Versions follow semantic versioning. From 16 November 2026 the Unreleased section is
-generated from Conventional Commits with git-cliff (`cliff.toml`); earlier entries were written by hand.
+Notable changes to Footnote, newest first. Versions follow semantic versioning. From 16 November 2026 the entries start from
+Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
+section is also its GitHub release notes.
 
-## Unreleased
+## 0.1.0-alpha.3 - 2026-11-22
+
+Second alpha. The headline is a Windows installer that brings the desktop launcher, in the tray. Expect rough edges and
+breaking changes between versions.
+
+### New
+
+- **Windows installer** (`Footnote-Setup-0.1.0-alpha.3-x64.exe`, #125): the engine and the desktop launcher in one step, for
+  your user, with no administrator rights.
+  - **Always added:** a Start menu shortcut.
+  - **On by default:** Footnote starts in the tray (notification area) when you sign in, and goes on PATH. Both can be
+    unchecked.
+  - **Off by default:** a desktop shortcut, and connecting the coding agents found now (`footnote install`).
+  - It carries the Visual C++ runtime the engine needs, so it runs on a fresh Windows.
+  - **Upgrades:** safe while your agents use Footnote. The old binary is set aside, and their MCP servers keep running.
+  - **Uninstall:** takes Footnote out of your agents first, and keeps your data.
+- **Launcher:**
+  - It starts in the tray without opening a window, and runs once: opening it again shows the window that is already open.
+  - A new **Skills** screen: the skill-rewrite switch with its cost, and your review of pending skill changes (#461).
+- **Agent skill layer, opt-in** (#453, #455, #458, #459, #460):
+  - Agents can propose edits to the skills they use, through `footnote_skill_edit`. Each edit passes check gates, and you
+    review it.
+  - An edit that does worse in trials is rolled back.
+  - Skills that are never read stop being suggested.
+  - Off until you turn on `memory.skill_rewrite`.
+- **Curated skills:** 23 agent skills rewritten, each with a check script (#439).
+- **Library:** search hits carry the crawled page's URL (#438). A refresh re-indexes a page whose words were only reordered
+  (#431).
+- **Memory:** a project's handoffs retire once delivered (#436).
+- **Code:** a Rust project in a subfolder (a Tauri app's `src-tauri`, `backend/`) now gets its compiler indexer (#428).
+
+### Before you install
+
+- **Nothing is code-signed.** Windows SmartScreen asks once: **More info**, then **Run anyway**. Check the file against its
+  `.sha256` first.
+- **Windows 11 hides new tray icons.** It puts them behind the `^` arrow next to the clock. To keep Footnote visible:
+  Settings > Personalization > Taskbar > Other system tray icons > Footnote.
+- **Linux needs glibc 2.38 or newer** (Ubuntu 24.04, Debian 13, Fedora 39 or later). The launcher is Windows-only for now.
+- Encrypted memory (`--features encryption`) is experimental and not in these binaries.
+
+### Install
+
+- **Windows, with the launcher:** download `Footnote-Setup-0.1.0-alpha.3-x64.exe` below and run it.
+- **Windows, command line only:**
+  `powershell -ExecutionPolicy Bypass -c "irm https://github.com/bobcat88/footnote/releases/download/v0.1.0-alpha.3/footnote-installer.ps1 | iex"`
+- **Linux x64:**
+  `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bobcat88/footnote/releases/download/v0.1.0-alpha.3/footnote-installer.sh | sh`
+
+Then follow [HOW-TO.md](https://github.com/bobcat88/footnote/blob/main/HOW-TO.md) to connect your agents.
+
+## 0.1.0-alpha.2 - 2026-11-21
 
 ### Added
 
