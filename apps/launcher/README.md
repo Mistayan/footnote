@@ -17,10 +17,13 @@ Needs Node 20+, Rust 1.92+, WebView2 (shipped with Windows 11), and the `footnot
 ```sh
 npm ci --ignore-scripts        # 25 packages, none needs an install script (checked 16 Nov 2026); .npmrc enforces it
 npx tauri dev                  # window with live reload
-npx tauri build --no-bundle    # src-tauri/target/release/footnote-launcher.exe (no installer yet: P1 M4)
+npx tauri build --no-bundle    # src-tauri/target/release/footnote-launcher.exe; the installer packs it (../../installer)
 ```
 
 `src-tauri` is its own Cargo workspace, so Tauri stays out of the engine's build and CI.
+
+`footnote-launcher.exe --tray` starts in the tray without opening a window (the installer's Windows startup entry uses it).
+Only one launcher runs at a time: starting it again opens the running one's window.
 
 ## Screenshots without the app
 

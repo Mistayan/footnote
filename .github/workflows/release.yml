@@ -294,3 +294,13 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  custom-installer:
+    needs:
+      - plan
+      - announce
+    if: ${{ always() && needs.announce.result == 'success' }}
+    uses: ./.github/workflows/installer.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit

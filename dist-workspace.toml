@@ -18,6 +18,8 @@ targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# The Windows installer (engine + tray launcher, #125) is built and attached after the release is announced.
+post-announce-jobs = ["./installer"]
 # llama.cpp compiled in for the opt-in French model (jina-v5-nano): about +4 MB, needs CMake and libclang to build.
 features = ["llama"]
 # ONNX Runtime ships prebuilt against the dynamic CRT (/MD); a static-CRT build fails to link (__imp_strncpy, __imp_tolower).

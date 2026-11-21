@@ -1,0 +1,119 @@
+# Windows installer (#125): engine + tray launcher in one Inno Setup installer, smoke-tested on a fresh runner.
+# - pull requests touching the installer or the launcher: build it with the latest released engine, test it, keep it as an
+#   artifact (nothing is published);
+# - releases: called by release.yml after the GitHub Release exists, with that release's engine; the installer and its
+#   SHA-256 are attached to the release;
+# - by hand (workflow_dispatch) with a tag, to rebuild and attach it to an existing release.
+# Only official GitHub actions, SHA-pinned; Inno Setup is downloaded from its GitHub release and checked against a pinned hash.
+name: installer
+
+on:
+  pull_request:
+    paths:
+      - installer/**
+      - apps/launcher/**
+      - .github/workflows/installer.yml
+  workflow_call:
+    inputs:
+      plan:
+        description: dist's plan (JSON), from release.yml
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: release tag to build the installer for and attach it to (for example v0.1.0-alpha.3)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  INNO_URL: https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe
+  INNO_SHA256: 9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PLAN: ${{ inputs.plan || '' }}
+      TAG: ${{ inputs.tag || '' }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        run: |
+          # From release.yml, the tag comes in dist's plan.
+          if ($env:PLAN) { $env:TAG = ($env:PLAN | ConvertFrom-Json).announcement_tag; "TAG=$env:TAG" >> $env:GITHUB_ENV }
+          $v = if ($env:TAG) { $env:TAG -replace '^v', '' } else { "0.0.0-pr${{ github.event.number }}" }
+          "value=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "installer version $v (tag: '$env:TAG')"
+
+      - name: Engine from the release
+        run: |
+          # A pull request tests the packaging, not the engine: it takes the latest release's engine.
+          $tagArg = if ($env:TAG) { @($env:TAG) } else { @() }
+          gh release download @tagArg --repo $env:GITHUB_REPOSITORY -p 'footnote-x86_64-pc-windows-msvc.zip' -D engine
+          Expand-Archive engine\footnote-x86_64-pc-windows-msvc.zip -DestinationPath engine\x
+          $exe = Get-ChildItem engine\x -Recurse -Filter footnote.exe | Select-Object -First 1
+          "ENGINE=$($exe.FullName)" >> $env:GITHUB_ENV
+
+      - name: Visual C++ runtime for app-local deployment
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $redist = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory | Where-Object Name -match '^\d' | Sort-Object { [version]$_.Name } | Select-Object -Last 1
+          $crt = Get-ChildItem "$($redist.FullName)\x64" -Directory -Filter 'Microsoft.VC14*.CRT' | Select-Object -First 1
+          $omp = Get-ChildItem "$($redist.FullName)\x64" -Directory -Filter 'Microsoft.VC14*.OpenMP' | Select-Object -First 1
+          New-Item -ItemType Directory runtime | Out-Null
+          foreach ($f in 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'msvcp140_1.dll') { Copy-Item "$($crt.FullName)\$f" runtime\ }
+          Copy-Item "$($omp.FullName)\vcomp140.dll" runtime\
+          Get-ChildItem runtime | ForEach-Object { "$($_.Name) $($_.VersionInfo.FileVersion)" }
+          "RUNTIME=$((Resolve-Path runtime).Path)" >> $env:GITHUB_ENV
+
+      - name: Launcher
+        working-directory: apps/launcher
+        run: |
+          npm ci --ignore-scripts
+          npx tauri build --no-bundle
+          "LAUNCHER=$((Resolve-Path src-tauri\target\release\footnote-launcher.exe).Path)" >> $env:GITHUB_ENV
+
+      - name: Inno Setup
+        run: |
+          Invoke-WebRequest $env:INNO_URL -OutFile $env:RUNNER_TEMP\innosetup.exe
+          $hash = (Get-FileHash $env:RUNNER_TEMP\innosetup.exe -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:INNO_SHA256) { throw "Inno Setup hash mismatch: $hash" }
+          $dir = "$env:RUNNER_TEMP\inno"
+          Start-Process $env:RUNNER_TEMP\innosetup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER', "/DIR=$dir" -Wait
+          "ISCC=$dir\ISCC.exe" >> $env:GITHUB_ENV
+
+      - name: Build the installer
+        working-directory: installer
+        run: |
+          & $env:ISCC /Q "/DAppVersion=${{ steps.version.outputs.value }}" "/DEngine=$env:ENGINE" "/DLauncher=$env:LAUNCHER" "/DRuntimeDir=$env:RUNTIME" "/DOutDir=$PWD\out" footnote.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $setup = Get-ChildItem out -Filter 'Footnote-Setup-*.exe' | Select-Object -First 1
+          $sha = (Get-FileHash $setup.FullName -Algorithm SHA256).Hash.ToLower()
+          "$sha  $($setup.Name)" | Set-Content -NoNewline "$($setup.FullName).sha256"
+          "SETUP=$($setup.FullName)" >> $env:GITHUB_ENV
+          Write-Host "$($setup.Name): $([math]::Round($setup.Length / 1MB, 1)) MB, sha256 $sha"
+
+      - name: Smoke test on this fresh machine
+        run: ./installer/smoke-test.ps1 -Setup $env:SETUP
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: footnote-installer
+          path: installer/out/Footnote-Setup-*
+
+      - name: Attach to the release
+        if: env.TAG != ''
+        run: gh release upload $env:TAG "$env:SETUP" "$env:SETUP.sha256" --repo $env:GITHUB_REPOSITORY --clobber

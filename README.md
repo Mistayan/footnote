@@ -65,6 +65,13 @@ Instead of bolting four separate MCP servers, Python runtimes, and cloud account
 
 ## Install
 
+### Windows: the installer (engine + desktop launcher)
+
+Download `Footnote-Setup-<version>-x64.exe` from [GitHub Releases](https://github.com/bobcat88/footnote/releases) and run it.
+It installs Footnote and its tray launcher for your user, with no administrator rights, adds a Start menu shortcut and, by
+default, starts Footnote in the tray when you sign in. It is not code-signed: SmartScreen asks once (**More info**, then **Run
+anyway**). Details and silent install: [installer/README.md](installer/README.md).
+
 ### Option A: Prebuilt binary (Windows x64 & Linux x64)
 
 Download the latest archive or run the installer from [GitHub Releases](https://github.com/bobcat88/footnote/releases):
@@ -174,7 +181,7 @@ Footnote assumes retrieved text is **untrusted data** that may contain prompt in
 - Token/cost & missed-command telemetry (`footnote usage`, `footnote gain`) for Claude Code, Codex, DeepSeek Harness, and Antigravity.
 
 **Work in progress / known limits:**
-- **Desktop Launcher (`apps/launcher`, Tauri 2):** builds and runs on Windows from source ([apps/launcher/README.md](apps/launcher/README.md)); no Windows installer yet (`#125`).
+- **Desktop Launcher (`apps/launcher`, Tauri 2):** ships in the Windows installer with the engine ([installer/README.md](installer/README.md)) and builds from source ([apps/launcher/README.md](apps/launcher/README.md)).
 - **macOS prebuilt releases:** not in CI yet (build from source with Cargo).
 - **Managed Windows / App Control:** unsigned local `.exe` builds can be blocked by corporate policies; Docker support is tracked in `#392`.
 - **Encrypted memory store (`--features encryption`, Windows):** experimental SQLCipher store; agent transcripts on disk remain plain text.

@@ -203,8 +203,20 @@ fn show(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+/// `--tray`: start in the tray without opening a window. The installer's Windows startup entry passes it.
+fn tray_only(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--tray")
+}
+
 fn main() {
     tauri::Builder::default()
+        // One Footnote at a time: launching it again (the shortcut, or startup while it runs) opens the running one's window
+        // instead of a second tray icon.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if !tray_only(&args) {
+                show(app, "main");
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             footnote,
             cancel_install,
@@ -240,6 +252,10 @@ fn main() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            // The main window starts hidden (tauri.conf.json), so a startup launch never flashes it.
+            if !tray_only(&std::env::args().collect::<Vec<_>>()) {
+                show(app.handle(), "main");
+            }
             Ok(())
         })
         // Closing a window hides it; the app stays in the tray until "Quit Footnote".
@@ -255,7 +271,15 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::allowed;
+    use super::{allowed, tray_only};
+
+    #[test]
+    fn tray_flag_starts_without_a_window() {
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(tray_only(&args(&["footnote-launcher.exe", "--tray"])));
+        assert!(!tray_only(&args(&["footnote-launcher.exe"])));
+        assert!(!tray_only(&args(&["footnote-launcher.exe", "--trayx"])));
+    }
 
     fn ok(a: &str) -> bool {
         allowed(&a.split(' ').map(String::from).collect::<Vec<_>>())
