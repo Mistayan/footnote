@@ -30,6 +30,18 @@ pub struct Watch {
     pub scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rev: Option<u64>,
+    /// A scan since its suggestion could read this session's file, so a missing read means it was not read (#448).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub checked: bool,
+}
+
+/// Whether a slice of a session file is one `scan` can read (Claude Code JSONL): only then does a suggestion without a
+/// logged read mean the agent did not read the skill. Other agents' files never count against a skill (#448).
+pub fn readable(chunk: &[u8]) -> bool {
+    let has = |line: &[u8], needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
+    chunk
+        .split(|&b| b == b'\n')
+        .any(|l| has(l, b"\"type\":\"assistant\"") && has(l, b"\"message\":{"))
 }
 
 /// What a watched skill went through, in session-file order.

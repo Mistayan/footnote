@@ -262,12 +262,99 @@ fn coverage(query: &str, text: &str) -> f64 {
 /// Hits read per theme, so an agent skill scoped to another project does not hide this project's top hit.
 const HITS_PER_THEME: usize = 5;
 
+/// Suggestions an agent could be seen to skip (its session file was readable) before an unread skill is muted (#448).
+pub(crate) const MUTE_AFTER: u64 = 10;
+
+fn mutes_path(state: &Path) -> PathBuf {
+    dir(state).join("muted.json")
+}
+
+/// `{"muted": {name: time}, "unmuted": {name: time}}`, times in milliseconds since the epoch.
+pub(crate) fn mutes(state: &Path) -> Value {
+    fs::read(mutes_path(state))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| json!({"muted": {}, "unmuted": {}}))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Mutes each of `names` that was checked `MUTE_AFTER` times, since it was last unmuted, without a single read (#448).
+/// "Checked" suggestions are those made in a session whose file the outcome scan reads, so agents whose files it cannot
+/// read never mute a skill. Free: it reads the outcome log only.
+pub(crate) fn mute_unread(state: &Path, names: &[String]) -> Result<Vec<String>> {
+    let mut m = mutes(state);
+    let todo: Vec<&String> = names
+        .iter()
+        .filter(|n| m["muted"].get(n.as_str()).is_none())
+        .collect();
+    if todo.is_empty() {
+        return Ok(vec![]);
+    }
+    let log = fs::read_to_string(crate::skill_outcomes::log_path(state)).unwrap_or_default();
+    let mut counts: std::collections::HashMap<&str, (u64, u64)> = Default::default();
+    for v in log
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+    {
+        let Some(name) = todo
+            .iter()
+            .find(|n| v["skill"] == n.as_str())
+            .map(|n| n.as_str())
+        else {
+            continue;
+        };
+        let since = m["unmuted"][name].as_u64().unwrap_or(0);
+        if v["t"].as_u64().unwrap_or(0) <= since {
+            continue;
+        }
+        let c = counts.entry(name).or_default();
+        match v["event"].as_str() {
+            Some("checked") => c.0 += 1,
+            Some("read") => c.1 += 1,
+            _ => {}
+        }
+    }
+    let newly: Vec<String> = counts
+        .into_iter()
+        .filter(|(_, (checked, read))| *checked >= MUTE_AFTER && *read == 0)
+        .map(|(n, _)| n.to_string())
+        .collect();
+    if !newly.is_empty() {
+        for n in &newly {
+            m["muted"][n] = json!(now_ms());
+        }
+        fs::create_dir_all(dir(state))?;
+        fs::write(mutes_path(state), serde_json::to_vec_pretty(&m)?)?;
+    }
+    Ok(newly)
+}
+
+/// `footnote skills unmute <name>`: suggest the skill again; only unread suggestions after now count toward a new mute.
+pub fn unmute(state: &Path, name: &str) -> Result<Value> {
+    let mut m = mutes(state);
+    let was = m["muted"]
+        .as_object_mut()
+        .and_then(|o| o.remove(name))
+        .is_some();
+    ensure!(was, "`{name}` is not muted");
+    m["unmuted"][name] = json!(now_ms());
+    fs::write(mutes_path(state), serde_json::to_vec_pretty(&m)?)?;
+    Ok(json!({"name": name, "muted": false}))
+}
+
 /// Skills for a prompt in `project`: each theme's top hit in scope that passes the rule, best coverage first, at most
 /// `MAX_SUGGESTED`, minus `seen`. A skill with an agent version for this project or for every project is served from the
 /// agent layer (#444). Each is `{name, path, line, theme}`. An unreadable theme is skipped: a suggestion must never block
 /// the prompt.
 pub fn suggest(state: &Path, query: &str, project: &str, seen: &[String]) -> Vec<Value> {
     let mut picks: Vec<(f64, Value)> = vec![];
+    let muted = mutes(state);
     for (theme, map) in themes_on(state) {
         let db = dir(state).join(format!("{theme}.db"));
         let Ok(hits) = crate::app::open(&db, false).and_then(|c| {
@@ -280,10 +367,14 @@ pub fn suggest(state: &Path, query: &str, project: &str, seen: &[String]) -> Vec
         }) else {
             continue;
         };
+        // A muted skill (#448) is passed over, so the theme's next hit can still be suggested.
         let in_scope = |skill: &Value| {
             skill["scope"]
                 .as_str()
                 .is_none_or(|s| s == "global" || s == project)
+                && skill["name"]
+                    .as_str()
+                    .is_none_or(|n| !muted["muted"].get(n).is_some())
         };
         let Some((top, skill)) = hits["results"]
             .as_array()

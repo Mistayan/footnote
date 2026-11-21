@@ -760,6 +760,8 @@ enum SkillsAction {
         #[arg(long)]
         project: Option<String>,
     },
+    /// Suggest a muted skill again (#448): one never read in 10 suggestions an agent could be seen to skip.
+    Unmute { name: String },
 }
 
 #[derive(Subcommand)]
@@ -1201,8 +1203,11 @@ fn execute(cli: Cli) -> Result<Value> {
                 SkillsAction::Stats => crate::skill_outcomes::stats(&state).map(|mut v| {
                     // Agents' skill edits still on trial (#447); each kept or rolled-back result is in its revision.
                     v["trials"] = json!(crate::agent_skills::trials(&state));
+                    // Skills no longer suggested because agents never read them (#448); `unmute` brings one back.
+                    v["muted"] = crate::skills::mutes(&state)["muted"].clone();
                     v
                 }),
+                SkillsAction::Unmute { name } => crate::skills::unmute(&state, name),
                 SkillsAction::Revise {
                     name,
                     project,

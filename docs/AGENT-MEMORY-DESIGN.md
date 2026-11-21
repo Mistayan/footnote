@@ -145,6 +145,10 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
   - An agent edit, made live or approved, is on trial against the revision it replaced. For the curated copy, the baseline is the curated skill's rows.
   - After `skill_trial_uses` suggestions (5), Stop compares them with the replaced revision's last 5. It rolls back, as a new revision, when the script failure rate is higher or the read rate is under half; otherwise it keeps the edit. The verdict and counts go into the revision's metadata.
   - Trials end only while `skill_rewrite` is on, and a user change cancels one. With 5 uses it is a guardrail against clear regressions, not a test of small ones.
+- **Muting (#448).**
+  - Once per suggestion, a Stop whose scanned slice holds Claude Code lines logs `checked`. Only such suggestions can show that the agent did not read the skill.
+  - After 10 checked suggestions since the last unmute without a read, the skill is muted for both layers (`skills/muted.json`), and `suggest` passes over it to the theme's next hit.
+  - `footnote skills unmute` resets the count. Free, and not behind `skill_rewrite`.
 - **The signal is passive and free** (#443): the Stop hook reads the session file written since its last check and logs, per suggested skill, whether the agent read its `SKILL.md` and how its scripts ran. No LLM grades a session, and the agent never grades itself. These logs decide when to ask for an edit, whether an edit survives its trial, and which never-read skills stop being suggested (#448).
 
 ## 8. Built so far (14 November 2026)

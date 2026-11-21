@@ -158,6 +158,8 @@ footnote skills stats           # per skill: times suggested, read by the agent,
 
 While `memory.activity` is on (the default), the hook records what the agent did with each suggested skill: whether it read the `SKILL.md`, and how the skill's scripts ran. It reads only the agent's session file, and only the part written since its last check. The log at `memory-hook/skill-outcomes.jsonl` holds skill names, themes, projects and counts, never a prompt, path or command. It costs no tokens. Only Claude Code session files are read for now.
 
+A skill suggested 10 times without ever being read is muted: it is no longer suggested, and the theme's next match can take its place. This costs no tokens either. Only suggestions in sessions whose file Footnote can read count toward the 10, so agents whose files it cannot read never mute a skill. `footnote skills stats` lists muted skills. `footnote skills unmute <name>` brings one back, and only unread suggestions after that count toward a new mute.
+
 **Agent skills.** A skill can have an agent version: a copy adapted from use, suggested in place of the curated skill of the same name. A version made for one project is used in that project only, before the version for every project. The curated folder is never written. The first change copies it, leaving out files whose names start with `_` or `.`, and every revision is kept in full.
 
 ```bash

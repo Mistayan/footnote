@@ -292,6 +292,13 @@ fn scan_skills(state: &Path, st: &mut Session, e: &Event, project: &str) {
             }
         }
     }
+    // Once per suggestion, when this agent's file is one the scan reads: the suggestion then counts for muting (#448).
+    if crate::skill_outcomes::readable(&buf[..end]) {
+        for w in st.skill_watch.iter_mut().filter(|w| !w.checked) {
+            w.checked = true;
+            crate::skill_outcomes::append(state, project, w, "checked", None);
+        }
+    }
     st.scan_from = from + end as u64;
 }
 
@@ -910,6 +917,12 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             #[cfg(feature = "library")]
             if s.skill_rewrite {
                 let _ = crate::agent_skills::end_trials(state, s.skill_trial_uses);
+            }
+            // Skills this session watched that are never read stop being suggested (#448). Free; best effort.
+            #[cfg(feature = "library")]
+            if s.activity && !st.skill_watch.is_empty() {
+                let names: Vec<String> = st.skill_watch.iter().map(|w| w.name.clone()).collect();
+                let _ = crate::skills::mute_unread(state, &names);
             }
             let agy_non_normal =
                 e.agy && !e.termination_reason.is_empty() && e.termination_reason != "NO_TOOL_CALL";

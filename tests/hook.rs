@@ -782,9 +782,15 @@ fn skill_outcomes_log_reads_and_script_runs() {
         .iter()
         .map(|r| (r["event"].as_str().unwrap(), r["ok"].as_bool()))
         .collect();
+    // `checked` (#448): the session file was one the scan reads, so this suggestion counts toward muting.
     assert_eq!(
         events,
-        vec![("suggested", None), ("read", None), ("run", Some(false))]
+        vec![
+            ("suggested", None),
+            ("read", None),
+            ("run", Some(false)),
+            ("checked", None)
+        ]
     );
     let raw = fs::read_to_string(&log).unwrap();
     for leak in [
@@ -1082,4 +1088,84 @@ fn skill_rewrite_asks_for_an_edit_only_on_evidence() {
         next.contains("footnote_remember") && !next.contains("footnote_skill_edit"),
         "{next}"
     );
+}
+
+/// #448: a skill suggested 10 times in sessions the scan can read, and never read, is no longer suggested; `unmute` brings
+/// it back, and a single read keeps it. Sessions whose file the scan cannot read (other agents) never count.
+#[test]
+fn skill_mute_stops_suggesting_skills_never_read() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let dir = state.join("my-skills").join("css-transitions");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: css-transitions\ndescription: Add CSS transitions to dropdowns, modals and toasts.\n---\n# Body\n",
+    )
+    .unwrap();
+    command(state)
+        .args(["skills", "index", "web"])
+        .arg(state.join("my-skills"))
+        .assert()
+        .success();
+    fs::write(state.join("memory.json"), r#"{"skills":true}"#).unwrap();
+    let claude_reply = format!(
+        "{}\n",
+        json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}})
+    );
+    let claude_read = format!(
+        "{}\n",
+        json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "r", "name": "Read", "input": {"file_path": dir.join("SKILL.md")}}]}})
+    );
+    let other_agent = format!(
+        "{}\n",
+        json!({"type": "response_item", "payload": {"role": "assistant", "content": "done"}})
+    );
+    let mut n = 0;
+    // One session: returns whether the skill was suggested; then the agent's reply lands and Stop scans it.
+    let mut session = |reply: &str| -> bool {
+        n += 1;
+        let transcript = state.join(format!("m{n}.jsonl"));
+        fs::write(&transcript, "").unwrap();
+        let mut ev = event_in(
+            &format!("m{n}"),
+            "UserPromptSubmit",
+            "add a transition to the dropdown",
+        );
+        ev["transcript_path"] = json!(transcript);
+        let suggested = hook(state, ev.clone()).contains("css-transitions");
+        fs::write(&transcript, reply).unwrap();
+        ev["hook_event_name"] = json!("Stop");
+        hook(state, ev);
+        suggested
+    };
+    let muted = || -> Value {
+        let out = command(state)
+            .args(["skills", "stats"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice::<Value>(&out).unwrap()["muted"].clone()
+    };
+
+    for _ in 0..10 {
+        assert!(session(&other_agent), "unreadable sessions never mute");
+    }
+    for _ in 0..10 {
+        assert!(session(&claude_reply));
+    }
+    assert!(!session(&claude_reply), "muted after 10 unread suggestions");
+    assert!(muted().get("css-transitions").is_some());
+
+    command(state)
+        .args(["skills", "unmute", "css-transitions"])
+        .assert()
+        .success();
+    assert!(muted().get("css-transitions").is_none());
+    assert!(session(&claude_read), "suggested again, and read this time");
+    for _ in 0..12 {
+        assert!(session(&claude_reply), "one read keeps it");
+    }
 }
