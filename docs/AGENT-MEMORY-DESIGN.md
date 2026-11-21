@@ -140,6 +140,11 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
 - **Rewriting is opt-in** (`skill_rewrite`, off by default). The user is told what it is for and what it costs before turning it on: one extra agent turn per edit request, edited skills re-read by later sessions, and possible roll-back and re-edit cycles (#446, #447). Built in #446:
   - Stop asks once per session, only when the agent read a suggested skill and one of its scripts then failed. The request comes alone, before the periodic save, which waits one Stop. If the save went first, the agent's own `stop_active` Stop would come next and the skill request could be put off indefinitely.
   - The request text is about 150 tokens. The real cost is the agent turn it causes. Measuring that on real sessions is #456, and the launcher switch is #457.
+- **Trials (#447).**
+  - Outcome rows record the agent revision and scope that were served.
+  - An agent edit, made live or approved, is on trial against the revision it replaced. For the curated copy, the baseline is the curated skill's rows.
+  - After `skill_trial_uses` suggestions (5), Stop compares them with the replaced revision's last 5. It rolls back, as a new revision, when the script failure rate is higher or the read rate is under half; otherwise it keeps the edit. The verdict and counts go into the revision's metadata.
+  - Trials end only while `skill_rewrite` is on, and a user change cancels one. With 5 uses it is a guardrail against clear regressions, not a test of small ones.
 - **The signal is passive and free** (#443): the Stop hook reads the session file written since its last check and logs, per suggested skill, whether the agent read its `SKILL.md` and how its scripts ran. No LLM grades a session, and the agent never grades itself. These logs decide when to ask for an edit, whether an edit survives its trial, and which never-read skills stop being suggested (#448).
 
 ## 8. Built so far (14 November 2026)

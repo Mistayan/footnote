@@ -1198,7 +1198,11 @@ fn execute(cli: Cli) -> Result<Value> {
                 }
                 SkillsAction::List => crate::skills::list(&state),
                 SkillsAction::Remove { theme } => crate::skills::remove(&state, theme),
-                SkillsAction::Stats => crate::skill_outcomes::stats(&state),
+                SkillsAction::Stats => crate::skill_outcomes::stats(&state).map(|mut v| {
+                    // Agents' skill edits still on trial (#447); each kept or rolled-back result is in its revision.
+                    v["trials"] = json!(crate::agent_skills::trials(&state));
+                    v
+                }),
                 SkillsAction::Revise {
                     name,
                     project,

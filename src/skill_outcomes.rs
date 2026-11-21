@@ -25,6 +25,11 @@ pub struct Watch {
     /// One of its scripts failed since it was last suggested: with `read`, the evidence for a skill edit request (#446).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
+    /// Served from the agent layer (#444): its scope and revision, logged so a revision's trial can count them (#447).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<u64>,
 }
 
 /// What a watched skill went through, in session-file order.
@@ -144,6 +149,10 @@ pub fn append(state: &Path, project: &str, w: &Watch, event: &str, ok: Option<bo
         json!({"t": t, "project": project, "skill": w.name, "theme": w.theme, "event": event});
     if let Some(ok) = ok {
         row["ok"] = json!(ok);
+    }
+    if let (Some(scope), Some(rev)) = (&w.scope, w.rev) {
+        row["scope"] = json!(scope);
+        row["rev"] = json!(rev);
     }
     let _ = footnote_core::state::append_line(&path, &row.to_string());
 }

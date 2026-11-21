@@ -374,6 +374,11 @@ pub fn change(
         None
     };
     let goes_live = origin == Origin::User || prose_only(changes);
+    let live_before = if meta["dropped"] == false {
+        meta["revision"].clone()
+    } else {
+        Value::Null
+    };
     let n = commit(
         state,
         name,
@@ -387,6 +392,8 @@ pub fn change(
     if goes_live {
         meta["revision"] = json!(n);
         meta["dropped"] = json!(false);
+        // An agent's edit is on trial against what it replaced (#447); the user's own change ends any trial.
+        meta["trial"] = trial(origin == Origin::Agent, n, &live_before);
     } else {
         let base = if meta["dropped"] == false {
             meta["revision"].clone()
@@ -451,6 +458,7 @@ pub fn approve(state: &Path, name: &str, scope: &str) -> Result<Value> {
     meta["revision"] = json!(n);
     meta["dropped"] = json!(false);
     meta["pending"] = Value::Null;
+    meta["trial"] = trial(true, n, &live_now);
     write_json(&meta_file, &meta)?;
     reindex(state)?;
     Ok(json!({"name": name, "scope": scope, "revision": n, "status": "approved"}))
@@ -510,6 +518,10 @@ pub fn revisions(state: &Path, name: &str, scope: &str) -> Result<Value> {
 
 /// Makes revision `n` live again, as a new revision: nothing is deleted.
 pub fn restore(state: &Path, name: &str, scope: &str, n: u64) -> Result<Value> {
+    restore_as(state, name, scope, n, &format!("restored revision {n}"))
+}
+
+fn restore_as(state: &Path, name: &str, scope: &str, n: u64, reason: &str) -> Result<Value> {
     let stem = check(name, scope)?;
     let meta_file = meta_path(state, scope, &stem);
     let mut meta = read_json(&meta_file)
@@ -524,12 +536,13 @@ pub fn restore(state: &Path, name: &str, scope: &str, n: u64) -> Result<Value> {
         scope,
         Some(&files),
         &Map::new(),
-        &format!("restored revision {n}"),
+        reason,
         Origin::User,
         true,
     )?;
     meta["revision"] = json!(made);
     meta["dropped"] = json!(false);
+    meta["trial"] = Value::Null;
     write_json(&meta_file, &meta)?;
     reindex(state)?;
     Ok(json!({"name": name, "scope": scope, "revision": made, "restored": n}))
@@ -546,9 +559,188 @@ pub fn drop_version(state: &Path, name: &str, scope: &str) -> Result<Value> {
         fs::remove_dir_all(&target)?;
     }
     meta["dropped"] = json!(true);
+    meta["trial"] = Value::Null;
     write_json(&meta_file, &meta)?;
     reindex(state)?;
     Ok(json!({"name": name, "scope": scope, "dropped": true}))
+}
+
+/// A trial for revision `n` against the revision it replaced, when `on` and there was one; else none.
+fn trial(on: bool, n: u64, previous: &Value) -> Value {
+    if on && previous.is_u64() {
+        json!({"revision": n, "previous": previous})
+    } else {
+        Value::Null
+    }
+}
+
+/// Suggestions, reads, script runs and script failures in a set of outcome rows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Tally {
+    suggested: u64,
+    read: u64,
+    runs: u64,
+    failures: u64,
+}
+
+impl Tally {
+    fn of<'a>(rows: impl IntoIterator<Item = &'a Value>) -> Self {
+        let mut t = Self::default();
+        for r in rows {
+            match r["event"].as_str() {
+                Some("suggested") => t.suggested += 1,
+                Some("read") => t.read += 1,
+                Some("run") => {
+                    t.runs += 1;
+                    t.failures += u64::from(r["ok"] == false);
+                }
+                _ => {}
+            }
+        }
+        t
+    }
+    fn read_rate(self) -> f64 {
+        if self.suggested == 0 {
+            0.0
+        } else {
+            self.read as f64 / self.suggested as f64
+        }
+    }
+    fn failure_rate(self) -> f64 {
+        if self.runs == 0 {
+            0.0
+        } else {
+            self.failures as f64 / self.runs as f64
+        }
+    }
+    fn json(self) -> Value {
+        json!({"suggested": self.suggested, "read": self.read, "runs": self.runs, "failures": self.failures})
+    }
+}
+
+/// The rows of the last `uses` suggestions among `rows` (oldest first), with what followed each.
+fn last_uses(rows: Vec<&Value>, uses: u64) -> Vec<&Value> {
+    let starts: Vec<usize> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r["event"] == "suggested")
+        .map(|(i, _)| i)
+        .collect();
+    let from = starts
+        .len()
+        .checked_sub(uses as usize)
+        .map_or(0, |skip| starts[skip]);
+    rows.into_iter().skip(from).collect()
+}
+
+/// Ends each trial whose revision was suggested `uses` times (#447). It compares those suggestions with the last `uses` of
+/// the revision it replaced (of the curated skill when that was the copy) and rolls back, as a new revision, when the
+/// agent's revision fails scripts more often or is read less than half as often. Returns what it decided. With so few
+/// uses this is a guardrail against clear regressions, not a statistical test.
+pub fn end_trials(state: &Path, uses: u64) -> Result<Vec<Value>> {
+    let on_trial: Vec<Value> = all(state)
+        .into_iter()
+        .filter(|m| m["trial"].is_object())
+        .collect();
+    if on_trial.is_empty() {
+        return Ok(vec![]);
+    }
+    let log = fs::read_to_string(crate::skill_outcomes::log_path(state)).unwrap_or_default();
+    let rows: Vec<Value> = log
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let mut decided = vec![];
+    for m in on_trial {
+        let (Some(name), Some(scope)) = (m["name"].as_str(), m["scope"].as_str()) else {
+            continue;
+        };
+        let (Some(n), Some(prev)) = (
+            m["trial"]["revision"].as_u64(),
+            m["trial"]["previous"].as_u64(),
+        ) else {
+            continue;
+        };
+        let stem = crate::skills::file_stem(name);
+        let mine = |r: &&Value| r["skill"] == name && (scope == "global" || r["project"] == scope);
+        let new: Vec<&Value> = rows
+            .iter()
+            .filter(mine)
+            .filter(|r| r["rev"] == n && r["scope"] == scope)
+            .collect();
+        let tried = Tally::of(new.iter().copied());
+        if tried.suggested < uses {
+            continue;
+        }
+        // The copy of a curated skill was never served on its own: its baseline is the curated skill.
+        let copy = read_json(
+            &history(state, scope, &stem)
+                .join(prev.to_string())
+                .join("meta.json"),
+        )
+        .and_then(|r| {
+            r["reason"]
+                .as_str()
+                .map(|s| s.starts_with("copied from the curated skill"))
+        })
+        .unwrap_or(false);
+        let base_rows: Vec<&Value> = rows
+            .iter()
+            .filter(mine)
+            .filter(|r| {
+                if copy {
+                    r["rev"].is_null()
+                } else {
+                    r["rev"] == prev && r["scope"] == scope
+                }
+            })
+            .collect();
+        let base = Tally::of(last_uses(base_rows, uses));
+        let worse = base.suggested > 0
+            && (tried.failure_rate() > base.failure_rate()
+                || tried.read_rate() < base.read_rate() / 2.0);
+        let verdict = if base.suggested == 0 {
+            "kept, no baseline"
+        } else if worse {
+            "rolled back"
+        } else {
+            "kept"
+        };
+        let result = json!({"verdict": verdict, "uses": uses, "revision": tried.json(), "previous": base.json()});
+        let rev_meta = history(state, scope, &stem)
+            .join(n.to_string())
+            .join("meta.json");
+        if let Some(mut r) = read_json(&rev_meta) {
+            r["trial"] = result.clone();
+            write_json(&rev_meta, &r)?;
+        }
+        if worse {
+            restore_as(
+                state,
+                name,
+                scope,
+                prev,
+                &format!("rolled back revision {n} after its trial"),
+            )?;
+        } else {
+            let meta_file = meta_path(state, scope, &stem);
+            if let Some(mut meta) = read_json(&meta_file) {
+                meta["trial"] = Value::Null;
+                write_json(&meta_file, &meta)?;
+            }
+        }
+        decided.push(json!({"name": name, "scope": scope, "trial": result}));
+    }
+    Ok(decided)
+}
+
+/// Trials in progress: skill, scope, the revision on trial and the one it replaced.
+pub fn trials(state: &Path) -> Vec<Value> {
+    all(state)
+        .into_iter()
+        .filter(|m| m["trial"].is_object())
+        .map(|m| json!({"name": m["name"], "scope": m["scope"], "revision": m["trial"]["revision"], "previous": m["trial"]["previous"]}))
+        .collect()
 }
 
 /// Every agent skill's `skill.json`.
@@ -595,13 +787,16 @@ pub fn list(state: &Path) -> Vec<Value> {
         .collect()
 }
 
-/// The `SKILL.md` served for `name` in `project`: the project's agent version, else the one for every project.
-pub fn serving(state: &Path, name: &str, project: &str) -> Option<PathBuf> {
+/// The agent version served for `name` in `project`: the project's, else the one for every project, as its `SKILL.md`,
+/// scope and live revision.
+pub fn serving(state: &Path, name: &str, project: &str) -> Option<(PathBuf, String, u64)> {
     let stem = crate::skills::file_stem(name);
     [project, "global"].into_iter().find_map(|scope| {
         let md = live(state, scope, &stem).join("SKILL.md");
         let meta = read_json(&meta_path(state, scope, &stem))?;
-        (meta["dropped"] == false && meta["name"] == name && md.is_file()).then_some(md)
+        let rev = meta["revision"].as_u64()?;
+        (meta["dropped"] == false && meta["name"] == name && md.is_file())
+            .then(|| (md, scope.to_string(), rev))
     })
 }
 
@@ -702,7 +897,11 @@ mod tests {
         assert_eq!(ok["revision"], 1);
         assert_eq!(
             serving(s, "fresh", "any"),
-            Some(live(s, "global", "fresh").join("SKILL.md"))
+            Some((
+                live(s, "global", "fresh").join("SKILL.md"),
+                "global".into(),
+                1
+            ))
         );
     }
 
@@ -718,7 +917,10 @@ mod tests {
         assert_eq!(fs::read_to_string(&md).unwrap(), v2);
         assert_eq!(restore(s, "tidy", "acme", 1).unwrap()["revision"], 3);
         assert_eq!(fs::read_to_string(&md).unwrap(), v1);
-        assert_eq!(serving(s, "tidy", "acme"), Some(md.clone()));
+        assert_eq!(
+            serving(s, "tidy", "acme"),
+            Some((md.clone(), "acme".into(), 3))
+        );
         assert_eq!(serving(s, "tidy", "other"), None);
         drop_version(s, "tidy", "acme").unwrap();
         assert_eq!(serving(s, "tidy", "acme"), None);
@@ -783,6 +985,93 @@ mod tests {
         );
         reject(s, "lintme", "global").unwrap();
         assert!(pending(s).is_empty());
+    }
+
+    /// `n` suggestions of `name` served as `rev` (None: the curated skill), each read, with one script run each; the first
+    /// `fail` runs fail.
+    fn uses(s: &Path, name: &str, rev: Option<u64>, n: usize, fail: usize) {
+        fs::create_dir_all(s.join("memory-hook")).unwrap();
+        let w = crate::skill_outcomes::Watch {
+            name: name.into(),
+            theme: "t".into(),
+            scope: rev.map(|_| "global".into()),
+            rev,
+            ..Default::default()
+        };
+        for i in 0..n {
+            crate::skill_outcomes::append(s, "p", &w, "suggested", None);
+            crate::skill_outcomes::append(s, "p", &w, "read", None);
+            crate::skill_outcomes::append(s, "p", &w, "run", Some(i >= fail));
+        }
+    }
+
+    fn agent_edit(s: &Path, name: &str, text: &str) -> Value {
+        change(
+            s,
+            name,
+            "global",
+            &changes(&[("SKILL.md", text)]),
+            "the skill missed a step",
+            Origin::Agent,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn a_trial_rolls_back_an_edit_that_fails_more_and_keeps_one_that_does_not() {
+        let t = tempfile::tempdir().unwrap();
+        let s = t.path();
+        let v1 = skill_md("trial", "Check things.");
+        let v2 = format!("{v1}Also check the other thing.\n");
+        revise(s, "trial", "global", &changes(&[("SKILL.md", &v1)]), "user").unwrap();
+        uses(s, "trial", Some(1), 5, 0);
+        assert_eq!(agent_edit(s, "trial", &v2)["revision"], 2);
+        assert_eq!(trials(s).len(), 1);
+        uses(s, "trial", Some(2), 3, 1);
+        assert!(end_trials(s, 5).unwrap().is_empty(), "not enough uses yet");
+        uses(s, "trial", Some(2), 2, 2);
+        let d = end_trials(s, 5).unwrap();
+        assert_eq!(d[0]["trial"]["verdict"], "rolled back", "{d:?}");
+        assert_eq!(d[0]["trial"]["revision"]["failures"], 3);
+        let md = live(s, "global", "trial").join("SKILL.md");
+        assert_eq!(fs::read_to_string(&md).unwrap(), v1);
+        assert!(trials(s).is_empty());
+        let revs = revisions(s, "trial", "global").unwrap();
+        assert_eq!(revs["live"], 3);
+        assert_eq!(revs["revisions"][1]["trial"]["verdict"], "rolled back");
+
+        // A good edit stays. Baseline: the last 5 uses of revision 3, which never failed.
+        uses(s, "trial", Some(3), 5, 0);
+        assert_eq!(agent_edit(s, "trial", &v2)["revision"], 4);
+        uses(s, "trial", Some(4), 5, 0);
+        assert_eq!(end_trials(s, 5).unwrap()[0]["trial"]["verdict"], "kept");
+        assert_eq!(fs::read_to_string(&md).unwrap(), v2);
+        assert!(trials(s).is_empty());
+    }
+
+    #[test]
+    fn a_first_edit_is_judged_against_the_curated_skill_and_the_user_can_end_a_trial() {
+        let t = tempfile::tempdir().unwrap();
+        let s = t.path();
+        let curated = s.join("curated").join("trial");
+        fs::create_dir_all(&curated).unwrap();
+        let v1 = skill_md("trial", "Check things.");
+        fs::write(curated.join("SKILL.md"), &v1).unwrap();
+        crate::skills::index(s, "web", &[s.join("curated")]).unwrap();
+        uses(s, "trial", None, 5, 0); // the curated skill, before any copy
+        let r = agent_edit(s, "trial", &format!("{v1}More.\n"));
+        assert_eq!(r["revision"], 2, "revision 1 is the copy");
+        uses(s, "trial", Some(2), 5, 0);
+        assert_eq!(
+            end_trials(s, 5).unwrap()[0]["trial"]["previous"]["suggested"],
+            5
+        );
+
+        // The user's own change ends a trial without a verdict.
+        agent_edit(s, "trial", &format!("{v1}Even more.\n"));
+        assert_eq!(trials(s).len(), 1);
+        revise(s, "trial", "global", &changes(&[("SKILL.md", &v1)]), "user").unwrap();
+        assert!(trials(s).is_empty());
     }
 
     #[test]

@@ -186,6 +186,8 @@ What one request costs:
 
 Measured numbers on real sessions are tracked in #456.
 
+**Trials.** Each agent edit that goes live, or that you approve, is on trial against the version it replaced. For a first edit, that is the curated skill. Once the edit has been suggested `memory.skill_trial_uses` times (5 by default), the next Stop compares those suggestions with the last 5 of the version it replaced. If the edit's scripts fail more often, or it is read less than half as often, it is rolled back as a new revision; otherwise it is kept. A trial costs no tokens: it only reads the outcome log. Trials run only while `skill_rewrite` is on, and your own `revise`, `restore` or `drop` ends one. With 5 uses this catches clear regressions, not small ones; it is a guardrail, not a statistical test. `footnote skills stats` lists the trials in progress, and `footnote skills revisions <name>` shows each verdict with its counts.
+
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
 Installs the fast SQLite-free `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles:

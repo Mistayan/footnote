@@ -70,6 +70,13 @@ pub fn catalogue() -> Vec<OptionSpec> {
             cost: "Agent tokens: one extra agent turn per edit request (reading the skill, writing the change), an edited skill is new text that later sessions read again, and an edit that does worse is rolled back and may be redone. A change to a skill's scripts waits for your review (`footnote memory-review`). Off by default",
         },
         OptionSpec {
+            key: "memory.skill_trial_uses",
+            default: json!(5),
+            range: Some((2, 50)),
+            gain: "Higher: an agent's skill edit is judged on more suggestions before it is kept or rolled back",
+            cost: "Higher: a worse edit is served longer before the rollback. At any size this catches clear regressions only; it is not a statistical test",
+        },
+        OptionSpec {
             key: "memory.idle_seconds",
             default: json!(1800),
             range: Some((60, 86_400)),

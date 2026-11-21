@@ -136,6 +136,8 @@ struct Settings {
     /// Agents may change skills (#445), and Stop asks once per session for an edit when a skill they read had a script
     /// fail (#446). Off by default: it spends agent tokens (`footnote options`).
     skill_rewrite: bool,
+    /// Suggestions an agent's skill edit is on trial for before it is kept or rolled back (#447).
+    skill_trial_uses: u64,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -152,6 +154,7 @@ impl Default for Settings {
             infer_tags: false,
             skills: false,
             skill_rewrite: false,
+            skill_trial_uses: 5,
             handoff_tokens: 140_000,
             idle_handoff_minutes: 55,
             idle_handoff_min_tokens: 60_000,
@@ -169,6 +172,10 @@ impl Settings {
         ensure!(
             s.every_turns > 0 && s.idle_seconds > 0,
             "turn and idle intervals must be positive"
+        );
+        ensure!(
+            (2..=50).contains(&s.skill_trial_uses),
+            "skill_trial_uses must be between 2 and 50"
         );
         Ok(s)
     }
@@ -236,6 +243,8 @@ fn watch_skills(state: &Path, st: &mut Session, e: &Event, project: &str, picked
             name: name.into(),
             theme: p["theme"].as_str().unwrap_or_default().into(),
             dir,
+            scope: p["scope"].as_str().map(String::from),
+            rev: p["revision"].as_u64(),
             ..Default::default()
         };
         crate::skill_outcomes::append(state, project, &w, "suggested", None);
@@ -896,6 +905,11 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
         "Stop" | "AfterAgent" => {
             if s.activity {
                 scan_skills(state, &mut st, &e, &project);
+            }
+            // Trials of agents' skill edits end here, from the outcome log (#447). Off with `skill_rewrite`. Best effort.
+            #[cfg(feature = "library")]
+            if s.skill_rewrite {
+                let _ = crate::agent_skills::end_trials(state, s.skill_trial_uses);
             }
             let agy_non_normal =
                 e.agy && !e.termination_reason.is_empty() && e.termination_reason != "NO_TOOL_CALL";

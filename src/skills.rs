@@ -312,9 +312,14 @@ pub fn suggest(state: &Path, query: &str, project: &str, seen: &[String]) -> Vec
                 .collect();
             let mut pick =
                 json!({"name": name, "path": skill["path"], "line": line, "theme": theme});
-            if let Some(path) = crate::agent_skills::serving(state, &name, project) {
+            if let Some((path, scope, revision)) =
+                crate::agent_skills::serving(state, &name, project)
+            {
                 pick["path"] = json!(path);
                 pick["theme"] = json!(crate::agent_skills::THEME);
+                // The outcome log attributes what follows to this revision, for its trial (#447).
+                pick["scope"] = json!(scope);
+                pick["revision"] = json!(revision);
             }
             picks.push((c, pick));
         }

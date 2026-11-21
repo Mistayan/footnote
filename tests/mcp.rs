@@ -612,3 +612,115 @@ fn skill_edit_gates_script_changes_behind_review() {
             .is_empty()
     );
 }
+
+/// #447 end to end: the hook attributes suggestions to the agent revision it served; once that revision has its uses, the
+/// Stop compares it with the curated skill's last uses and rolls a worse one back. With `skill_rewrite` off, no trial ends.
+#[test]
+fn an_agent_edit_that_fails_more_is_rolled_back_after_its_trial() {
+    let t = tmp();
+    let db = fixture(&t);
+    let state = t.path().join("state");
+    fs::create_dir_all(&state).unwrap();
+    let curated = t.path().join("skills").join("css-transitions");
+    fs::create_dir_all(curated.join("scripts")).unwrap();
+    let md =
+        "---\nname: css-transitions\ndescription: Add CSS transitions to dropdowns.\n---\n# Body\n";
+    fs::write(curated.join("SKILL.md"), md).unwrap();
+    let footnote = |args: &[&str], stdin: Option<String>| -> String {
+        let mut c = cmd(&db);
+        c.env("FOOTNOTE_STATE_DIR", &state).args(args);
+        if let Some(s) = stdin {
+            c.write_stdin(s);
+        }
+        String::from_utf8(c.assert().success().get_output().stdout.clone()).unwrap()
+    };
+    let skills_dir = t.path().join("skills");
+    footnote(
+        &["skills", "index", "web", skills_dir.to_str().unwrap()],
+        None,
+    );
+    let settings = |rewrite: bool| {
+        fs::write(
+            state.join("memory.json"),
+            format!(r#"{{"skills":true,"skill_rewrite":{rewrite},"skill_trial_uses":2,"every_turns":1000}}"#),
+        )
+        .unwrap();
+    };
+    let mut n = 0;
+    // One session: the skill is suggested, the agent reads it and runs its script, then Stop.
+    let mut session = |ok: bool| -> String {
+        n += 1;
+        let transcript = t.path().join(format!("s{n}.jsonl"));
+        fs::write(&transcript, "").unwrap();
+        let mut ev = json!({"hook_event_name": "UserPromptSubmit", "session_id": format!("s{n}"), "cwd": t.path(),
+            "prompt": "add a transition to the dropdown", "transcript_path": transcript});
+        let out = footnote(&["hook"], Some(ev.to_string()));
+        assert!(out.contains("css-transitions"), "{out}");
+        let lines = [
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "r", "name": "Read", "input": {"file_path": "x/css-transitions/SKILL.md"}}]}}),
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "b", "name": "Bash", "input": {"command": "node css-transitions/scripts/check.mjs"}}]}}),
+            json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "b", "is_error": !ok, "content": if ok { "ok" } else { "Exit code 1" }}]}}),
+        ];
+        fs::write(
+            &transcript,
+            lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+        )
+        .unwrap();
+        ev["hook_event_name"] = json!("Stop");
+        out + &footnote(&["hook"], Some(ev.to_string()))
+    };
+
+    settings(true);
+    session(true);
+    session(true); // the curated skill's baseline: read, script passes
+    let edit = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"footnote_skill_edit","arguments":
+        {"name": "css-transitions", "scope": "global", "reason": "the skill missed the reduced-motion case",
+         "files": {"SKILL.md": md.replace("# Body", "# Body\nAlso animate on focus.")}}}});
+    let out = footnote(&["serve", "--mcp"], Some(format!("{edit}\n")));
+    assert!(out.contains("\\\"status\\\":\\\"live\\\""), "{out}");
+    let live = state
+        .join("skills")
+        .join("agent")
+        .join("global")
+        .join("css-transitions")
+        .join("SKILL.md");
+    assert!(fs::read_to_string(&live).unwrap().contains("focus"));
+
+    settings(false);
+    let served = session(false);
+    assert!(
+        served
+            .replace("\\\\", "/")
+            .replace('\\', "/")
+            .contains("agent/global/css-transitions"),
+        "{served}"
+    );
+    session(false);
+    let stats: Value = serde_json::from_str(&footnote(&["skills", "stats"], None)).unwrap();
+    assert_eq!(
+        stats["trials"].as_array().unwrap().len(),
+        1,
+        "off: the trial waits {stats}"
+    );
+
+    settings(true);
+    session(false); // the next Stop with skill_rewrite on ends the trial
+    let stats: Value = serde_json::from_str(&footnote(&["skills", "stats"], None)).unwrap();
+    assert!(stats["trials"].as_array().unwrap().is_empty(), "{stats}");
+    assert!(
+        !fs::read_to_string(&live).unwrap().contains("focus"),
+        "rolled back"
+    );
+    let revs: Value =
+        serde_json::from_str(&footnote(&["skills", "revisions", "css-transitions"], None)).unwrap();
+    assert_eq!(
+        revs["revisions"][1]["trial"]["verdict"], "rolled back",
+        "{revs}"
+    );
+    assert!(
+        revs["revisions"][2]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("rolled back revision 2")
+    );
+}
