@@ -166,8 +166,30 @@ const usage = {
   },
 };
 
+// `footnote options`, only the entries the window reads. Gain and cost are the engine catalogue's text for this option.
+const rewrite = {
+  key: "memory.skill_rewrite", default: false, value: false, locked: false, reason: null, source: "default", range: null,
+  gain: "Agents adapt the skills you reuse to your projects: they get footnote_skill_edit, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
+  cost: "Agent tokens: one extra agent turn per edit request (reading the skill, writing the change), an edited skill is new text that later sessions read again, and an edit that does worse is rolled back and may be redone. A change to a skill's scripts waits for your review (`footnote memory-review`). Off by default",
+};
+const options = (o = {}) => ({ options: [{ key: "memory.enabled", value: true }, { ...rewrite, ...o }] });
+const history = "C:/Users/sample/AppData/Local/footnote/skills/agent/.history";
+const review = (skills_pending) => ({ pending: [], duplicates: [], old_sessions: [], unused: [], counts: {}, skills_pending });
+const pending = [
+  { name: "css-transitions", scope: "global", revision: 3, changed: ["scripts/check.mjs"],
+    reason: "The check flagged transitions on prefers-reduced-motion users as missing; it now reads the media query before failing.",
+    files: `${history}/global/css-transitions/3/files` },
+  { name: "release-checklist", scope: "atlas-api", revision: 2, changed: ["scripts/verify.sh", "SKILL.md"],
+    reason: "This repo publishes from the release branch, not main; the verify step checked out the wrong branch and failed every time.",
+    files: `${history}/project-atlas-api/release-checklist/2/files` },
+  { name: "sql-migrations-with-a-rather-long-skill-name", scope: "harbor-web", revision: 5, changed: ["scripts/lint_migrations.py"],
+    reason: "Added a guard for the advisory lock the deploy uses, so the lint no longer reports the lock statement as an unsafe migration.",
+    files: `${history}/project-harbor-web/sql-migrations-with-a-rather-long-skill-name/5/files` },
+];
+
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
+    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {},
     "find --": { query: "pagination", products: [
       { product: "memory", state: "ok", results: [
         { id: 17, title: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", detail: "fact · atlas-api · 2026-11-12" },
@@ -184,6 +206,9 @@ export const fixtures = {
   off: {
     status: { ...status, products: { ...status.products, code: { built: false }, library: { built: true, enabled: false } } },
     projects, activity, "config set": {},
+    // A company policy forces skill rewriting off: the switch shows the policy's reason instead.
+    options: options({ locked: true, source: "policy", reason: "agents may not write instructions for other agents on managed laptops" }),
+    "memory-review": review([]),
     "find --": { query: "zebra", products: [
       { product: "memory", state: "nothing_found", results: [] },
       { product: "library", state: "off", results: [] },
@@ -204,5 +229,6 @@ export const fixtures = {
     usage: { ...usage, totals: Object.fromEntries(Object.keys(usage.totals).map((k) => [k, 0])), by_day: [], by_model: [], by_agent: [],
       measured_savings: { source: "Footnote Lean (usage/lean.jsonl)", total_saved_bytes: 0, total_saved_tokens_estimate: 0, shell: { commands: 0, before_bytes: 0, after_bytes: 0, saved_bytes: 0, saved_tokens_estimate: 0, saved_share: 0, handles_stored: 0, handles_retrieved: 0, miss_rate: 0, by_family: [], by_day: [] }, footnote: { calls: 0, saved_bytes: 0, saved_tokens_estimate: 0 } } },
     "models list": { ...models, models: models.models.map((m) => ({ ...m, installed: false, bytes: undefined })) },
+    options: options({ value: true, source: "user" }), "memory-review": review([]), "config set": {},
   },
 };

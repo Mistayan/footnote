@@ -1,8 +1,13 @@
 # Footnote One launcher
 
-The desktop window over the `footnote` engine (Tauri 2 + React). It holds no data of its own: each screen runs read-only engine
-commands (`status`, `projects`, `activity`, `models list`, `code`, `code-map`) as a child process, through one Tauri command
-with an allowlist (`src-tauri/src/main.rs`). Design: [DESIGN.md](../../DESIGN.md) section 11.
+The desktop window over the `footnote` engine (Tauri 2 + React). It holds no data of its own: each screen runs engine commands
+(`status`, `projects`, `activity`, `models list`, `code`, `code-map`, `options`, `memory-review`) as a child process, through
+one Tauri command with an allowlist (`src-tauri/src/main.rs`). The allowlist permits only a few reversible writes:
+- a product's on/off switch;
+- the skill-rewriting switch (`memory.skill_rewrite`), whose cost the Skills screen shows before it is turned on;
+- `skills approve` or `skills reject` for an agent's pending skill change. Nothing in the window or the engine runs that change.
+
+Design: [DESIGN.md](../../DESIGN.md) section 11.
 
 ## Build and run (Windows; Linux and macOS untested)
 

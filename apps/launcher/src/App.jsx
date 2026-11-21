@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Code from "./Code.jsx";
 import Search from "./Search.jsx";
+import Skills from "./Skills.jsx";
 import { switchTo } from "./Mini.jsx";
 import { Activity as ActivityScreen, Models, Projects as ProjectsScreen, Usage } from "./Screens.jsx";
 import { AGENTS, footnote, load, mb, num, openSupport, seen, shortDate } from "./data.js";
@@ -13,6 +14,7 @@ const SCREENS = {
   models: { title: "Models" },
   activity: { title: "Activity", note: "what Memory did" },
   usage: { title: "Usage", note: "tokens your agents used" },
+  skills: { title: "Skills", note: "what agents may change" },
   enterprise: { title: "Footnote Enterprise" },
 };
 
@@ -75,6 +77,8 @@ export default function App() {
           <Search />
         ) : screen === "usage" ? (
           <Usage />
+        ) : screen === "skills" ? (
+          <Skills />
         ) : screen === "code" ? (
           <Code projects={projects} view={["symbol", "layers"].includes(view) ? view : "map"} go={(v) => go(`code/${v}`)} />
         ) : (
@@ -126,6 +130,7 @@ function Sidebar({ status, projects, screen, go }) {
           <span className="n">{status ? `${models.filter((m) => m.installed).length} / ${models.length}` : ""}</span>)}
         {item("activity", "Activity")}
         {item("usage", "Usage")}
+        {item("skills", "Skills")}
       </nav>
       {optional.length > 0 && (
         <>

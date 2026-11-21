@@ -112,6 +112,12 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   follows the heaviest references; the lit path animates with dots, but not under reduced motion. The detail panel shows the
   selected flow or block: its memories first, then its steps or links. All colours, type and radii are this section's tokens.
   The Layers tab reads the same map top to bottom: entry, features, base, outside, each with its links down.
+- **Skills screen (21 Nov 2026, #457):** a workspace screen with two blocks.
+  - One card holds the `memory.skill_rewrite` switch, with the engine catalogue's gain and cost text. That text is read from `footnote options`, never copied into the app, and its backtick spans render as code.
+  - Turning the switch on opens an inline confirmation inside the card. It has a `--warn` border, repeats the cost, and puts focus on "Turn on". Turning it off is immediate.
+  - A company policy replaces the switch with "Set by your company" and shows its reason.
+  - Below the card is the list of agents' pending skill changes. Each item has the name, scope, revision, reason, changed files, the folder to read, and Approve / Reject buttons. Approve is a `--acc`-bordered button.
+  - Spacing is on the 4 px grid, with 20 px line height and text capped at 96ch.
 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |

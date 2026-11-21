@@ -14,8 +14,14 @@ use tauri::Manager;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-/// The engine commands the window may run: read-only ones, and one write, a product's on/off switch (reversible; a company
-/// policy still wins, enforced by the engine).
+/// A skill or project name as an argument: never an option, no control characters, bounded.
+fn plain(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 200 && !s.starts_with('-') && !s.chars().any(char::is_control)
+}
+
+/// The engine commands the window may run: read-only ones and a few reversible writes: a product's on/off switch, the
+/// skill-rewriting switch (a company policy still wins, enforced by the engine), and approving or refusing an agent's
+/// pending skill change.
 fn allowed(args: &[String]) -> bool {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
@@ -39,9 +45,16 @@ fn allowed(args: &[String]) -> bool {
         [
             "config",
             "set",
-            "memory.enabled" | "library.enabled" | "code.enabled",
+            "memory.enabled" | "library.enabled" | "code.enabled" | "memory.skill_rewrite",
             "true" | "false",
         ] => true,
+        // The options catalogue (what each option gains and costs) and the review queue: reads.
+        ["options"] | ["memory-review"] => true,
+        // An agent's pending change to a skill's scripts: the user serves or refuses it (#457). Nothing runs it.
+        ["skills", "approve" | "reject", name] => plain(name),
+        ["skills", "approve" | "reject", name, "--project", project] => {
+            plain(name) && plain(project)
+        }
         ["code-map", "--root", _, "--depth", d] => d.parse::<u8>().is_ok(),
         _ => false,
     }
@@ -283,6 +296,31 @@ mod tests {
             !ok("config set memory.resident false")
                 && !ok("config set code.enabled maybe")
                 && !ok("config set code.enabled")
+        );
+    }
+
+    /// #457: the Skills screen's reads and writes, and nothing around them.
+    #[test]
+    fn skill_review_commands_pass_and_nothing_else() {
+        assert!(ok("options") && ok("memory-review"));
+        assert!(
+            ok("config set memory.skill_rewrite true")
+                && ok("config set memory.skill_rewrite false")
+                && !ok("config set memory.skill_trial_uses 2")
+        );
+        assert!(
+            ok("skills approve css-transitions")
+                && ok("skills reject css-transitions --project atlas-api")
+                && ok("skills approve plugin:name")
+        );
+        assert!(
+            !ok("skills approve --project x")
+                && !ok("skills reject a --project --force")
+                && !ok("skills revise a")
+                && !ok("skills drop a")
+                && !ok("skills approve a b")
+                && !ok("memory-review --limit 5")
+                && !ok("options --set")
         );
     }
 }
