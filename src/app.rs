@@ -718,6 +718,36 @@ enum SkillsAction {
     Remove { theme: String },
     /// Per skill: times suggested, read by the agent, and its scripts' runs and failures (#443).
     Stats,
+    /// Change a skill in the agent layer (#444), from a JSON object on stdin mapping a path inside the skill folder to its
+    /// new text (null deletes the file). The first change copies the curated skill of that name. Live at once.
+    Revise {
+        name: String,
+        /// Only for this project (as Footnote names it); without it, for every project.
+        #[arg(long)]
+        project: Option<String>,
+        /// Why the skill changes; kept with the revision.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Every revision of an agent skill, with the live one.
+    Revisions {
+        name: String,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Make an earlier revision of an agent skill live again, as a new revision.
+    Restore {
+        name: String,
+        revision: u64,
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Stop serving the agent version of a skill: the curated skill is suggested again. Revisions are kept.
+    Drop {
+        name: String,
+        #[arg(long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1157,6 +1187,40 @@ fn execute(cli: Cli) -> Result<Value> {
                 SkillsAction::List => crate::skills::list(&state),
                 SkillsAction::Remove { theme } => crate::skills::remove(&state, theme),
                 SkillsAction::Stats => crate::skill_outcomes::stats(&state),
+                SkillsAction::Revise {
+                    name,
+                    project,
+                    reason,
+                } => {
+                    let mut input = String::new();
+                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
+                    let changes: serde_json::Map<String, Value> = anyhow::Context::context(
+                        serde_json::from_str(&input),
+                        "stdin: a JSON object of path -> new text",
+                    )?;
+                    let scope = project.as_deref().unwrap_or("global");
+                    crate::agent_skills::revise(&state, name, scope, &changes, reason)
+                }
+                SkillsAction::Revisions { name, project } => crate::agent_skills::revisions(
+                    &state,
+                    name,
+                    project.as_deref().unwrap_or("global"),
+                ),
+                SkillsAction::Restore {
+                    name,
+                    revision,
+                    project,
+                } => crate::agent_skills::restore(
+                    &state,
+                    name,
+                    project.as_deref().unwrap_or("global"),
+                    *revision,
+                ),
+                SkillsAction::Drop { name, project } => crate::agent_skills::drop_version(
+                    &state,
+                    name,
+                    project.as_deref().unwrap_or("global"),
+                ),
             };
         }
         Action::Find { query, limit } => return crate::find::find(query, usize::from(*limit)),

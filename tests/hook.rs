@@ -809,3 +809,167 @@ fn skill_outcomes_log_reads_and_script_runs() {
         json!({"skill": "css-transitions", "theme": "web", "suggested": 1, "read": 1, "runs": 1, "failures": 1})
     );
 }
+
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = vec![];
+    for e in fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// #444: an agent version of a skill is served in place of the curated one, its project's version first; the curated folder
+/// is never written; restore and drop keep revisions; a changed curated skill flags its agent copies as behind.
+#[test]
+fn agent_skill_layer_shadows_curated_skills_by_scope() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let curated = state.join("my-skills").join("css-transitions");
+    fs::create_dir_all(curated.join("scripts")).unwrap();
+    let original = "---\nname: css-transitions\ndescription: Add CSS transitions to dropdowns, modals and toasts.\n---\n# Body\n";
+    fs::write(curated.join("SKILL.md"), original).unwrap();
+    fs::write(
+        curated.join("scripts").join("check.mjs"),
+        "console.log(1)\n",
+    )
+    .unwrap();
+    fs::write(curated.join("_sources.md"), "maintainers only\n").unwrap();
+    command(state)
+        .args(["skills", "index", "web"])
+        .arg(state.join("my-skills"))
+        .assert()
+        .success();
+    command(state)
+        .args(["skills", "index", "agent"])
+        .arg(state.join("my-skills"))
+        .assert()
+        .failure();
+    fs::write(state.join("memory.json"), r#"{"skills":true}"#).unwrap();
+    let snapshot = |dir: &Path| -> Vec<(String, Vec<u8>)> {
+        let mut v: Vec<_> = walk(dir)
+            .into_iter()
+            .map(|p| {
+                let rel = p.strip_prefix(dir).unwrap().display().to_string();
+                (rel, fs::read(&p).unwrap())
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    let before = snapshot(&curated);
+    let (a, b) = (state.join("proj-a"), state.join("proj-b"));
+    fs::create_dir_all(&a).unwrap();
+    fs::create_dir_all(&b).unwrap();
+    let mut n = 0;
+    let mut served = |cwd: &Path| -> String {
+        n += 1;
+        let mut ev = event_in(
+            &format!("s{n}"),
+            "UserPromptSubmit",
+            "add a transition to the dropdown",
+        );
+        ev["cwd"] = json!(cwd);
+        let out = hook(state, ev);
+        out.lines()
+            .find(|l| l.contains("css-transitions"))
+            .unwrap_or_else(|| panic!("no suggestion in {out}"))
+            .replace("\\\\", "/")
+            .replace('\\', "/")
+    };
+    let revise = |project: Option<&str>, text: &str| -> Value {
+        let mut c = command(state);
+        c.args([
+            "skills",
+            "revise",
+            "css-transitions",
+            "--reason",
+            "the repo uses View Transitions",
+        ]);
+        if let Some(p) = project {
+            c.args(["--project", p]);
+        }
+        let out = c
+            .write_stdin(json!({"SKILL.md": text}).to_string())
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice(&out).unwrap()
+    };
+    let json_of = |args: &[&str]| -> Value {
+        let out = command(state)
+            .args(args)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice(&out).unwrap()
+    };
+    assert!(served(&a).contains("my-skills/css-transitions"));
+
+    let edited = original.replace("# Body", "# Body\nUse the View Transitions API first.");
+    assert_eq!(
+        revise(Some("proj-a"), &edited)["revision"],
+        2,
+        "revision 1 is the copy"
+    );
+    assert!(served(&a).contains("agent/project-proj-a/css-transitions"));
+    assert!(served(&b).contains("my-skills/css-transitions"));
+    let copy = state
+        .join("skills")
+        .join("agent")
+        .join("project-proj-a")
+        .join("css-transitions");
+    assert!(copy.join("scripts").join("check.mjs").is_file());
+    assert!(!copy.join("_sources.md").exists());
+
+    revise(None, &edited);
+    assert!(served(&b).contains("agent/global/css-transitions"));
+    assert!(served(&a).contains("agent/project-proj-a/css-transitions"));
+    assert_eq!(snapshot(&curated), before, "the curated skill was written");
+
+    json_of(&["skills", "drop", "css-transitions", "--project", "proj-a"]);
+    assert!(served(&a).contains("agent/global/css-transitions"));
+    let r = json_of(&[
+        "skills",
+        "restore",
+        "css-transitions",
+        "1",
+        "--project",
+        "proj-a",
+    ]);
+    assert_eq!(r["revision"], 3);
+    assert_eq!(fs::read_to_string(copy.join("SKILL.md")).unwrap(), original);
+    let r = json_of(&[
+        "skills",
+        "revisions",
+        "css-transitions",
+        "--project",
+        "proj-a",
+    ]);
+    assert_eq!(r["live"], 3);
+    assert_eq!(r["revisions"].as_array().unwrap().len(), 3);
+
+    let behind = || -> Vec<bool> {
+        json_of(&["skills", "list"])["agent"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["behind"].as_bool().unwrap())
+            .collect()
+    };
+    assert_eq!(behind(), vec![false, false]);
+    fs::write(
+        curated.join("SKILL.md"),
+        original.replace("toasts", "toasts and menus"),
+    )
+    .unwrap();
+    assert_eq!(behind(), vec![true, true]);
+}

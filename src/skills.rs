@@ -4,6 +4,9 @@
 //!
 //! Rule from bench/experiments/SKILL-RANKING-2026-11-21.md: the top hit is suggested only when it holds at least 40% of the
 //! prompt's topic words. Keyword ranking with that rule matched ranking by meaning on theme-sized sets, so no model is loaded.
+//!
+//! The theme `agent` is reserved for the agent skill layer (#444, `crate::agent_skills`): an agent version of a skill is
+//! suggested in place of the curated skill of the same name, its project's version first.
 use anyhow::{Context, Result, ensure};
 use serde_json::{Map, Value, json};
 use std::fs;
@@ -12,15 +15,19 @@ use std::path::{Path, PathBuf};
 /// Share of the prompt's topic words the top hit must hold.
 const COVERAGE: f64 = 0.4;
 /// Past this size plain coding prompts start getting skills they do not need (the eval's 238-skill row).
-const MAX_SKILLS: usize = 100;
+pub(crate) const MAX_SKILLS: usize = 100;
 /// Skills suggested per prompt, across all themes.
 pub const MAX_SUGGESTED: usize = 2;
 
-fn dir(state: &Path) -> PathBuf {
+pub(crate) fn dir(state: &Path) -> PathBuf {
     state.join("skills")
 }
 
 fn check_theme(theme: &str) -> Result<()> {
+    ensure!(
+        theme != crate::agent_skills::THEME,
+        "the theme `{theme}` holds the agent's own skills: `footnote skills revisions`, `restore` and `drop` manage it"
+    );
     ensure!(
         !theme.is_empty()
             && theme.len() <= 40
@@ -34,7 +41,7 @@ fn check_theme(theme: &str) -> Result<()> {
 
 /// `name` and `description` of a SKILL.md front matter. A description may continue on indented lines or be a YAML block
 /// (`>-`, `|`).
-fn front_matter(text: &str) -> Option<(String, String)> {
+pub(crate) fn front_matter(text: &str) -> Option<(String, String)> {
     let body = text.strip_prefix("---")?.trim_start_matches(['\r', '\n']);
     let front = &body[..body.find("\n---")?];
     let (mut name, mut desc, mut in_desc) = (None, String::new(), false);
@@ -66,7 +73,7 @@ fn unquote(s: &str) -> String {
 }
 
 /// A file name for a skill name (plugin names carry ':').
-fn file_stem(name: &str) -> String {
+pub(crate) fn file_stem(name: &str) -> String {
     name.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -118,17 +125,31 @@ pub fn index(state: &Path, theme: &str, folders: &[PathBuf]) -> Result<Value> {
         "{} skills: a theme holds at most {MAX_SKILLS}, split them into themes",
         found.len()
     );
-    let root = dir(state);
-    let docs = root.join(theme);
     remove(state, theme)?;
-    fs::create_dir_all(&docs)?;
-    for (stem, s) in &found {
+    let db = write_theme(state, theme, &dir(state).join(theme), &found)?;
+    Ok(json!({"theme": theme, "skills": found.len(), "skipped": skipped, "db": db}))
+}
+
+/// Writes a theme's documents to `docs` (one `<key>.md` per skill, holding its name and description), its keyword index
+/// and its source map, which switches it on. A previous index must be cleared first.
+pub(crate) fn write_theme(
+    state: &Path,
+    theme: &str,
+    docs: &Path,
+    found: &Map<String, Value>,
+) -> Result<PathBuf> {
+    let root = dir(state);
+    if docs.exists() {
+        fs::remove_dir_all(docs)?;
+    }
+    fs::create_dir_all(docs)?;
+    for (key, s) in found {
         let (name, desc) = (
             s["name"].as_str().unwrap_or_default(),
             s["description"].as_str().unwrap_or_default(),
         );
         fs::write(
-            docs.join(format!("{stem}.md")),
+            docs.join(format!("{key}.md")),
             format!("# {name}\n\n{desc}\n"),
         )?;
     }
@@ -136,8 +157,8 @@ pub fn index(state: &Path, theme: &str, folders: &[PathBuf]) -> Result<Value> {
     let mut c = crate::app::open(&db, true)?;
     footnote_library::index(
         &mut c,
-        &docs,
-        std::slice::from_ref(&docs),
+        docs,
+        &[docs.to_path_buf()],
         MAX_SKILLS,
         16,
         &mut |_, _| {},
@@ -145,9 +166,30 @@ pub fn index(state: &Path, theme: &str, folders: &[PathBuf]) -> Result<Value> {
     crate::lexical::sync(&c)?;
     fs::write(
         root.join(format!("{theme}.json")),
-        serde_json::to_vec_pretty(&found)?,
+        serde_json::to_vec_pretty(found)?,
     )?;
-    Ok(json!({"theme": theme, "skills": found.len(), "skipped": skipped, "db": db}))
+    Ok(db)
+}
+
+/// Deletes a theme's index and source map, never its documents or skills: the theme is off.
+pub(crate) fn clear_index(state: &Path, theme: &str) -> Result<()> {
+    let Ok(entries) = fs::read_dir(dir(state)) else {
+        return Ok(());
+    };
+    for e in entries.filter_map(Result::ok) {
+        let n = e.file_name().to_string_lossy().into_owned();
+        if n == format!("{theme}.json") || n.starts_with(&format!("{theme}.db")) {
+            let p = e.path();
+            // The keyword index keeps a folder next to the database.
+            if p.is_dir() {
+                fs::remove_dir_all(&p)
+            } else {
+                fs::remove_file(&p)
+            }
+            .with_context(|| format!("removing {}", p.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// `footnote skills list`: the themes switched on and their size.
@@ -156,7 +198,7 @@ pub fn list(state: &Path) -> Result<Value> {
     for (theme, map) in themes_on(state) {
         themes.push(json!({"theme": theme, "skills": map.len()}));
     }
-    Ok(json!({"themes": themes}))
+    Ok(json!({"themes": themes, "agent": crate::agent_skills::list(state)}))
 }
 
 /// `footnote skills remove <theme>`: deletes the theme's index and documents (never the skills themselves).
@@ -186,7 +228,7 @@ pub fn remove(state: &Path, theme: &str) -> Result<Value> {
 }
 
 /// Themes with both an index and a source map, sorted by name.
-fn themes_on(state: &Path) -> Vec<(String, Map<String, Value>)> {
+pub(crate) fn themes_on(state: &Path) -> Vec<(String, Map<String, Value>)> {
     let root = dir(state);
     let mut out: Vec<_> = fs::read_dir(&root)
         .into_iter()
@@ -217,29 +259,49 @@ fn coverage(query: &str, text: &str) -> f64 {
     want.iter().filter(|t| text.contains(t.as_str())).count() as f64 / want.len() as f64
 }
 
-/// Skills for a prompt: each theme's top hit that passes the rule, best coverage first, at most `MAX_SUGGESTED`, minus `seen`.
-/// Each is `{name, path, line}`. An unreadable theme is skipped: a suggestion must never block the prompt.
-pub fn suggest(state: &Path, query: &str, seen: &[String]) -> Vec<Value> {
+/// Hits read per theme, so an agent skill scoped to another project does not hide this project's top hit.
+const HITS_PER_THEME: usize = 5;
+
+/// Skills for a prompt in `project`: each theme's top hit in scope that passes the rule, best coverage first, at most
+/// `MAX_SUGGESTED`, minus `seen`. A skill with an agent version for this project or for every project is served from the
+/// agent layer (#444). Each is `{name, path, line, theme}`. An unreadable theme is skipped: a suggestion must never block
+/// the prompt.
+pub fn suggest(state: &Path, query: &str, project: &str, seen: &[String]) -> Vec<Value> {
     let mut picks: Vec<(f64, Value)> = vec![];
     for (theme, map) in themes_on(state) {
         let db = dir(state).join(format!("{theme}.db"));
-        let Ok(hits) = crate::app::open(&db, false)
-            .and_then(|c| crate::app::search(&c, query, 1, &crate::records::Filters::default()))
+        let Ok(hits) = crate::app::open(&db, false).and_then(|c| {
+            crate::app::search(
+                &c,
+                query,
+                HITS_PER_THEME,
+                &crate::records::Filters::default(),
+            )
+        }) else {
+            continue;
+        };
+        let in_scope = |skill: &Value| {
+            skill["scope"]
+                .as_str()
+                .is_none_or(|s| s == "global" || s == project)
+        };
+        let Some((top, skill)) = hits["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find_map(|hit| {
+                let stem = Path::new(hit["path"].as_str().unwrap_or_default())
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                map.get(&stem)
+                    .filter(|s| in_scope(s))
+                    .map(|skill| (hit, skill))
+            })
         else {
             continue;
         };
-        let Some(top) = hits["results"].get(0) else {
-            continue;
-        };
-        let text = top["text"].as_str().unwrap_or_default();
-        let c = coverage(query, text);
-        let stem = Path::new(top["path"].as_str().unwrap_or_default())
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let Some(skill) = map.get(&stem) else {
-            continue;
-        };
+        let c = coverage(query, top["text"].as_str().unwrap_or_default());
         let name = skill["name"].as_str().unwrap_or_default().to_string();
         if c >= COVERAGE && !seen.contains(&name) && !picks.iter().any(|(_, p)| p["name"] == name) {
             let line: String = skill["description"]
@@ -248,10 +310,13 @@ pub fn suggest(state: &Path, query: &str, seen: &[String]) -> Vec<Value> {
                 .chars()
                 .take(160)
                 .collect();
-            picks.push((
-                c,
-                json!({"name": name, "path": skill["path"], "line": line, "theme": theme}),
-            ));
+            let mut pick =
+                json!({"name": name, "path": skill["path"], "line": line, "theme": theme});
+            if let Some(path) = crate::agent_skills::serving(state, &name, project) {
+                pick["path"] = json!(path);
+                pick["theme"] = json!(crate::agent_skills::THEME);
+            }
+            picks.push((c, pick));
         }
     }
     picks.sort_by(|a, b| b.0.total_cmp(&a.0));

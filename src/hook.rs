@@ -837,7 +837,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 #[cfg(feature = "library")]
                 if s.skills && !e.prompt.trim().is_empty() && !e.prompt.starts_with('/') {
                     let query = &e.prompt[..e.prompt.floor_char_boundary(500.min(e.prompt.len()))];
-                    let picked = crate::skills::suggest(state, query, &st.skills_shown);
+                    let picked = crate::skills::suggest(state, query, &project, &st.skills_shown);
                     st.skills_shown.extend(
                         picked
                             .iter()

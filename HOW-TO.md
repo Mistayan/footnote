@@ -158,6 +158,17 @@ footnote skills stats           # per skill: times suggested, read by the agent,
 
 While `memory.activity` is on (the default), the hook records what the agent did with each suggested skill: whether it read the `SKILL.md`, and how the skill's scripts ran. It reads only the agent's session file, and only the part written since its last check. The log at `memory-hook/skill-outcomes.jsonl` holds skill names, themes, projects and counts, never a prompt, path or command. It costs no tokens. Only Claude Code session files are read for now.
 
+**Agent skills.** A skill can have an agent version: a copy adapted from use, suggested in place of the curated skill of the same name. A version made for one project is used in that project only, before the version for every project. The curated folder is never written. The first change copies it, leaving out files whose names start with `_` or `.`, and every revision is kept in full.
+
+```bash
+# Change a skill for one project (JSON on stdin: path inside the skill folder -> new text, null deletes the file)
+echo '{"SKILL.md": "..."}' | footnote skills revise css-transitions --project my-app --reason "this repo uses View Transitions"
+footnote skills revisions css-transitions --project my-app   # every revision, with the live one
+footnote skills restore css-transitions 1 --project my-app   # make revision 1 live again, as a new revision
+footnote skills drop css-transitions --project my-app        # back to the curated skill; revisions are kept
+footnote skills list            # agent skills too, with `behind` when the curated skill changed since the copy
+```
+
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
 Installs the fast SQLite-free `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles:
