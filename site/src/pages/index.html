@@ -43,8 +43,7 @@
   <section id="lean" class="wrap">
     <div class="intro">
       <div>
-        <p class="label">Footnote Lean</p>
-        <h2 class="t mt14">Find what your setup pays on every turn.</h2>
+        <h2 class="t">Footnote Lean finds what your setup pays on every turn.</h2>
       </div>
       <p>Most developers install MCP servers, rules and skills over months and never look twice. Every active tool schema is re-sent as prompt cache on every call. Footnote Lean measures that fixed overhead locally, trims noisy shell output without dropping failure markers, and prompts for a clean handoff before stale caches re-bill.</p>
     </div>
@@ -58,8 +57,7 @@
   <section id="launcher" class="wrap">
     <div class="intro">
       <div>
-        <p class="label">Launcher</p>
-        <h2 class="t mt14">One small window for all three.</h2>
+        <h2 class="t">The Launcher: one small window for all three.</h2>
       </div>
       <p>A desktop window with a tray icon. Switch a product on or off, search Library, Memory and Code at once, see your projects and models, and check how many tokens your agents used.</p>
     </div>
@@ -71,12 +69,14 @@
   </section>
 
   <section id="install" class="wrap">
-    <p class="label">Install</p>
-    <h2 class="blocks mt14"><span>Three steps, from source.</span></h2>
+    <h2 class="blocks"><span>Three steps, from source.</span></h2>
     <p class="note">There is no installer and no prebuilt download yet; this is the developer path. You need Rust 1.92 or later and about 200 MB of disk for the two default embedding models (Python 3.10+ is optional, only for PDF/Office extraction).</p>
     <div class="install">
-      <div class="step"><h3>1 · Build</h3><p>One Rust binary. Put <code>target/release</code> on your PATH.</p><div class="cmd"><code tabindex="0">git clone https://github.com/bobcat88/footnote &amp;&amp; cd footnote &amp;&amp; cargo build --release</code><button class="copy" type="button" aria-label="Copy the build commands">Copy</button></div></div>
-      <div class="step"><h3>2 · Models</h3><p>A one-time native download of two small public models, verified by SHA-256.</p><div class="cmd"><code tabindex="0">footnote models install bekko-a8m &amp;&amp; footnote models install gte-small</code><button class="copy" type="button" aria-label="Copy the model download command">Copy</button></div></div>
+      <div class="step"><h3>1 · Build</h3><p>One Rust binary. Put <code>target/release</code> on your PATH.</p><div class="cmd"><code tabindex="0">git clone https://github.com/bobcat88/footnote
+cd footnote
+cargo build --release</code><button class="copy" type="button" aria-label="Copy the build commands">Copy</button></div></div>
+      <div class="step"><h3>2 · Models</h3><p>A one-time native download of two small public models, verified by SHA-256.</p><div class="cmd"><code tabindex="0">footnote models install bekko-a8m
+footnote models install gte-small</code><button class="copy" type="button" aria-label="Copy the model download command">Copy</button></div></div>
       <div class="step"><h3>3 · Connect</h3><p>Sets up Memory, its hooks and /remember in every supported agent it finds.</p><div class="cmd"><code tabindex="0">footnote install --memory</code><button class="copy" type="button" aria-label="Copy the Memory install command">Copy</button></div></div>
     </div>
     <p class="tnote">Update with <code>footnote update --from &lt;binary&gt;</code>, go back with <code>footnote rollback</code>, remove the hooks with <code>footnote uninstall --memory</code>. Your data stays in its own folder. Something failed? <a href="https://github.com/bobcat88/footnote/issues">Open an issue on GitHub</a> or write to <a href="mailto:johan.velocity.lab@pm.me">johan.velocity.lab@pm.me</a>.</p>
