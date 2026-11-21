@@ -30,9 +30,10 @@ pub trait ChangeJudge {
 /// default now" is 5 words of a long page and must not be skipped.
 const TYPO_WORDS: i64 = 4;
 
-/// Cosmetic when the share of changed words is below the threshold, at most `TYPO_WORDS` words changed, and no changed word holds a digit (a number, version or
-/// limit that moved is never cosmetic). Words compare case- and punctuation-insensitively, so reflowed text is no change.
-/// shortcut: word counts, not an ordered diff, so a pure reordering counts as cosmetic; use a real diff if that matters.
+/// Cosmetic when the share of changed words is below the threshold, at most `TYPO_WORDS` words changed, no changed word holds a
+/// digit (a number, version or limit that moved is never cosmetic), and no word changed place: "run A, do not run B" and "do not
+/// run A, run B" have the same words, not the same meaning (#431). Words compare case- and punctuation-insensitively, so
+/// reflowed text is no change.
 pub struct TokenDiff(pub f64);
 
 impl Default for TokenDiff {
@@ -41,23 +42,68 @@ impl Default for TokenDiff {
     }
 }
 
-fn counts(s: &str) -> HashMap<String, i64> {
+/// Above this many cells, the reorder check gives up and calls the change material: re-indexing a page is cheap, keeping a
+/// stale one is not. Pages that differ by a few words in one place stay far below it once the common start and end are cut.
+const ORDER_CELLS: usize = 4_000_000;
+
+fn words(s: &str) -> Vec<String> {
+    s.split_whitespace()
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
+fn counts(words: &[String]) -> HashMap<&str, i64> {
     let mut m = HashMap::new();
-    for w in s.split_whitespace() {
-        let w = w
-            .trim_matches(|c: char| !c.is_alphanumeric())
-            .to_lowercase();
-        if !w.is_empty() {
-            *m.entry(w).or_insert(0) += 1;
-        }
+    for w in words {
+        *m.entry(w.as_str()).or_insert(0) += 1;
     }
     m
 }
 
+/// Whether some words changed place: an ordered diff needs more edits than the word counts explain (`moved`). A typo fix is one
+/// word out and one in either way; a reordering needs edits although no count changed.
+fn reordered(a: &[String], b: &[String], moved: i64) -> bool {
+    let start = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let (a, b) = (&a[start..], &b[start..]);
+    let end = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
+    let (a, b) = (&a[..a.len() - end], &b[..b.len() - end]);
+    if a.is_empty() || b.is_empty() {
+        return false; // only insertions or only deletions: the counts already tell
+    }
+    if a.len() * b.len() > ORDER_CELLS {
+        return true;
+    }
+    // Longest common subsequence, two rows.
+    let mut prev = vec![0usize; b.len() + 1];
+    let mut row = vec![0usize; b.len() + 1];
+    for x in a {
+        for (j, y) in b.iter().enumerate() {
+            row[j + 1] = if x == y {
+                prev[j] + 1
+            } else {
+                row[j].max(prev[j + 1])
+            };
+        }
+        std::mem::swap(&mut prev, &mut row);
+    }
+    let edits = a.len() + b.len() - 2 * prev[b.len()];
+    edits as i64 > moved
+}
+
 impl ChangeJudge for TokenDiff {
     fn is_material(&self, old: &str, new: &str) -> bool {
-        let (a, b) = (counts(old), counts(new));
-        let total: i64 = a.values().chain(b.values()).sum();
+        let (wa, wb) = (words(old), words(new));
+        let (a, b) = (counts(&wa), counts(&wb));
+        let total = (wa.len() + wb.len()) as i64;
         let mut moved = 0;
         for w in a.keys().chain(b.keys()).collect::<HashSet<_>>() {
             let d = (a.get(w).unwrap_or(&0) - b.get(w).unwrap_or(&0)).abs();
@@ -66,7 +112,10 @@ impl ChangeJudge for TokenDiff {
             }
             moved += d;
         }
-        total > 0 && (moved > TYPO_WORDS || moved as f64 / total as f64 >= self.0)
+        if total > 0 && (moved > TYPO_WORDS || moved as f64 / total as f64 >= self.0) {
+            return true;
+        }
+        reordered(&wa, &wb, moved)
     }
 }
 
@@ -246,6 +295,30 @@ mod tests {
         assert!(judge.is_material(
             &base,
             &(base.clone() + " A whole new paragraph about timeouts and retries follows.")
+        ));
+    }
+
+    #[test]
+    fn reordered_words_are_material_even_on_a_long_page() {
+        let filler = "Connections are reused from the pool. ".repeat(200);
+        let page = |rule: &str| format!("{filler}{rule} {filler}");
+        let judge = TokenDiff::default();
+        // Same words, same counts, other meaning (#431).
+        assert!(judge.is_material(
+            &page("Run the migration, do not run the backup."),
+            &page("Do not run the migration, run the backup.")
+        ));
+        assert!(judge.is_material(
+            &page("Allow reads, deny writes."),
+            &page("Deny reads, allow writes.")
+        ));
+        // Reflowed text, same order: still no change.
+        let rule = page("Run the migration, do not run the backup.");
+        assert!(!judge.is_material(&rule, &rule.replace(", ", ",\n").replace(". ", ".\n\n")));
+        // A typo fix in the middle is not a reordering.
+        assert!(!judge.is_material(
+            &page("The colour of the badge is blue."),
+            &page("The color of the badge is blue.")
         ));
     }
 }
