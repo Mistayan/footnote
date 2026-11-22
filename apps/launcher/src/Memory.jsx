@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, ChevronRight as Chev, FolderTree, Heart, Layers, Lightbulb, MessagesSquare, Search, Wrench } from "lucide-react";
 import { footnote, num } from "./data.js";
-import { Select, Tip, Trash, clip } from "./ui.jsx";
+import { Select, Tip, Trash, Verdict, clip } from "./ui.jsx";
 
 const KINDS = ["", "preference", "fact", "fix", "session"];
 const PAGE = 50;
@@ -120,8 +120,8 @@ export default function Memory({ refresh }) {
           <ul className="memos">
             {pending.map((m) => (
               <Row key={m.id} m={m} open={open.has(m.id)} flip={() => flip(m.id)} review>
-                <button type="button" className="btn primary" disabled={busyId === m.id} onClick={() => forget(m.id, "memory-restore")}>Approve</button>
-                <button type="button" className="btn" disabled={busyId === m.id} onClick={() => forget(m.id)}>Reject</button>
+                <Verdict what={`memory #${m.id}`} busy={busyId === m.id} approveTip="Approve: agents may use it"
+                  rejectTip="Reject: forget it" onApprove={() => forget(m.id, "memory-restore")} onReject={() => forget(m.id)} />
               </Row>
             ))}
           </ul>

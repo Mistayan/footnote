@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { footnote, openReceipt, openSkillFolder, shortDate } from "./data.js";
+import { Verdict } from "./ui.jsx";
 
 // Skills: whether agents may change the skills they use (`memory.skill_rewrite`, #457), and the changes to skill scripts that
 // wait for the user. The switch's gain and cost are the engine's own catalogue text (`footnote options`), never a copy here.
@@ -235,14 +236,8 @@ function Change({ s, busy, act }) {
           Open folder
         </button>
         <span className="gap" />
-        <button type="button" className="btn primary" disabled={busy !== null} onClick={() => act("approve", s)}
-          aria-label={`Approve the change to ${s.name}`}>
-          {busy === key ? "Working…" : "Approve"}
-        </button>
-        <button type="button" className="btn" disabled={busy !== null} onClick={() => act("reject", s)}
-          aria-label={`Reject the change to ${s.name}`}>
-          Reject
-        </button>
+        <Verdict what={`the change to ${s.name}`} busy={busy !== null} approveTip="Approve: serve this change"
+          rejectTip="Reject: refuse this change" onApprove={() => act("approve", s)} onReject={() => act("reject", s)} />
       </div>
     </li>
   );

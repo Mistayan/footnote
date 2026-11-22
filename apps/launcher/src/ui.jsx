@@ -154,6 +154,43 @@ export function Trash({ onConfirm, busy, what = "this", size = 28 }) {
   );
 }
 
+/** Approve or reject: a green check and a red cross. Hovering draws the mark again; the one clicked pulses until the
+ * engine answers. */
+export function Verdict({ onApprove, onReject, busy, what = "this", approveTip = "Approve", rejectTip = "Reject" }) {
+  const [chosen, setChosen] = useState(null);
+  useEffect(() => {
+    if (!busy) setChosen(null);
+  }, [busy]);
+  const pick = (which, run) => (e) => {
+    e.stopPropagation();
+    setChosen(which);
+    run();
+  };
+  return (
+    <span className="verdict">
+      <Tip tip={busy && chosen === "yes" ? "Approving…" : approveTip}>
+        <button type="button" className={`vd yes${chosen === "yes" ? " chosen" : ""}`} disabled={busy}
+          aria-label={`Approve ${what}`} onClick={pick("yes", onApprove)}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.4"
+            strokeLinecap="round" strokeLinejoin="round">
+            <path pathLength="1" d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+        </button>
+      </Tip>
+      <Tip tip={busy && chosen === "no" ? "Rejecting…" : rejectTip}>
+        <button type="button" className={`vd no${chosen === "no" ? " chosen" : ""}`} disabled={busy}
+          aria-label={`Reject ${what}`} onClick={pick("no", onReject)}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.4"
+            strokeLinecap="round">
+            <path pathLength="1" d="M7 7l10 10" />
+            <path pathLength="1" d="M17 7L7 17" />
+          </svg>
+        </button>
+      </Tip>
+    </span>
+  );
+}
+
 /** A path as a drive squircle and its last `keep` segments: `D:/Projets/Footnote` -> { drive: "D", tail: "~\\Footnote" }. */
 export function splitPath(path, keep = 1) {
   const norm = String(path ?? "").replace(/\//g, "\\");
