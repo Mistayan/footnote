@@ -5,6 +5,47 @@ Notable changes to Footnote, newest first. Versions follow semantic versioning, 
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
+## 0.4.0 - 2026-11-23
+
+Footnote Lean compacts far more of what agents actually run: compound commands such as `cd x && cargo test | head -40` and
+`Set-Location x; git status && git diff` are now rewritten part by part, which lifts coverage from about 1-3% to about 32% of
+Claude Code's and Antigravity's shell commands. Models get their own screen, GGUF import and a choice of how long they stay
+in memory.
+
+### Breaking
+
+- **`footnote_code` takes `op` and `target`** (#561). The nine mode fields (`name`, `outline`, `unresolved`, `map`, `impact`,
+  `stack`, `frame`, …) are replaced by `op` (`symbol` by default, `impact`, `outline`, `unresolved`, `map`, `stack`, `frame`)
+  and `target`. A call with the old fields now fails with an error naming the new ones. Agents pick up the new schema when
+  they restart their MCP session.
+
+### New
+
+- **Lean rewrites compound commands** (#574). Each part of a line that runs a filtered program gets `footnote run -- ` in
+  front, and every other byte is kept, so `&&`, `||`, `;`, `cd`, `$env:` and exit codes behave as before. A part is left
+  alone when its output goes to a file, its stderr is discarded, or it pipes into anything but `head` or
+  `Select-Object -First`. Claude Code's PowerShell tool now reaches the hook too; run `footnote install --lean` again to
+  widen its matcher.
+- **Smaller MCP tool list** (#561): `tools/list` drops from 4,963 to 3,749 bytes. Unknown arguments are now refused instead
+  of ignored, and `op: map` with a `target` keeps one block, as `code-map --block` does.
+- **Models** (#555, #557, #558):
+  - Choose how long models stay in RAM (`memory.idle_seconds`, "Keep in memory" on the Models screen); the daemon unloads
+    them when idle, even with sessions open.
+  - `footnote models import <file.gguf>` adds a GGUF embedding model from a file.
+  - The Models screen shows ranked cards, with "Load a GGUF model…".
+- **MCP results are compact** (#511): one line per hit with the untrusted-data label once, several ids in one
+  `footnote_get`, and lexical results when hybrid recall is unavailable.
+- **Skills** (#470, #471, #551): agent edits are kept to the step that failed, Codex sessions count toward skill outcomes,
+  and a new skill guides the choice of a Rust GUI stack.
+
+### Fixed
+
+- **GGUF models a build cannot load are refused** (#559): `footnote models use` stops with a clear message on a build
+  without llama.cpp, and `footnote update --from` warns when the new binary lacks it.
+- **The background service exits once an update replaces its binary** (#552), so the next hook call runs the new build.
+- **`footnote status` and the session-start hook say when recall is keyword only** (#553).
+- Audit fixes across indexing, recall, `footnote run`, Codex support and dependencies (#544).
+
 ## 0.3.0 - 2026-11-22
 
 Projects you can act on from the launcher: commit and push in one click, add or ignore a project, and open its folder at
