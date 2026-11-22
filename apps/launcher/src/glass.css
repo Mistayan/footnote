@@ -24,10 +24,6 @@
 
 /* Squircle corners where the engine draws them; a plain radius elsewhere. */
 .sq { border-radius: var(--r-card); }
-@supports (corner-shape: squircle) {
-  .sq { corner-shape: squircle; border-radius: calc(var(--r-card) * 1.7); }
-  .drive, .ic-btn, .trash, .stat-ic, .kind-ic { corner-shape: squircle; border-radius: 12px; }
-}
 
 /* Lit border: a halo follows the pointer across neighbouring cards (`useSpotlight`). */
 .lit { position: relative; isolation: isolate; --x: -9999px; --y: -9999px; }
@@ -48,7 +44,7 @@ main > .scroll-wrap { flex: 1; }
 .scroll { flex: 1; min-width: 0; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; }
 .scroll::-webkit-scrollbar { display: none; }
 .rail { position: absolute; right: 6px; top: 50%; translate: 0 -50%; display: flex; flex-direction: column; align-items: flex-end;
-  gap: 4px; padding: 8px 4px; border-radius: 999px; cursor: pointer; touch-action: none; z-index: 3;
+  gap: 4px; padding: 8px 4px; border-radius: 10px; cursor: pointer; touch-action: none; z-index: 3;
   transition: background-color var(--fast) var(--ease); }
 .rail i { display: block; width: 8px; height: 2px; border-radius: 2px; background: color-mix(in srgb, var(--dim) 55%, transparent);
   transition: width 220ms var(--ease-out), background-color 220ms var(--ease-out); }
@@ -105,22 +101,22 @@ main > .scroll-wrap { flex: 1; }
 .menu-hint { color: var(--dim); font: var(--t-xs) var(--f-mono); }
 
 /* Tabs with a sliding pill (design bank c18): the selected tab is the anchor, the pill follows its edges. */
-.tabs { position: relative; display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; border: 1px solid var(--line);
+.tabs { position: relative; display: inline-flex; gap: 2px; padding: 3px; border-radius: 12px; border: 1px solid var(--line);
   background: color-mix(in srgb, var(--bg) 55%, transparent); box-shadow: inset 0 1px 2px var(--shade); }
-.tab { position: relative; z-index: 1; padding: 4px 14px; border-radius: 999px; color: var(--mute); font-size: var(--t-s);
+.tab { position: relative; z-index: 1; padding: 4px 14px; border-radius: 9px; color: var(--mute); font-size: var(--t-s);
   transition: color 300ms var(--ease-out); white-space: nowrap; }
 .tab:hover { color: var(--text); }
 .tab[aria-selected="true"] { anchor-name: var(--anchor); color: var(--acc-ink); font-weight: 500; }
 .tab-ind { position: absolute; position-anchor: var(--anchor); top: anchor(top); bottom: anchor(bottom); left: anchor(left);
-  right: anchor(right); border-radius: 999px; background: var(--acc);
+  right: anchor(right); border-radius: 9px; background: var(--acc);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 4px 14px -6px color-mix(in srgb, var(--acc) 70%, transparent);
   transition: left 350ms var(--ease-out), right 350ms var(--ease-out); }
 
 /* Spring switch (design bank c15): 44 x 26, the knob overshoots on a linear() spring; the off edge stays >= 3:1. */
-.switch { margin-left: auto; width: 44px; height: 26px; border-radius: 999px; border: 1px solid var(--mute); padding: 0; flex: none;
+.switch { margin-left: auto; width: 44px; height: 26px; border-radius: 9px; border: 1px solid var(--mute); padding: 0; flex: none;
   position: relative; cursor: pointer; background: color-mix(in srgb, var(--bg) 60%, transparent);
   box-shadow: inset 0 1px 3px var(--shade); transition: background-color 300ms var(--ease), border-color 300ms var(--ease); }
-.switch span { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--mute);
+.switch span { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 6px; background: var(--mute);
   box-shadow: 0 2px 6px -1px var(--shade); transition: translate 600ms var(--spring), background-color 200ms var(--ease), scale 160ms var(--ease); }
 .switch[aria-checked="true"] { background: var(--ok); border-color: var(--ok); }
 .switch[aria-checked="true"] span { translate: 18px 0; background: #fff; }
@@ -239,7 +235,7 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
 .state-dot.warn { color: var(--warn); }
 .state-dot.idle { color: var(--dim); }
 .state-dot.idle::before { box-shadow: none; }
-.lic { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: var(--t-xs);
+.lic { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 7px; font-size: var(--t-xs);
   color: var(--mute); border: 1px solid var(--line2); max-width: 100%; anchor-name: var(--anchor);
   transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
 .lic span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -284,7 +280,7 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
 .memo.review .memo-head { grid-template-columns: 16px 48px 26px minmax(0, 1fr) minmax(0, 160px) 72px auto; }
 .memo.review { box-shadow: inset 3px 0 0 var(--acc), inset 0 1px 0 var(--hi); }
 .memo-actions { display: flex; gap: 6px; }
-.chip { border-radius: 999px; padding: 1px 8px; background: color-mix(in srgb, var(--bg) 40%, transparent); }
+.chip { border-radius: 7px; padding: 1px 8px; background: color-mix(in srgb, var(--bg) 40%, transparent); }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar .count { margin-left: auto; color: var(--dim); font-size: var(--t-s); font-variant-numeric: tabular-nums; }
 .pager { display: inline-flex; align-items: center; gap: 6px; }
@@ -389,7 +385,7 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
 
 /* Verdict: approve is a green check, reject a red cross. Hover tints and redraws the mark; the chosen one pulses. */
 .verdict { display: inline-flex; align-items: center; gap: 6px; }
-.vd { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 50%; border: 1px solid var(--line2);
+.vd { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 10px; border: 1px solid var(--line2);
   background: color-mix(in srgb, var(--panel) 50%, transparent); box-shadow: inset 0 1px 0 var(--hi);
   transition: color 200ms var(--ease), background-color 200ms var(--ease), border-color 200ms var(--ease), scale 300ms var(--spring); }
 .vd.yes { color: var(--ok); }
@@ -410,3 +406,14 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
 @keyframes draw { from { stroke-dashoffset: 1; } }
 @keyframes verdict-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--pulse) 55%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
 .vd svg { transition: rotate 360ms var(--spring); }
+
+/* Squircles last, so they win over each control's plain radius. */
+@supports (corner-shape: squircle) {
+  .sq { corner-shape: squircle; border-radius: calc(var(--r-card) * 1.7); }
+  /* Squircle corners draw tighter than round ones of the same radius, so each radius grows by about 1.6. */
+  .drive, .stat-ic, .kind-ic, .chip, .lic, .lvl, .pill-ok { corner-shape: squircle; border-radius: 11px; }
+  .ic-btn, .trash, .vd, .tab, .tab-ind, .menu-item, .pal, .path-pill, .btn, .select, .input, .switch { corner-shape: squircle; border-radius: 15px; }
+  .switch span { corner-shape: squircle; border-radius: 10px; }
+  .tabs, .rail, .kpi, .stat, .agent, .days-list button, .nav .item, .tip, .count, .locked { corner-shape: squircle; border-radius: 18px; }
+  .menu, .lic-pop, .toast { corner-shape: squircle; border-radius: 22px; }
+}

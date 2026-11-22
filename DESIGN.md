@@ -55,7 +55,8 @@ Rule: the accent marks actions, Footnote's own results in charts, and sources. N
 
 ## 5. Space and shape
 - Spacing steps (from the lock): 4, 8, 13, 17, 25, 34, 50, 67 px.
-- Radius: 21 px for blocks and cards; full round for pills and lenses.
+- Radius: 21 px for blocks and cards on the site. The launcher draws every corner as a squircle and never full round (22 Nov
+  2026, section 11); full round stays only for the logo lens, the mini-mode lenses and status dots.
 - Elevation: **slight liquid glass** on chosen elements only (the logo lens, the product palette, one or two hero panels): translucent fill, specular rim, refraction of the moving data behind. Everything else is flat surface + hairline. Never glass on every card.
 - Icons: thin outline, 1.6 stroke on a 24-unit grid, round joins.
 
@@ -98,8 +99,8 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 - **Mini mode (D2 "Lens"):** the tray panel and the floating bubble: one glass lens per product, live data moving between them, a
   few numbers. A switch moves between mini mode and the full window.
 - **Tokens:** the site's palette (section 3), Plus Jakarta Sans for titles and big numbers, Hanken Grotesk 14 px for UI text,
-  JetBrains Mono for paths, ids and timings. App radius 12 px for cards, 8 px for controls, full round for lenses and pills (the
-  site's 21 px stays for marketing blocks). Functional text never below 11 px. Afterglow (dark) is the default palette; four
+  JetBrains Mono for paths, ids and timings. App radius 16 px for cards and 10 px for controls, drawn as squircles (see the glass
+  rework below; the site's 21 px stays for marketing blocks). Functional text never below 11 px. Afterglow (dark) is the default palette; four
   more are the viewer's choice since 22 Nov 2026 (see the glass rework below).
 - **Motion:** full window subtle (160 ms, transform and opacity only); mini mode lively (the lenses and data flow); nothing moves
   under reduced motion.
@@ -134,12 +135,19 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   - **Materials:** `.lglass` (blur 22 px, saturate 1.5) for the sidebar, top bar, heroes, menus and tooltips; `.surface` (the
     same tint without blur) for list rows, so a page of 50 rows never stacks 50 blurred layers. Under
     `prefers-reduced-transparency` both are solid `--panel`. Faint pools of `--acc` and `--acc2` sit behind the glass.
-  - **Shape:** cards 16 px radius, drawn as a squircle (`corner-shape: squircle`) where the engine supports it. Lit border: a
-    240 px halo follows the pointer across neighbouring `.lit` cards; off for touch and reduced motion.
+  - **Shape: squircles, never full round.** Every corner in the window is an Apple-style squircle (`corner-shape: squircle`;
+    the radius grows about 1.6x to keep the same visual size: about 11 px for chips and icon tiles, 15 px for buttons,
+    fields, tabs and the switch, 18 px for tab groups, stats and nav items, 22 px for menus, 27 px for cards). Pills, tabs,
+    the switch track and knob, chips, badges, the scroll rail and the approve/reject buttons are all squircles; thin meters
+    use 3 px. Full round is kept only for the logo lens, the mini-mode lenses and status dots. Without `corner-shape`
+    support the same elements fall back to plain radii, still never full round. Lit border: a 240 px halo follows the
+    pointer across neighbouring `.lit` cards; off for touch and reduced motion.
   - **Controls:** popover menus replace native selects (entry and exit with `@starting-style`, arrow keys, Escape); tabs carry a
     sliding pill anchored to the selected tab; the on/off switch is 44 x 26 with a `linear()` spring; tooltips are anchored
     manual popovers in the top layer and replace `title`; delete is a small trash whose lid lifts on hover, and a first click
-    arms it (danger fill, one shake) for a second click to confirm.
+    arms it (danger fill, one shake) for a second click to confirm. Approve and reject (pending memories, skill changes) are a
+    green check and a red cross in 30 px squircles: hover fills them and redraws the mark, the one clicked pulses until the
+    engine answers, and each names its effect in a tooltip.
   - **Scrolling:** no native scrollbar in the main area. A tick rail on the right edge has more ticks the more content is off
     screen (about 9 per screen, 10 to 64) and lights the ticks in view; clicking or dragging it scrolls.
   - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
@@ -153,6 +161,7 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
+| 2026-11-22 | Launcher shape: squircles everywhere, never full round (pills, tabs, switch, chips, rail, buttons); approve and reject as a green check and a red cross | Maintainer review: the app never used full round, and Apple's squircle is the reference; text Approve/Reject buttons read heavier than the decision needs | Capsule pills and round icon buttons (the first pass of the rework); text buttons |
 | 2026-11-22 | Launcher glass rework: five palettes, glass chrome and heroes, squircle cards, lit borders, tick scroll rail, popover selects, sliding tabs, spring switch, anchored tooltips, armed trash; Projects as cards; Activity only on active days | Maintainer review of the launcher (22 Nov): native controls looked dated, tables were dense and noisy, zero rows and unpushed counts said nothing | Keep dark-only Afterglow with native selects and scrollbars; glass on every row (cost: many blurred layers) |
 | 2026-11-21 | Product heroes get their own canvas scene (magnifier, memory web, call graph) behind an unblurred lens | Each product page should feel alive like the home page but show what that product does | The home swarm settling into each product mark (read as the same animation with a different logo) |
 | 2026-11-21 | Home: four product cards (Lean added) in a 2 × 2 staggered grid, each with a static example snippet of its own output instead of the big glyph lens; 21 px card-title size; 320 ms motion cap | Cards looked identical; Lean shipped in v0.1.0-alpha.2; critics flagged ad-hoc title sizes and 0.5 to 1 s transitions | Lean inside the engine section; glyph lens on every card |
