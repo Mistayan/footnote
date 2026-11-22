@@ -79,10 +79,12 @@ export function Projects({ projects }) {
   );
 }
 
-export function Models() {
+export function Models({ refresh }) {
   const [round, setRound] = useState(0);
   const { data, error } = useRead(["models", "list"], round);
   const [busy, setBusy] = useState(null); // { name, progress: {done, total}, error, cancelled }
+  const [switching, setSwitching] = useState(null);
+  const [switchNote, setSwitchNote] = useState(null);
   // While a download runs, read its progress from the engine's job list (the install itself answers only at the end).
   useEffect(() => {
     if (!busy?.name || busy.error || busy.cancelled) return;
@@ -96,9 +98,27 @@ export function Models() {
   }, [busy?.name, busy?.error, busy?.cancelled]);
   const install = (name) => {
     setBusy({ name });
+    setSwitchNote(null);
     footnote("models", "install", name).then(
-      () => { setBusy(null); setRound((r) => r + 1); },
+      () => { setBusy(null); setRound((r) => r + 1); refresh?.(); },
       (e) => setBusy((b) => (b?.cancelled ? b : { name, error: String(e) })),
+    );
+  };
+  const useModels = (names) => {
+    const key = names.join("+");
+    setSwitching(key);
+    setSwitchNote(null);
+    footnote("models", "use", ...names).then(
+      (res) => {
+        setSwitching(null);
+        setSwitchNote(res?.note ?? "Active model updated.");
+        setRound((r) => r + 1);
+        refresh?.();
+      },
+      (e) => {
+        setSwitching(null);
+        setSwitchNote(`Error: ${e}`);
+      },
     );
   };
   const cancel = () => {
@@ -107,12 +127,23 @@ export function Models() {
   };
   if (error) return <div className="body"><Failed error={error} /></div>;
   if (!data) return <div className="body"><span className="skel" /></div>;
+  const active = data.models.filter((m) => m.used_by_memory).map((m) => m.name);
+  const defaultPairInstalled = ["bekko-a8m", "gte-small"].every((n) => data.models.some((m) => m.name === n && m.installed));
+  const isDefaultPair = active.length === 2 && active.includes("bekko-a8m") && active.includes("gte-small");
   return (
     <div className="body">
-      <p className="dimmed">
-        Embedding models run locally on this computer. Installing one downloads the pinned files from Hugging Face and checks
-        their hashes; documentation crawling and live doc rescue are the only other network steps.
-      </p>
+      <div className="bar wrap">
+        <p className="dimmed" style={{ flex: 1, minWidth: 260 }}>
+          Embedding models run locally on this computer. Active for Memory:{" "}
+          <b style={{ color: "var(--text)" }}>{active.length ? active.join(" + ") : "none"}</b>.
+        </p>
+        {defaultPairInstalled && !isDefaultPair && (
+          <button type="button" className="btn" disabled={!!switching} onClick={() => useModels(["bekko-a8m", "gte-small"])}>
+            {switching === "bekko-a8m+gte-small" ? "Switching…" : "Use default pair (bekko-a8m + gte-small)"}
+          </button>
+        )}
+      </div>
+      {switchNote && <p className={switchNote.startsWith("Error:") ? "warn small" : "ok small"}>{switchNote}</p>}
       <table className="tbl">
         <thead>
           <tr>
@@ -131,7 +162,21 @@ export function Models() {
               <td className={/no commercial/i.test(m.license) ? "warn" : ""}>{m.license}</td>
               <td>
                 {m.installed ? (
-                  <span className="ok">{m.used_by_memory ? "installed · used by Memory" : "installed"}</span>
+                  m.used_by_memory ? (
+                    <span className="pill-ok">Active · used by Memory</span>
+                  ) : (
+                    <span className="model-actions">
+                      <span className="dimmed small">installed</span>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={!!switching}
+                        onClick={() => useModels([m.name])}
+                      >
+                        {switching === m.name ? "Switching…" : "Use for Memory"}
+                      </button>
+                    </span>
+                  )
                 ) : busy?.name === m.name ? (
                   <Download busy={busy} total={m.download_bytes} cancel={cancel} retry={() => install(m.name)} />
                 ) : (
@@ -233,134 +278,6 @@ export function Activity() {
               </li>
             ))}
           </ul>
-        </>
-      )}
-    </div>
-  );
-}
-
-const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-const tokens = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} M` : num(n));
-const AGENT = { "claude-code": "Claude Code", codex: "Codex", "deepseek-harness": "DeepSeek Harness" };
-
-/** Measured savings only (goal 19): what Footnote Lean trimmed from shell commands (`footnote run`) and search results before
- * agents read them. Not priced, never added to the totals: a trimmed result would also have been re-read at cache rates later,
- * so any money figure would be an estimate. */
-function Trimmed({ s }) {
-  const sh = s?.shell;
-  const fn = s?.footnote;
-  const totalTok = s?.total_saved_tokens_estimate ?? ((sh?.saved_tokens_estimate ?? 0) + (fn?.saved_tokens_estimate ?? 0));
-  const hasAny = (sh?.commands ?? 0) > 0 || (fn?.calls ?? 0) > 0;
-  return (
-    <section className="card">
-      <h2>Trimmed before agents read it</h2>
-      {hasAny ? (
-        <>
-          <div className="big">{tokens(totalTok)}</div>
-          {sh?.commands > 0 && (
-            <div className="sub">
-              {Math.round(100 * (sh.saved_share ?? 0))} % of {tokens(Math.round((sh.before_bytes ?? 0) / 4))} shell output over {num(sh.commands)} {sh.commands === 1 ? "command" : "commands"}
-              {sh.handles_retrieved > 0 ? ` · ${num(sh.handles_retrieved)} full ${sh.handles_retrieved === 1 ? "read" : "reads"}` : ""}. Not priced.
-            </div>
-          )}
-          {fn?.calls > 0 && (
-            <div className="sub">
-              Footnote's trimmed search results: {mb(fn.saved_bytes) === "0 MB" ? `${num(Math.round(fn.saved_bytes / 1000))} kB` : mb(fn.saved_bytes)} fewer over {num(fn.calls)} {fn.calls === 1 ? "search" : "searches"}, about {tokens(fn.saved_tokens_estimate)} tokens.
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="sub">No measured savings for this period. Run <code>footnote install --lean</code> to enable shell output filtering.</div>
-      )}
-    </section>
-  );
-}
-
-export function Usage() {
-  const [days, setDays] = useState(7);
-  const { data, error } = useRead(["usage", "--days", String(days)]);
-  const t = data?.totals;
-  const daysList = (data?.by_day ?? []).slice().reverse();
-  const top = Math.max(1, ...daysList.map((d) => d.api_price_usd));
-  return (
-    <div className="body">
-      <div className="bar">
-        <Range days={days} setDays={setDays} options={[1, 7, 30]} />
-        <span className="dimmed">From Claude Code, Codex and DeepSeek Harness session files on this computer. Counts only, no text kept.</span>
-      </div>
-      {error ? <Failed error={error} /> : !data ? <span className="skel" /> : (
-        <>
-          <div className="row">
-            <section className="card">
-              <h2>Requests</h2>
-              <div className="big">{num(t.requests)}</div>
-              <div className="sub">{tokens(t.output)} output tokens</div>
-            </section>
-            <section className="card">
-              <h2>Tokens read from cache</h2>
-              <div className="big">{tokens(t.cache_read)}</div>
-              <div className="sub">{tokens(t.input)} fresh input · {tokens(t.cache_write_5m + t.cache_write_1h)} written</div>
-            </section>
-            <section className="card">
-              <h2>At API list prices</h2>
-              <div className="big">{usd.format(t.api_price_usd)}</div>
-              <div className="sub">
-                What these tokens cost through the API; a subscription pays its flat fee instead.
-                {t.unpriced_requests > 0 && (
-                  <span className="warn"> {num(t.unpriced_requests)} {t.unpriced_requests === 1 ? "request" : "requests"} unpriced.</span>
-                )}
-              </div>
-            </section>
-            <Trimmed s={data.measured_savings} />
-          </div>
-          <div className="split">
-            <table className="tbl">
-              <caption className="sr-only">Usage per day</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Day</th>
-                  <th scope="col" className="num">Requests</th>
-                  <th scope="col" className="num">Output</th>
-                  <th scope="col" className="num">Cache read</th>
-                  <th scope="col" className="num">At API prices</th>
-                  <th scope="col"><span className="sr-only">Share</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {daysList.map((d) => (
-                  <tr key={d.date}>
-                    <td className="mono">{shortDate(d.date)}</td>
-                    <td className="num">{num(d.requests)}</td>
-                    <td className="num">{tokens(d.output)}</td>
-                    <td className="num">{tokens(d.cache_read)}</td>
-                    <td className="num">{usd.format(d.api_price_usd)}</td>
-                    <td className="barcell" aria-hidden="true"><span style={{ width: `${(100 * d.api_price_usd) / top}%` }} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <aside className="panel">
-              <h2 className="title">By model</h2>
-              <ul className="plain">
-                {data.by_model.slice().sort((a, b) => b.api_price_usd - a.api_price_usd).map((m) => (
-                  <li key={m.model}>
-                    <span className="mono">{m.model}</span>
-                    <span className="mono dimmed">{usd.format(m.api_price_usd)}</span>
-                  </li>
-                ))}
-              </ul>
-              <h3 className="section">By agent</h3>
-              <ul className="plain">
-                {data.by_agent.map((a) => (
-                  <li key={a.agent}>
-                    <span>{AGENT[a.agent] ?? a.agent}</span>
-                    <span className="mono dimmed">{num(a.requests)} requests</span>
-                  </li>
-                ))}
-              </ul>
-              <p className="dimmed">Prices from the providers&apos; pages, {data.prices.slice(0, 10)}. Dates in UTC.</p>
-            </aside>
-          </div>
         </>
       )}
     </div>

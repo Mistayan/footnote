@@ -1,14 +1,39 @@
 import { useCallback, useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  Activity as ActivityIcon,
+  BarChart3,
+  BookOpen,
+  Brain,
+  Building2,
+  Copy,
+  Cpu,
+  FolderGit2,
+  GitFork,
+  LayoutDashboard,
+  Minimize2,
+  Minus,
+  RefreshCw,
+  Search as SearchIcon,
+  Sparkles,
+  Square,
+  X,
+} from "lucide-react";
 import Code from "./Code.jsx";
+import Library from "./Library.jsx";
+import Memory from "./Memory.jsx";
 import Search from "./Search.jsx";
 import Skills from "./Skills.jsx";
+import Usage from "./Usage.jsx";
 import { switchTo } from "./Mini.jsx";
-import { Activity as ActivityScreen, Models, Projects as ProjectsScreen, Usage } from "./Screens.jsx";
-import { AGENTS, footnote, load, mb, num, openSupport, seen, shortDate } from "./data.js";
+import { Activity as ActivityScreen, Models, Projects as ProjectsScreen } from "./Screens.jsx";
+import { AGENTS, footnote, inApp, load, mb, num, openSupport, seen, shortDate } from "./data.js";
 
 const SCREENS = {
   overview: { title: "Overview", note: "this week" },
   search: { title: "Search", note: "Memory, Library and Code" },
+  memory: { title: "Memory", note: "review and manage saved memories" },
+  library: { title: "Library", note: "indexed document corpora" },
   code: { title: "Code" },
   projects: { title: "Projects" },
   models: { title: "Models" },
@@ -18,15 +43,31 @@ const SCREENS = {
   enterprise: { title: "Footnote Enterprise" },
 };
 
+const HOTKEY_SCREENS = ["overview", "search", "memory", "library", "code", "projects", "models", "activity", "usage"];
+
 /** `#/code/symbol?mock=1` -> ["code", "symbol"]. */
 const route = () => {
   const [name, view] = location.hash.replace(/^#\/?/, "").split("?")[0].split("/");
   return name in SCREENS ? [name, view] : ["overview"];
 };
 
+/** Start native window drag when clicking empty titlebar space (buttons/inputs keep their own clicks). */
+function onDragMouseDown(e) {
+  if (!inApp || e.button !== 0) return;
+  if (e.target.closest("button, a, input, select, textarea, [role='button']")) return;
+  getCurrentWindow().startDragging().catch(() => {});
+}
+
+function onTitleDoubleClick(e) {
+  if (!inApp) return;
+  if (e.target.closest("button, a, input, select, textarea, [role='button']")) return;
+  getCurrentWindow().toggleMaximize().catch(() => {});
+}
+
 export default function App() {
   const [[screen, view], setScreen] = useState(route);
   const [state, setState] = useState({ loading: true });
+  const [maximized, setMaximized] = useState(false);
 
   const refresh = useCallback(async () => {
     setState((s) => ({ ...s, loading: true }));
@@ -41,11 +82,39 @@ export default function App() {
     addEventListener("hashchange", on);
     return () => removeEventListener("hashchange", on);
   }, []);
+  useEffect(() => {
+    if (!inApp) return;
+    const win = getCurrentWindow();
+    win.isMaximized().then(setMaximized).catch(() => {});
+    const unlisten = win.onResized(() => {
+      win.isMaximized().then(setMaximized).catch(() => {});
+    });
+    return () => { unlisten.then((fn) => fn()).catch(() => {}); };
+  }, []);
 
-  const go = (name) => {
+  const go = useCallback((name) => {
     const query = location.hash.includes("?") ? "?" + location.hash.split("?")[1] : "";
     location.hash = `/${name}${query}`;
-  };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        go("search");
+      } else if (e.key >= "1" && e.key <= "9") {
+        const target = HOTKEY_SCREENS[Number(e.key) - 1];
+        if (target) {
+          e.preventDefault();
+          go(target);
+        }
+      }
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [go]);
+
   const [status, projects, activity] = state.data ?? [];
   const meta = SCREENS[screen];
 
@@ -53,14 +122,19 @@ export default function App() {
     <div className={screen === "overview" ? "app" : "app no-feed"}>
       <Sidebar status={status} projects={projects} screen={screen} go={go} />
       <main>
-        <header className="top">
+        <header className="top" data-tauri-drag-region onMouseDown={onDragMouseDown} onDoubleClick={onTitleDoubleClick}>
           <h1>{meta.title}</h1>
-          {meta.note && <span>· {meta.note}</span>}
+          {meta.note && <span className="top-note">· {meta.note}</span>}
           <div className="end">
-            <button className="btn" onClick={() => switchTo("mini")}>Mini mode</button>
-            <button className="btn" onClick={refresh} disabled={state.loading}>
+            <button className="btn icon-btn" onClick={() => switchTo("mini")} title="Switch to compact mini window">
+              <Minimize2 size={13} strokeWidth={1.75} />
+              Mini
+            </button>
+            <button className="btn icon-btn" onClick={refresh} disabled={state.loading} title="Refresh data">
+              <RefreshCw size={13} strokeWidth={1.75} className={state.loading ? "spin" : ""} />
               {state.loading ? "Reading…" : "Refresh"}
             </button>
+            <WindowControls maximized={maximized} />
           </div>
         </header>
         {screen === "enterprise" ? (
@@ -70,7 +144,11 @@ export default function App() {
         ) : screen === "projects" ? (
           <ProjectsScreen projects={projects} />
         ) : screen === "models" ? (
-          <Models />
+          <Models refresh={refresh} />
+        ) : screen === "memory" ? (
+          <Memory refresh={refresh} />
+        ) : screen === "library" ? (
+          <Library refresh={refresh} />
         ) : screen === "activity" ? (
           <ActivityScreen />
         ) : screen === "search" ? (
@@ -90,64 +168,71 @@ export default function App() {
   );
 }
 
+function WindowControls({ maximized }) {
+  const minimize = () => inApp && getCurrentWindow().minimize().catch(() => {});
+  const toggleMax = () => inApp && getCurrentWindow().toggleMaximize().catch(() => {});
+  const close = () => inApp && getCurrentWindow().hide().catch(() => {});
+  return (
+    <div className="win-ctls" aria-label="Window controls">
+      <button type="button" className="win-btn" onClick={minimize} aria-label="Minimize" title="Minimize">
+        <Minus size={14} strokeWidth={1.75} />
+      </button>
+      <button type="button" className="win-btn" onClick={toggleMax} aria-label={maximized ? "Restore" : "Maximize"} title={maximized ? "Restore" : "Maximize"}>
+        {maximized ? <Copy size={12} strokeWidth={1.75} /> : <Square size={12} strokeWidth={1.75} />}
+      </button>
+      <button type="button" className="win-btn close" onClick={close} aria-label="Hide to tray" title="Hide to tray">
+        <X size={14} strokeWidth={1.75} />
+      </button>
+    </div>
+  );
+}
+
 function Sidebar({ status, projects, screen, go }) {
   const memory = status?.products?.memory;
+  const library = status?.products?.library;
+  const code = status?.products?.code;
   const models = status?.models?.models ?? [];
-  const optional = models.filter((m) => !m.installed && m.role?.includes("opt-in"));
   const onDisk = models.reduce((sum, m) => sum + (m.installed ? m.bytes ?? 0 : 0), 0);
-  const item = (name, label, extra) => (
+  const item = (name, Icon, label, extra) => (
     <button className="item" aria-current={screen === name ? "page" : undefined} onClick={() => go(name)}>
-      {label}
+      <Icon size={15} strokeWidth={1.75} className="nav-ic" aria-hidden="true" />
+      <span className="nav-lbl">{label}</span>
       {extra}
     </button>
   );
+  const badge = (text, product) => (
+    <span className="n">
+      {text}
+      {product !== undefined && <span className={live(product) ? "dot" : "dot off"} />}
+    </span>
+  );
   return (
     <aside className="side">
-      <div className="brand">
+      <div className="brand" data-tauri-drag-region onMouseDown={onDragMouseDown} onDoubleClick={onTitleDoubleClick}>
         <span className="lens" aria-hidden="true">1</span>
         Footnote
         {status && <span className="ver mono">One {status.version.split("-")[0]}</span>}
       </div>
       <h2 className="grp">Products</h2>
       <nav className="nav" aria-label="Products">
-        {item("overview", "Overview")}
-        {item("search", "Search")}
-        <span className="item">
-          <span className={live(memory) ? "dot" : "dot off"} />
-          Memory<span className="n">{memory ? num(memory.memories) : ""}</span>
-        </span>
-        <span className="item">
-          <span className={live(status?.products?.library) ? "dot" : "dot off"} />
-          Library
-        </span>
-        {item("code", <><span className={live(status?.products?.code) ? "dot" : "dot off"} />Code</>,
-          <span className="n">{graphs(status?.products?.code?.graphs)}</span>)}
+        {item("overview", LayoutDashboard, "Overview")}
+        {item("search", SearchIcon, "Search", <span className="n kbd">Ctrl K</span>)}
+        {item("memory", Brain, "Memory", badge(memory ? num(memory.memories) : "", memory))}
+        {item("library", BookOpen, "Library", badge(library?.corpora ? num(library.corpora.length) : "", library))}
+        {item("code", GitFork, "Code", badge(graphs(code?.graphs), code))}
       </nav>
       <h2 className="grp">Workspace</h2>
       <nav className="nav" aria-label="Workspace">
-        {item("projects", "Projects", <span className="n">{projects ? num(projects.projects.length) : ""}</span>)}
-        {item("models", "Models",
+        {item("projects", FolderGit2, "Projects", <span className="n">{projects ? num(projects.projects.length) : ""}</span>)}
+        {item("models", Cpu, "Models",
           <span className="n">{status ? `${models.filter((m) => m.installed).length} / ${models.length}` : ""}</span>)}
-        {item("activity", "Activity")}
-        {item("usage", "Usage")}
-        {item("skills", "Skills")}
+        {item("activity", ActivityIcon, "Activity")}
+        {item("usage", BarChart3, "Usage")}
+        {item("skills", Sparkles, "Skills")}
       </nav>
-      {optional.length > 0 && (
-        <>
-          <h2 className="grp">Not installed</h2>
-          <nav className="nav" aria-label="Not installed">
-            {optional.map((m) => (
-              <span key={m.name} className="item ghost" title={`${m.role} · ${m.license}`}>
-                <span className="dot off" />
-                {m.name}
-              </span>
-            ))}
-          </nav>
-        </>
-      )}
       <h2 className="grp">Footnote Enterprise</h2>
       <nav className="nav" aria-label="Footnote Enterprise">
-        {item("enterprise", "Alias, sign-on…", <span className="n">Learn more</span>)}
+        {item("enterprise", Building2, "Alias, sign-on…", <span className="n">Learn more</span>)}
       </nav>
       <div className="foot">
         <span>Free and open source</span>

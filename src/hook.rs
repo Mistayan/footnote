@@ -764,9 +764,23 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             // Best effort, once per session (#209): a failure must not cost the agent its memory pack.
             let _ = crate::state::fix_private_dir(state);
             let top = git(&e.cwd, &["rev-parse", "--show-toplevel"]);
+            let main_root = if !top.is_empty() && Path::new(&top).join(".git").is_file() {
+                let common = git(
+                    &e.cwd,
+                    &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+                );
+                Path::new(&common)
+                    .parent()
+                    .filter(|p| p.is_dir())
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|| top.clone())
+            } else if !top.is_empty() {
+                top.clone()
+            } else {
+                e.cwd.clone()
+            };
             // Best effort: the project list must never cost the agent its memory pack.
-            let _ =
-                crate::projects::seen(state, &project, if top.is_empty() { &e.cwd } else { &top });
+            let _ = crate::projects::seen(state, &project, &main_root);
             embed_in_background(s, &db)?;
             // Best effort: a cleaning that cannot start must not cost the agent its memory pack.
             let _ = crate::clean::start_if_due(state, s.clean_days);

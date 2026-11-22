@@ -390,6 +390,9 @@ enum Action {
         /// Price one Claude Code or Codex session file instead (tokens per category, list price, per model).
         #[arg(long)]
         file: Option<PathBuf>,
+        /// Download the latest LiteLLM model price catalog before computing usage.
+        #[arg(long)]
+        sync_prices: bool,
     },
     /// Footnote Lean savings ledger: shell output bytes saved, handle re-retrieval miss rate, MCP trimming, optional token attribution, and uncovered command discovery (#351, #381).
     Gain {
@@ -1093,7 +1096,19 @@ fn execute(cli: Cli) -> Result<Value> {
         } => {
             return crate::clean::run(*dry_run, agent.as_deref(), model.as_deref(), *scheduled);
         }
-        Action::Usage { days, file } => {
+        Action::Usage {
+            days,
+            file,
+            sync_prices,
+        } => {
+            if *sync_prices {
+                let synced = crate::usage::sync_prices()?;
+                if file.is_none() {
+                    let mut out = crate::usage::usage(*days)?;
+                    out["synced"] = synced;
+                    return Ok(out);
+                }
+            }
             return match file {
                 Some(f) => crate::usage::session(f),
                 None => crate::usage::usage(*days),
@@ -1353,7 +1368,19 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Metrics { top } => return crate::metrics::summary(*top),
         _ => {}
     }
-    let db = require_db(&cli.db)?;
+    #[cfg(feature = "memory")]
+    let default_mem_db;
+    let db = match &cli.db {
+        Some(p) => p.as_path(),
+        None => match &cli.command {
+            #[cfg(feature = "memory")]
+            Action::MemoryList { .. } | Action::Forget { .. } => {
+                default_mem_db = crate::status::memory_db(&crate::state::state_dir()?)?;
+                default_mem_db.as_path()
+            }
+            _ => require_db(&cli.db)?,
+        },
+    };
     let mut c = open(db, writes(&cli.command))?;
     match cli.command {
         #[cfg(all(feature = "encryption", windows))]
