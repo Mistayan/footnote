@@ -318,9 +318,10 @@ code.cmd { font-family: var(--f-mono); font-size: var(--t-s); color: var(--text)
    agents' changes waiting for the user, each with its diff. */
 .skills { gap: 24px; }
 .skills > * { width: 100%; max-width: 760px; }
-.skills .group { display: flex; flex-direction: column; gap: 8px; }
-.skills .heading { font: 600 var(--t-brand) / 20px var(--f-title); color: var(--text); display: flex; align-items: center; gap: 8px; }
-.skills .count { font: 500 var(--t-s) / 20px var(--f-ui); color: var(--text); background: var(--raise); border-radius: 999px;
+.skills .group, .group.sub { display: flex; flex-direction: column; gap: 8px; }
+.group.sub { margin-top: 20px; }
+.skills .heading, .group.sub .heading { font: 600 var(--t-brand) / 20px var(--f-title); color: var(--text); display: flex; align-items: center; gap: 8px; margin: 0; }
+.skills .count, .group.sub .count { font: 500 var(--t-s) / 20px var(--f-ui); color: var(--text); background: var(--raise); border-radius: 999px;
   padding: 0 8px; min-width: 24px; text-align: center; }
 .skills .copy, .skills .empty, .confirm p, .change, .change p { font-size: var(--t-ui); line-height: 20px; }
 .skills .copy { color: var(--mute); max-width: 60ch; }
@@ -432,7 +433,13 @@ code.cmd { font-family: var(--f-mono); font-size: var(--t-s); color: var(--text)
 .chart-grid { stroke: var(--rule); stroke-width: 1; }
 .chart-axis { font: 10px var(--f-mono); fill: var(--dim); }
 
-.usage-totals, .usage-types, .usage-breakdown { display: flex; flex-direction: column; gap: 10px; }
+.usage-totals, .usage-types, .usage-breakdown, .usage-limits { display: flex; flex-direction: column; gap: 10px; }
+.limit-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.limit-list li { display: grid; grid-template-columns: minmax(140px, 200px) minmax(120px, 1fr) 44px 140px; align-items: center; gap: 12px; }
+.meter { height: 6px; border-radius: 99px; background: var(--raise); overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--acc); border-radius: 99px; }
+.meter span.warn-fill { background: var(--warn); }
+.review-list .mem-row { border-left: 2px solid var(--acc); }
 .totals-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; background: var(--panel);
   border: 1px solid var(--line); border-radius: var(--r-card); padding: 14px 18px; }
 .totals-strip > div { display: flex; flex-direction: column; gap: 2px; }
