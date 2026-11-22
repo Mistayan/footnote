@@ -961,9 +961,11 @@ pub fn impact(db: &Path, name: &str, depth: usize, limit: usize) -> Result<Value
 
 /// What an outside package is for, from a hand-written list across Rust, JavaScript and Python; `None` when not listed.
 /// `server` and `mcp` mean the project is called in (it serves HTTP or MCP); the other kinds are what it calls out to.
-/// shortcut: a fixed list; unknown packages stay unclassed. Grow it when real projects show common misses.
+/// Names compare as Python packaging does (case and `_` against `-` ignored): scip-python reports `SQLAlchemy`, `PyYAML`,
+/// and rust-analyzer gives one crate as both `hyper-util` and `hyper_util`. The list grows from indexed projects (#429).
 fn class(package: &str) -> Option<&'static str> {
-    Some(match package {
+    let name = package.to_ascii_lowercase().replace('_', "-");
+    Some(match name.as_str() {
         "rusqlite"
         | "sqlx"
         | "diesel"
@@ -998,22 +1000,42 @@ fn class(package: &str) -> Option<&'static str> {
         | "chromadb"
         | "pinecone"
         | "@supabase/supabase-js"
-        | "firebase-admin" => "database",
+        | "firebase-admin"
+        // A facade crate's types live in its parts: sqlx's in sqlx-core and the driver crates.
+        | "sqlx-core"
+        | "sqlx-sqlite"
+        | "sqlx-postgres"
+        | "sqlx-mysql"
+        | "fjall"
+        | "@redis/client"
+        | "@clickhouse/client"
+        | "@prisma/adapter-pg"
+        | "@prisma/extension-read-replicas"
+        | "alembic" => "database",
         "axum" | "actix-web" | "warp" | "rocket" | "poem" | "tonic" | "express" | "fastify"
         | "koa" | "hono" | "@nestjs/core" | "next" | "fastapi" | "flask" | "django"
-        | "starlette" | "aiohttp" => "server",
-        "rmcp" | "mcp-sdk" | "@modelcontextprotocol/sdk" | "mcp" | "fastmcp" => "mcp",
+        | "starlette" | "aiohttp" | "axum-core" | "tower-http" | "uvicorn" => "server",
+        "rmcp" | "mcp-sdk" | "@modelcontextprotocol/sdk" | "@modelcontextprotocol/server" | "mcp"
+        | "fastmcp" => "mcp",
         "reqwest" | "ureq" | "hyper" | "url" | "http" | "isahc" | "surf" | "tungstenite"
         | "tokio-tungstenite" | "iroh" | "axios" | "node-fetch" | "undici" | "got" | "ky"
         | "requests" | "httpx" | "urllib3" | "websockets" | "stripe" | "@aws-sdk/client-s3"
-        | "boto3" | "googleapis" => "network",
+        | "boto3" | "googleapis" | "reqwest-middleware" | "hyper-util" | "hyper-tls"
+        | "@modelcontextprotocol/client" | "kafkajs" | "paho-mqtt" | "apprise" | "curl-cffi" => {
+            "network"
+        }
         "async-openai" | "openai" | "anthropic" | "@anthropic-ai/sdk" | "ollama-rs" | "ollama"
         | "rig-core" | "genai" | "ort" | "llama-cpp-2" | "candle-core" | "tokenizers"
         | "mistralrs" | "langchain" | "@langchain/core" | "transformers" | "torch"
         | "onnxruntime" | "onnxruntime-node" | "ai" => "model",
         "windows-sys" | "windows" | "libc" | "nix" | "walkdir" | "notify" | "dirs" | "keyring"
-        | "fs-extra" | "chokidar" | "watchdog" | "psutil" | "zstd" => "system",
-        "std" | "core" | "alloc" => "standard library",
+        | "fs-extra" | "chokidar" | "watchdog" | "psutil" | "zstd" | "notify-types"
+        | "notify-debouncer-full" | "fs-err" | "sysinfo" | "rustix" => "system",
+        // scip-python files the Python standard library under `python-stdlib`, scip-typescript the built-in types
+        // (`Array`, `Promise`) under `typescript`, and Node's modules come as `@types/node` or `node`.
+        "std" | "core" | "alloc" | "python-stdlib" | "typescript" | "@types/node" | "node" => {
+            "standard library"
+        }
         _ => return None,
     })
 }
@@ -1167,6 +1189,21 @@ mod tests {
         assert_eq!(short_name(&many[10], &file), "x");
         assert_eq!(member_name("x10", &HashSet::new()), "x1");
         assert_eq!(member_name("total", &HashSet::new()), "total");
+    }
+
+    #[test]
+    fn outside_packages_get_their_kind() {
+        // Seen unclassed in atuin (Rust), umami (TypeScript) and mealie (Python), one per kind added.
+        assert_eq!(class("sqlx-sqlite"), Some("database"));
+        assert_eq!(class("axum-core"), Some("server"));
+        assert_eq!(class("@modelcontextprotocol/server"), Some("mcp"));
+        assert_eq!(class("kafkajs"), Some("network"));
+        assert_eq!(class("fs-err"), Some("system"));
+        assert_eq!(class("python-stdlib"), Some("standard library"));
+        // Names as the indexers spell them.
+        assert_eq!(class("SQLAlchemy"), Some("database"));
+        assert_eq!(class("hyper_util"), Some("network"));
+        assert_eq!(class("serde_json"), None);
     }
 
     #[test]
