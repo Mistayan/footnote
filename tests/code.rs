@@ -230,7 +230,8 @@ fn the_architecture_map_counts_blocks_links_and_outside_packages() {
     );
     assert_eq!(
         map["links"],
-        serde_json::json!([{"from": "crates/b", "to": "crates/a", "references": 2}]),
+        serde_json::json!([{"from": "crates/b", "to": "crates/a", "references": 2,
+            "symbols": [{"name": "base", "references": 2}], "other_symbols": 0}]),
         "{map}"
     );
     let ext = &map["outside"][0];

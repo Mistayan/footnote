@@ -1051,8 +1051,11 @@ fn block(path: &str, depth: usize) -> String {
     }
 }
 
+/// How many symbol names the map lists per link.
+const TOP_SYMBOLS: usize = 3;
+
 /// The architecture map: blocks (folders, `depth` deep) with their symbols, links between blocks counted in
-/// references, and the outside packages each block uses.
+/// references with the symbol names they use most, and the outside packages each block uses.
 pub fn map(db: &Path, depth: usize) -> Result<Value> {
     let c = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| {
@@ -1091,13 +1094,26 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
     {
         sizes.entry(&blocks[&file]).or_default().1 += n;
     }
-    let mut links: HashMap<(&str, &str), i64> = HashMap::new();
-    for (from, to, n) in rows(
-        "SELECT r.file_id, s.file_id, count(*) FROM refs r JOIN symbols s ON s.id = r.symbol_id WHERE s.kind != 'module' GROUP BY 1, 2",
-    )? {
+    type Names = HashMap<String, i64>; // symbol name -> references
+    let mut links: HashMap<(&str, &str), (i64, Names)> = HashMap::new();
+    let mut q = c.prepare(
+        "SELECT r.file_id, s.file_id, s.name, count(*) FROM refs r JOIN symbols s ON s.id = r.symbol_id WHERE s.kind != 'module' GROUP BY 1, 2, 3",
+    )?;
+    let found = q.query_map([], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, i64>(3)?,
+        ))
+    })?;
+    for r in found {
+        let (from, to, name, n) = r?;
         let (a, b) = (blocks[&from].as_str(), blocks[&to].as_str());
         if a != b {
-            *links.entry((a, b)).or_default() += n;
+            let e = links.entry((a, b)).or_default();
+            e.0 += n;
+            *e.1.entry(name).or_default() += n;
         }
     }
     let mut outside: HashMap<(String, String), (i64, std::collections::BTreeSet<&str>)> =
@@ -1120,7 +1136,7 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
     let mut blocks: Vec<_> = sizes.into_iter().collect();
     blocks.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(b.0)));
     let mut links: Vec<_> = links.into_iter().collect();
-    links.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    links.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(&b.0)));
     let mut outside: Vec<_> = outside.into_iter().collect();
     outside.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(&b.0)));
     Ok(json!({
@@ -1128,7 +1144,14 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
         // An entry block is one no other block references: where a run, a request or a test starts.
         "blocks": blocks.iter().map(|(b, (f, s))| json!({"name": b, "files": f, "symbols": s,
             "entry": !links.iter().any(|((_, to), _)| to == b)})).collect::<Vec<_>>(),
-        "links": links.iter().map(|((a, b), n)| json!({"from": a, "to": b, "references": n})).collect::<Vec<_>>(),
+        // The names a link uses most, so a reader sees what crosses it; `other_symbols` counts the names left out.
+        "links": links.iter().map(|((a, b), (n, names))| {
+            let mut names: Vec<_> = names.iter().collect();
+            names.sort_by(|x, y| y.1.cmp(x.1).then(x.0.cmp(y.0)));
+            json!({"from": a, "to": b, "references": n,
+                "symbols": names.iter().take(TOP_SYMBOLS).map(|(s, n)| json!({"name": s, "references": n})).collect::<Vec<_>>(),
+                "other_symbols": names.len().saturating_sub(TOP_SYMBOLS)})
+        }).collect::<Vec<_>>(),
         "outside": outside.iter().map(|((p, v), (n, used))| json!({"package": p, "version": v, "references": n,
             "class": class(p), "used_by": used})).collect::<Vec<_>>(),
     }))
