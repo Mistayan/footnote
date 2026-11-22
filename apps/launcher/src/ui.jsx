@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { Check, ChevronDown, CircleAlert } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, X } from "lucide-react";
 
 // The launcher's shared controls (DESIGN.md section 11, glass rework 22 Nov 2026). Each one follows a recipe from the
 // design bank (`protos/css.html`): popover with entry and exit, sliding-indicator tabs, spring switch, anchored tooltip,
@@ -327,8 +327,8 @@ export function useSpotlight() {
 }
 
 /** A short note at the bottom of the window, from anywhere: `toast("Copied")`. `<Toasts />` shows the latest. */
-export function toast(text, tone = "ok") {
-  dispatchEvent(new CustomEvent("footnote-toast", { detail: { text, tone, at: Date.now() } }));
+export function toast(text, tone = "ok", { sticky = false } = {}) {
+  dispatchEvent(new CustomEvent("footnote-toast", { detail: { text, tone, sticky, at: Date.now() } }));
 }
 
 export function Toasts() {
@@ -338,7 +338,7 @@ export function Toasts() {
     const on = (e) => {
       setNote(e.detail);
       clearTimeout(timer);
-      timer = setTimeout(() => setNote(null), 4200);
+      if (!e.detail.sticky) timer = setTimeout(() => setNote(null), 4200);
     };
     addEventListener("footnote-toast", on);
     return () => {
@@ -352,6 +352,9 @@ export function Toasts() {
         <div key={note.at} className={`toast lglass sq${note.tone === "warn" ? " warn" : ""}`}>
           {note.tone === "warn" ? <CircleAlert size={15} strokeWidth={1.9} /> : <Check size={15} strokeWidth={2} />}
           <span>{note.text}</span>
+          {note.sticky && (
+            <button type="button" className="mw-btn" onClick={() => setNote(null)} aria-label="Dismiss"><X size={13} strokeWidth={2} /></button>
+          )}
         </div>
       )}
     </div>

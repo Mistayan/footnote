@@ -134,6 +134,7 @@ export default function App() {
   const [status, projects, activity] = state.data ?? [];
   const meta = SCREENS[screen];
   useSpotlight();
+  useUpdatedNote(status);
 
   return (
     <div className={screen === "overview" ? "app" : "app no-feed"}>
@@ -393,7 +394,7 @@ function Sidebar({ status, projects, screen, go }) {
       <div className="brand" data-tauri-drag-region onMouseDown={onDragMouseDown} onDoubleClick={onTitleDoubleClick}>
         <span className="lens" aria-hidden="true">1</span>
         Footnote
-        {status && <span className="ver mono">{status.version}</span>}
+        {status && <span className="ver mono">{status.version}{stage(status.version)}</span>}
       </div>
       <h2 className="grp">Products</h2>
       <nav className="nav" aria-label="Products">
@@ -426,6 +427,34 @@ function Sidebar({ status, projects, screen, go }) {
       </div>
     </aside>
   );
+}
+
+/** The release stage after a plain version: every 0.x release is Alpha (docs/VERSIONING.md). A suffixed version already
+ * says its stage. */
+const stage = (v) => (/^0\.\d+\.\d+$/.test(v ?? "") ? " Alpha" : "");
+
+/** Once after Footnote reopens on another version: agents keep their running MCP server (the old binary, set aside by the
+ * installer) until they restart, so the note names the connected agents to restart. Remembered in this window's storage. */
+function useUpdatedNote(status) {
+  const version = status?.version;
+  useEffect(() => {
+    if (!version) return;
+    let seen = null;
+    try {
+      seen = localStorage.getItem("footnote.version.seen");
+      localStorage.setItem("footnote.version.seen", version);
+    } catch {
+      return; // no storage: no way to tell a new version from a first start
+    }
+    if (!seen || seen === version) return;
+    const agents = (status.products?.memory?.agents ?? []).filter((a) => a.mcp_server).map((a) => AGENTS[a.agent] ?? a.agent);
+    toast(
+      `Updated to ${version}. Restart ${agents.length ? agents.join(", ") : "your agents"} to load the new MCP server; hooks use it already.`,
+      "ok",
+      { sticky: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
 }
 
 /** A product is live when it is in this build and switched on (the dot beside its name). */
