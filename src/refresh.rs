@@ -132,15 +132,41 @@ pub(crate) struct Sidecar {
     pub pages: BTreeMap<String, PageRec>,
     #[serde(default)]
     pub refreshed_unix: u64,
+    /// Pages a refresh fetched and found empty (page key -> when, Unix seconds), skipped until `RETRY_EMPTY` has passed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub empty: BTreeMap<String, u64>,
+}
+
+/// How long a page found empty is skipped before a refresh fetches it again, in case it gained content: 30 days.
+const RETRY_EMPTY: u64 = 30 * 24 * 3600;
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 impl Sidecar {
-    /// The page keys the entry already holds (see `crawl::key_of`).
+    /// The page keys the entry already holds (see `crawl::key_of`), and the pages found empty less than `RETRY_EMPTY` ago.
     pub fn known(&self) -> HashSet<String> {
+        let now = now();
         self.pages
             .values()
             .filter_map(|p| crawl::key_of(&p.url))
+            .chain(
+                self.empty
+                    .iter()
+                    .filter(|(_, at)| now.saturating_sub(**at) < RETRY_EMPTY)
+                    .map(|(k, _)| k.clone()),
+            )
             .collect()
+    }
+
+    /// Remember the pages just found empty, and forget those whose wait is over (they were fetched again if listed).
+    fn remember_empty(&mut self, keys: Vec<String>, now: u64) {
+        self.empty
+            .retain(|_, at| now.saturating_sub(*at) < RETRY_EMPTY);
+        self.empty.extend(keys.into_iter().map(|k| (k, now)));
     }
 
     /// Write newly found pages beside the entry's others; returns how many.
@@ -260,18 +286,17 @@ fn one(client: &Client, judge: &dyn ChangeJudge, db: &Path) -> Result<Value> {
     }
     let known = side.known();
     let room = side.max_pages.saturating_sub(side.pages.len());
-    let found = if room > 0 {
+    let (found, empty) = if room > 0 {
         client.find_new(&side.scope, &known, seeds, room)
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     let added = side.add(&dir, found)?;
     if changed + removed + added > 0 {
         reindex(db, &dir)?;
     }
-    side.refreshed_unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
+    side.refreshed_unix = now();
+    side.remember_empty(empty, side.refreshed_unix);
     std::fs::write(dir.join("refresh.json"), serde_json::to_vec_pretty(&side)?)?;
     Ok(json!({
         "summary": format!("{same} unchanged, {changed} changed, {added} added, {removed} removed"),

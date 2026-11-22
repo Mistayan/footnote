@@ -715,17 +715,17 @@ impl Client {
     }
 
     /// Pages in scope that `known` (page keys, see `key_of`) lacks: `seeds` (links from changed pages) and the sitemap, then
-    /// links of the new pages themselves, at most `room` of them, robots.txt honoured. One request at a time.
-    /// shortcut: a listed page that turns out empty is fetched again on every refresh; remember rejects if that costs too much.
+    /// links of the new pages themselves, at most `room` of them, robots.txt honoured. One request at a time. Also returns
+    /// the keys of the pages fetched and found empty, for the caller to skip next time.
     pub fn find_new(
         &self,
         scope: &str,
         known: &HashSet<String>,
         seeds: Vec<Url>,
         room: usize,
-    ) -> Vec<Found> {
+    ) -> (Vec<Found>, Vec<String>) {
         let Ok(scope) = Url::parse(scope) else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         };
         let allow_loopback = is_loopback_host(&scope);
         let queue = seeds
@@ -759,6 +759,7 @@ impl Client {
             cap * 4,
         ));
         self.fetch_new(&scope, known, queue, cap, false, allow_loopback)
+            .0
     }
 
     fn fetch_new(
@@ -769,10 +770,10 @@ impl Client {
         room: usize,
         expand: bool,
         allow_loopback: bool,
-    ) -> Vec<Found> {
+    ) -> (Vec<Found>, Vec<String>) {
         let robots = robots(&self.0, scope, allow_loopback);
         let mut seen: HashSet<String> = known.clone();
-        let mut out = Vec::new();
+        let (mut out, mut empty) = (Vec::new(), Vec::new());
         while out.len() < room
             && let Some(u) = queue.pop_front()
         {
@@ -803,9 +804,11 @@ impl Client {
                         ..Validators::default()
                     },
                 });
+            } else {
+                empty.push(page_key(&u));
             }
         }
-        out
+        (out, empty)
     }
 }
 
