@@ -492,16 +492,24 @@ pub(crate) fn git(cwd: &str, args: &[&str]) -> String {
                 .stderr(Stdio::null()),
         )
         .spawn()?;
-        if child.wait_timeout(Duration::from_secs(5))?.is_none() {
+        // Read while git runs: output past the pipe's buffer (about 4 KB on Windows, a `git status` of a few hundred changed
+        // files) would otherwise block git until the timeout, and the answer would be empty.
+        let mut stdout = child.stdout.take().context("git's output")?;
+        let reader = std::thread::spawn(move || {
+            let mut out = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stdout, &mut out);
+            out
+        });
+        let Some(status) = child.wait_timeout(Duration::from_secs(5))? else {
             let _ = child.kill();
             let _ = child.wait();
             return Ok(String::new());
-        }
-        let output = child.wait_with_output()?;
-        if !output.status.success() {
+        };
+        let out = reader.join().unwrap_or_default();
+        if !status.success() {
             return Ok(String::new());
         }
-        Ok(String::from_utf8(output.stdout)?.trim().to_string())
+        Ok(String::from_utf8(out)?.trim().to_string())
     })()
     .unwrap_or_default()
 }
@@ -1818,6 +1826,41 @@ fn log_line(e: &anyhow::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `git status` larger than the pipe's buffer used to block git until the 5-second timeout and come back empty: a
+    /// project with many changes showed "everything committed", and each Stop in it waited 5 s.
+    #[test]
+    fn git_output_past_the_pipe_buffer_is_read_in_full_and_fast() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        assert!(
+            Command::new("git")
+                .args(["init", "-q"])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        for i in 0..400 {
+            fs::write(
+                dir.path().join(format!("{i:04}-{}.txt", "x".repeat(60))),
+                "x",
+            )
+            .unwrap();
+        }
+        let started = std::time::Instant::now();
+        let status = git(&root, &["status", "--porcelain"]);
+        assert_eq!(status.lines().count(), 400, "{} bytes read", status.len());
+        assert!(
+            status.len() > 16 * 1024,
+            "the test must overflow a pipe buffer"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(4),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn the_save_request_offers_changed_files_as_anchors() {
