@@ -31,6 +31,11 @@ jobs:
           python3 scripts/check-commits.py "$BASE"
           printf '%s\n' "$TITLE" > pr-title.txt
           python3 scripts/check-commits.py --message pr-title.txt
+      - name: Version rule (docs/VERSIONING.md)
+        run: |
+          python3 scripts/test_next_version.py
+          python3 scripts/next-version.py --check
+          python3 scripts/next-version.py
 
   check:
     strategy:

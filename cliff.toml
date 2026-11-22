@@ -5,6 +5,12 @@
 #   git cliff --bumped-version                         the next version their types call for
 # Commit rules (checked in CI by scripts/check-commits.py): type(scope)!: subject, at most 72 characters.
 
+# The version rule (docs/VERSIONING.md): before 1.0 a feature or a breaking change bumps MINOR, anything else PATCH; from
+# 1.0 a breaking change bumps MAJOR. `python scripts/next-version.py` gives the same answer without git-cliff.
+[bump]
+features_always_bump_minor = true
+breaking_always_bump_major = false
+
 [changelog]
 header = ""
 body = """
