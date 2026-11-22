@@ -1,6 +1,7 @@
 # Changelog
 
-Notable changes to Footnote, newest first. Versions follow semantic versioning. From 16 November 2026 the entries start from
+Notable changes to Footnote, newest first. Versions follow semantic versioning, with the bump rule in
+[docs/VERSIONING.md](docs/VERSIONING.md). From 16 November 2026 the entries start from
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
