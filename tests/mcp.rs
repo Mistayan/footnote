@@ -278,10 +278,58 @@ fn tools_call_footnote_stats_returns_a_successful_tool_result_on_an_indexed_db()
 }
 
 #[test]
+fn compact_results_batch_get_and_lexical_fallback() {
+    let t = tmp();
+    let db = fixture(&t);
+    // Default: one line per hit, the untrusted-data label once, no hashes.
+    let recall = text(&call(&db, "footnote_recall", json!({"query":"checkpoint"})));
+    let mut lines = recall.lines();
+    assert!(
+        lines.next().unwrap().starts_with("untrusted source data"),
+        "{recall}"
+    );
+    let hit = lines.next().unwrap();
+    assert!(
+        hit.starts_with('[') && hit.contains("› SQLite]"),
+        "{recall}"
+    );
+    assert!(
+        !recall.contains("sha256") && !recall.contains("extractor"),
+        "{recall}"
+    );
+    let id: i64 = hit[1..].split(' ').next().unwrap().parse().unwrap();
+
+    // Several ids in one call; a missing one is reported, not fatal.
+    let got = text(&call(&db, "footnote_get", json!({"id":[id, 9999]})));
+    assert_eq!(got.matches("untrusted source data").count(), 1, "{got}");
+    assert!(
+        got.contains("Checkpoint") && got.contains("[9999] chunk not found"),
+        "{got}"
+    );
+
+    // Hybrid without this corpus's models degrades to lexical, with a note.
+    let hybrid = call(
+        &db,
+        "footnote_recall",
+        json!({"query":"checkpoint","mode":"hybrid"}),
+    );
+    assert_eq!(hybrid["isError"], false, "{hybrid}");
+    let hybrid = text(&hybrid);
+    assert!(
+        hybrid.contains("note: hybrid recall unavailable") && hybrid.contains("› SQLite]"),
+        "{hybrid}"
+    );
+}
+
+#[test]
 fn recall_get_health_wake_up_and_export_round_trip() {
     let t = tmp();
     let db = fixture(&t);
-    let recall = call(&db, "footnote_recall", json!({"query":"checkpoint"}));
+    let recall = call(
+        &db,
+        "footnote_recall",
+        json!({"query":"checkpoint","verbose":true}),
+    );
     assert_eq!(recall["isError"], false);
     let hits: Value = serde_json::from_str(&text(&recall)).unwrap();
     assert_eq!(hits["mode"], "lexical_bm25");
@@ -290,7 +338,7 @@ fn recall_get_health_wake_up_and_export_round_trip() {
     assert_eq!(first["freshness"], "current");
     let id = first["id"].as_i64().unwrap();
 
-    let chunk = call(&db, "footnote_get", json!({"id":id}));
+    let chunk = call(&db, "footnote_get", json!({"id":id,"verbose":true}));
     assert_eq!(chunk["isError"], false);
     let chunk: Value = serde_json::from_str(&text(&chunk)).unwrap();
     assert!(chunk["text"].as_str().unwrap().contains("Checkpoint"));
@@ -420,7 +468,11 @@ fn record_tools_read_structured_records_and_project_context_packs() {
     assert_eq!(record["trust"], "untrusted_scoped_finding");
     assert_eq!(record["payload"]["project"], "synthetic");
 
-    let record_via_get = call(&db, "footnote_get", json!({"id":id,"kind":"record"}));
+    let record_via_get = call(
+        &db,
+        "footnote_get",
+        json!({"id":id,"kind":"record","verbose":true}),
+    );
     assert_eq!(record_via_get["isError"], false);
     let record_via_get: Value = serde_json::from_str(&text(&record_via_get)).unwrap();
     assert_eq!(record_via_get["payload"]["project"], "synthetic");

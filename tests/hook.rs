@@ -1540,7 +1540,7 @@ fn memory_first_recall_surfaces_anchored_fixes_and_logs_hits_misses_skips() {
         ),
     );
     assert!(
-        hit_out.contains("Lock the log file") && hit_out.contains("footnote_get <id>"),
+        hit_out.contains("Lock the log file") && hit_out.contains("[id "),
         "{hit_out}"
     );
     assert!(!hit_out.contains("Unrelated project note"), "{hit_out}");
