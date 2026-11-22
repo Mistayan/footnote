@@ -12,6 +12,7 @@ const AGENT_META = {
   codex: { label: "Codex", color: "#7fd39a" },
   "deepseek-harness": { label: "DeepSeek Harness", color: "#f2b84b" },
 };
+const resetsIn = (m) => (m >= 1440 ? `${Math.round(m / 1440)} d` : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
 const agentInfo = (id) => AGENT_META[id] ?? { label: id, color: "#a2afa5" };
 const totalTokens = (t) => (t.input ?? 0) + (t.output ?? 0) + (t.cache_read ?? 0) + (t.cache_write_5m ?? 0) + (t.cache_write_1h ?? 0);
 
@@ -193,10 +194,10 @@ export default function Usage() {
   const cacheWrite = t ? t.cache_write_5m + t.cache_write_1h : 0;
   const segs = t && allTok > 0
     ? [
-        { k: "Cache read", n: t.cache_read, color: "#5fd3c3" },
-        { k: "Uncached input", n: t.input, color: "#7fd39a" },
-        { k: "Cache write", n: cacheWrite, color: "#8b9cf6" },
-        { k: "Output", n: t.output, color: "#f2b84b" },
+        { k: "Cache read", n: t.cache_read, cost: t.cost_cache_read, color: "#5fd3c3" },
+        { k: "Uncached input", n: t.input, cost: t.cost_input, color: "#7fd39a" },
+        { k: "Cache write", n: cacheWrite, cost: t.cost_cache_write, color: "#8b9cf6" },
+        { k: "Output", n: t.output, cost: t.cost_output, color: "#f2b84b" },
       ]
     : [];
   // Measured savings never reached the model, so they sit beside the processed tokens, not inside them.
@@ -282,6 +283,31 @@ export default function Usage() {
             </div>
           </section>
 
+          <section className="usage-limits">
+            <h2 className="section">Rate limits</h2>
+            {(data.limits?.current ?? []).length === 0 ? (
+              <p className="dimmed small">
+                No limit window open. Codex logs the share used on every turn; Claude Code logs a limit only when it is hit.
+              </p>
+            ) : (
+              <ul className="limit-list">
+                {data.limits.current.map((l) => {
+                  const pct = Math.min(100, Math.max(0, l.used_percent));
+                  return (
+                    <li key={`${l.agent}|${l.window}`}>
+                      <span className="small"><b>{agentInfo(l.agent).label}</b> <span className="dimmed">{l.window}</span></span>
+                      <span className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)} aria-label={`${agentInfo(l.agent).label} ${l.window} limit used`}>
+                        <span className={pct >= 90 ? "warn-fill" : ""} style={{ width: `${pct}%` }} />
+                      </span>
+                      <span className="mono small">{Math.round(pct)}%</span>
+                      <span className="dimmed small">resets in {resetsIn(l.resets_in_minutes)}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+
           {segs.length > 0 && (
             <section className="usage-types">
               <h2 className="section">Tokens by type</h2>
@@ -298,6 +324,7 @@ export default function Usage() {
                   <span key={s.k} className="small">
                     <i style={{ background: s.color }} />
                     <span className="dimmed">{s.k}</span> <b className="mono">{tokens(s.n)}</b>
+                    {s.cost != null && <span className="mono dimmed"> · {usd.format(s.cost)}</span>}
                   </span>
                 ))}
                 {saved.map((s) => (

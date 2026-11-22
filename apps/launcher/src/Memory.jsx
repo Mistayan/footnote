@@ -31,10 +31,18 @@ export default function Memory({ refresh }) {
 
   useEffect(() => loadList(), [loadList, round]);
 
-  const forget = async (id) => {
+  // Global preferences agents saved wait here until the user approves (memory-restore) or rejects (forget) them (#207).
+  const [pending, setPending] = useState([]);
+  useEffect(() => {
+    let live = true;
+    footnote("memory-review").then((r) => live && setPending(r.pending ?? []), () => live && setPending([]));
+    return () => { live = false; };
+  }, [round]);
+
+  const forget = async (id, cmd = "forget") => {
     setBusyId(id);
     try {
-      await footnote("forget", String(id));
+      await footnote(cmd, String(id));
       setConfirmId(null);
       setRound((r) => r + 1);
       refresh?.();
@@ -88,6 +96,35 @@ export default function Memory({ refresh }) {
           {data ? `Showing ${memories.length} of ${num(total)}` : ""}
         </span>
       </div>
+
+      {pending.length > 0 && (
+        <section className="group sub" aria-labelledby="review-title">
+          <h2 id="review-title" className="heading">
+            Waiting for your review<span className="count">{pending.length}</span>
+          </h2>
+          <p className="dimmed small">Global preferences an agent saved. None is used until you approve it.</p>
+          <ul className="hits mem-list review-list">
+            {pending.map((m) => (
+              <li key={m.id} className="mem-row">
+                <div className="mem-head">
+                  <span className="mono id">#{m.id}</span>
+                  <span className="chip">{m.kind}</span>
+                  <span className="dimmed mono small">{m.observed_at}</span>
+                  <div className="mem-actions">
+                    <button type="button" className="btn primary" disabled={busyId === m.id} onClick={() => forget(m.id, "memory-restore")}>
+                      Approve
+                    </button>
+                    <button type="button" className="btn" disabled={busyId === m.id} onClick={() => forget(m.id)}>
+                      Reject
+                    </button>
+                  </div>
+                </div>
+                <p className="mem-text">{m.text}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {state.error ? (
         <p className="empty warn" role="alert">{state.error}</p>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { footnote } from "./data.js";
+import { footnote, mb, num, shortDate } from "./data.js";
 
 function corpusName(path) {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -17,8 +17,8 @@ export default function Library({ refresh }) {
   useEffect(() => {
     let live = true;
     setState((s) => ({ ...s, loading: true, error: null }));
-    footnote("corpora").then(
-      (data) => live && setState({ loading: false, data }),
+    Promise.all([footnote("corpora"), footnote("docs", "list").catch(() => ({ docs: [] }))]).then(
+      ([data, docs]) => live && setState({ loading: false, data, docs: docs.docs ?? [] }),
       (error) => live && setState({ loading: false, error: String(error) }),
     );
     return () => { live = false; };
@@ -86,6 +86,37 @@ export default function Library({ refresh }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {state.docs?.length > 0 && (
+        <section className="group sub" aria-labelledby="docs-title">
+          <h2 id="docs-title" className="heading">Shared docs cache<span className="count">{state.docs.length}</span></h2>
+          <p className="dimmed small">Sites indexed once per machine with <code>footnote docs add</code> and reused by every project.</p>
+          <table className="tbl">
+            <thead>
+              <tr>
+                <th scope="col">Site</th>
+                <th scope="col">Version</th>
+                <th scope="col">State</th>
+                <th scope="col" className="num">Pages</th>
+                <th scope="col" className="num">Size</th>
+                <th scope="col" className="num">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.docs.map((d) => (
+                <tr key={`${d.site}@${d.version}`}>
+                  <td>{d.site}</td>
+                  <td className="mono dimmed">{d.version}</td>
+                  <td className={d.state === "ready" ? "ok" : "dimmed"}>{d.state}</td>
+                  <td className="num mono">{d.pages != null ? num(d.pages) : "—"}</td>
+                  <td className="num mono">{d.bytes != null ? mb(d.bytes) : "—"}</td>
+                  <td className="num mono dimmed">{d.modified_unix ? shortDate(new Date(d.modified_unix * 1000).toISOString().slice(0, 10)) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
     </div>
   );

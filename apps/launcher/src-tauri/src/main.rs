@@ -41,6 +41,7 @@ fn allowed(args: &[String]) -> bool {
         | ["gain"]
         | ["models", "list"]
         | ["corpora"]
+        | ["docs", "list"]
         | ["memory-list"] => true,
         ["code", name, "--root", _] => !name.starts_with('-'),
         ["activity" | "usage" | "gain", "--days", d] => d.parse::<u16>().is_ok(),
@@ -79,7 +80,8 @@ fn allowed(args: &[String]) -> bool {
             "--offset",
             o,
         ] => plain(p) && plain(k) && l.parse::<usize>().is_ok() && o.parse::<usize>().is_ok(),
-        ["forget", id] => id.parse::<i64>().is_ok(),
+        // Forget rejects a pending global preference (#207); memory-restore approves it.
+        ["forget" | "memory-restore", id] => id.parse::<i64>().is_ok(),
         // Remove a corpus registration from Library (never deletes the database file on disk).
         ["corpora", "remove", p] => {
             !p.is_empty() && !p.starts_with('-') && !p.chars().any(char::is_control)
@@ -416,6 +418,12 @@ mod tests {
         assert!(!ok("jobs --bad"));
         assert!(!ok("install --memory") && !ok("models remove jina-v5-nano"));
         assert!(ok("forget 12") && !ok("forget abc"));
+        assert!(
+            ok("memory-restore 12")
+                && !ok("memory-restore 1;x")
+                && ok("docs list")
+                && !ok("docs add x")
+        );
         assert!(ok("code-index D:/x") && !ok("code-index --deep") && !ok("code-index a b"));
         assert!(!ok("code --root . --root") && !ok("code-map --root . --depth 2;rm"));
         assert!(

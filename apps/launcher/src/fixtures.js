@@ -145,10 +145,15 @@ const usageDays = [day(6, 410, 380000, 61e6, 21.4), day(5, 980, 910000, 140e6, 5
   day(3, 640, 600000, 95e6, 33.1), day(2, 1210, 1150000, 188e6, 71.6), day(1, 870, 790000, 133e6, 49.2),
   day(0, 520, 470000, 79e6, 28.8)];
 const sum = (k) => usageDays.reduce((s, d) => s + d[k], 0);
+// Bucket costs as `footnote usage` sends them (#248), split from the fixture's price in fixed shares.
+for (const d of usageDays) Object.assign(d, { cost_cache_read: d.api_price_usd * 0.6, cost_cache_write: d.api_price_usd * 0.25, cost_input: d.api_price_usd * 0.01, cost_output: d.api_price_usd * 0.14 });
 const usage = {
   days: 7, prices: "2026-11-16", note: "",
   totals: Object.fromEntries(["requests", "output", "cache_read", "input", "cache_write_5m", "cache_write_1h", "api_price_usd",
-    "unpriced_requests"].map((k) => [k, sum(k)])),
+    "unpriced_requests", "cost_cache_read", "cost_cache_write", "cost_input", "cost_output"].map((k) => [k, sum(k)])),
+  limits: { current: [
+    { agent: "codex", window: "5h", used_percent: 42, resets_at: 0, resets_in_minutes: 138 },
+    { agent: "codex", window: "weekly", used_percent: 93, resets_at: 0, resets_in_minutes: 4100 }] },
   by_day: usageDays.filter((d) => d.requests > 0),
   by_model: [
     { model: "claude-opus-5-5", requests: 2600, api_price_usd: 171.2 },
@@ -174,7 +179,8 @@ const rewrite = {
 };
 const options = (o = {}) => ({ options: [{ key: "memory.enabled", value: true }, { ...rewrite, ...o }] });
 const history = "C:\\Users\\maya\\AppData\\Local\\footnote\\skills\\agent\\.history";
-const review = (skills_pending) => ({ pending: [], duplicates: [], old_sessions: [], unused: [], counts: {}, skills_pending });
+const review = (skills_pending) => ({ pending: skills_pending.length ? [
+  { id: 88, kind: "preference", scope: "global", observed_at: "2026-11-21", text: "Prefers one pull request per issue, merged only after CI passes." }] : [], duplicates: [], old_sessions: [], unused: [], counts: {}, skills_pending });
 const pending = [
   { name: "css-transitions", scope: "global", revision: 3, changed: ["scripts/check.mjs"], at: "2026-11-21T16:42:10Z", by: "agent",
     reason: "The check flagged transitions on prefers-reduced-motion users as missing; it now reads the media query before failing.",
@@ -227,7 +233,14 @@ const diff2 = {
 
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
-    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "skills diff release-checklist": diff2, "skills diff": diff,
+    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
+    corpora: { corpora: [{ path: "D:/docs/atlas.db", exists: true }] },
+    "memory-list": { total: 2, scopes: [{ scope: "atlas-api", memories: 2 }], memories: [
+      { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", tags: [] },
+      { id: 42, kind: "preference", scope: "atlas-api", observed_at: "2026-11-10", text: "Prefers small pull requests with tests run locally before review.", tags: ["review"] }] },
+    "docs list": { docs: [
+      { site: "react.dev", version: "19", state: "ready", pages: 412, bytes: 38_400_000, modified_unix: 1763337600 },
+      { site: "docs.pydantic.dev", version: "2.12", state: "embedding 140/388", pages: 388, bytes: 21_000_000, modified_unix: 1763683200 }] }, "skills diff release-checklist": diff2, "skills diff": diff,
     "find --": { query: "pagination", products: [
       { product: "memory", state: "ok", results: [
         { id: 17, title: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", detail: "fact · atlas-api · 2026-11-12" },

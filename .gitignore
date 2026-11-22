@@ -32,3 +32,4 @@ site-packages/
 site/dist/
 site/node_modules/
 .wrangler/
+.playwright-cli/
