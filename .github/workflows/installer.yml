@@ -122,3 +122,24 @@ jobs:
       - name: Attach to the release
         if: env.TAG != ''
         run: gh release upload $env:TAG "$env:SETUP" "$env:SETUP.sha256" --repo $env:GITHUB_REPOSITORY --clobber
+
+      # dist writes the notes' download table before this job runs, so it lists only the engine archives. Windows users want
+      # the installer: put it first, once (the marker keeps a re-run from adding it twice).
+      - name: Put the installer first in the release notes
+        if: env.TAG != ''
+        run: |
+          $name = Split-Path $env:SETUP -Leaf
+          $base = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG"
+          $mb = [math]::Round((Get-Item $env:SETUP).Length / 1MB)
+          $body = (gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json body --jq .body) -join "`n"
+          if ($body -match '<!-- windows-installer -->') { Write-Host "the notes already lead with the installer"; exit 0 }
+          $lead = @(
+            "## Windows: download the installer",
+            "",
+            "**[$name]($base/$name)** ($mb MB, [SHA-256]($base/$name.sha256)): the engine and the tray launcher in one step, for your user, with no administrator rights. From 0.2.0 on, Footnote then updates itself from the launcher.",
+            "",
+            "<!-- windows-installer -->",
+            ""
+          ) -join "`n"
+          Set-Content -Path notes.md -Value "$lead`n$body" -Encoding utf8NoBOM
+          gh release edit $env:TAG --repo $env:GITHUB_REPOSITORY --notes-file notes.md
