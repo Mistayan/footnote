@@ -29,6 +29,7 @@ const REVIEW: &str = "Footnote: {n} global preferences that agents saved are wai
 const VISIBLE: &str = "Footnote memory: when one of these memories, or one recalled later in this session, shapes your answer, say so in a few words (for example \"from memory: ...\"). Do not mention memories that played no part.";
 const HANDOFF: &str = r#"Footnote: this session's context is {tokens} tokens, and every call re-reads all of it. Before you stop, save one handoff memory with the footnote_remember tool (MCP server footnote-memory): kind "session", scope "{project}", observed_at "{today}", tags ["handoff"], one self-contained paragraph with the task, the decisions made, what is done and left, the next step, and the files and issues involved. Then tell the user in one short line that you saved the handoff (its id); the next compaction or /clear picks it up, as Footnote brings it back first. Then stop."#;
 const IDLE_HANDOFF: &str = r#"Footnote: this session was idle for {idle_min} min (1h prompt cache expired) with {tokens} tokens in context; continuing pays repeated cold cache writes. Before you stop, save one handoff memory with the footnote_remember tool (MCP server footnote-memory): kind "session", scope "{project}", observed_at "{today}", tags ["handoff"], one self-contained paragraph with the task, the decisions made, what is done and left, the next step, and the files and issues involved. Then tell the user in one short line that you saved the handoff (its id) so they can /clear cleanly. Then stop."#;
+const LEAN_B_RULES: &str = include_str!("../rules/lean/LEAN-B.md");
 const MAX_EVENT: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -152,6 +153,10 @@ struct Settings {
     recall_max_chars: usize,
     /// Session-start pack mode: `"full"` (default, 3000 chars all kinds) or `"binding"` (compact ~800 chars, preferences only) (#356).
     subagent_context: String,
+    /// Opt-in Lean B rules injected once at SessionStart (#239); off until benchmarked.
+    lean_rules: bool,
+    /// Reply prose level when `lean_rules` is on: `"off"`, `"lite"`, `"full"`, or `"ultra"` (#239).
+    lean_prose: String,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -179,6 +184,8 @@ impl Default for Settings {
             recall_full_top_k: 2,
             recall_max_chars: 0,
             subagent_context: "full".into(),
+            lean_rules: false,
+            lean_prose: "full".into(),
         }
     }
 }
@@ -205,6 +212,10 @@ impl Settings {
         ensure!(
             matches!(s.subagent_context.as_str(), "full" | "binding"),
             "subagent_context must be \"full\" or \"binding\""
+        );
+        ensure!(
+            matches!(s.lean_prose.as_str(), "off" | "lite" | "full" | "ultra"),
+            "lean_prose must be \"off\", \"lite\", \"full\", or \"ultra\""
         );
         if let Some(cf) = s.cos_floor {
             ensure!(
@@ -985,6 +996,26 @@ fn render(v: &Value, title: &str, short: bool) -> String {
     }
 }
 
+/// Deterministic Lean B SessionStart rules (#239): strips the meta-preamble before `## 1.`,
+/// and omits `## 4.`+ when `level == "off"` (code rules only). Byte-identical across sessions.
+fn render_lean_rules(level: &str) -> String {
+    let normalized = LEAN_B_RULES.replace("\r\n", "\n");
+    let start = normalized.find("## 1.").unwrap_or(0);
+    let body = &normalized[start..];
+    if level == "off" {
+        let cut = body.find("\n## 4.").unwrap_or(body.len());
+        format!(
+            "Footnote Lean B (code rules only; prose compression off):\n{}",
+            body[..cut].trim()
+        )
+    } else {
+        format!(
+            "Footnote Lean B (prose level: {level}; off for docs, commits, PR/issue bodies, release notes and user-facing text):\n{}",
+            body.trim()
+        )
+    }
+}
+
 fn context(event: &Event, text: String) -> Option<Value> {
     if text.is_empty() {
         None
@@ -1295,11 +1326,12 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             st.idle_handoff_due = None;
             st.turn_prompt_hash = None;
             st.skills_shown.clear();
+            let binding = s.subagent_context == "binding"
+                || event["subagent"] == true
+                || std::env::var_os("FOOTNOTE_SUBAGENT").is_some();
+            let mut text = String::new();
             if db.exists() {
                 let conn = crate::app::open(&db, false)?;
-                let binding = s.subagent_context == "binding"
-                    || event["subagent"] == true
-                    || std::env::var_os("FOOTNOTE_SUBAGENT").is_some();
                 let mut memories = if binding {
                     crate::memory::pack_binding(&conn, Some(&project), 800)?
                 } else {
@@ -1334,7 +1366,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                         false,
                     )
                 };
-                let mut text = if pack.is_empty() || binding {
+                text = if pack.is_empty() || binding {
                     pack
                 } else {
                     format!("{pack}\n\n{VISIBLE}")
@@ -1363,8 +1395,16 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                         }
                     }
                 }
-                out = context(&e, text);
             }
+            if !binding && s.lean_rules {
+                let rules = render_lean_rules(&s.lean_prose);
+                text = if text.is_empty() {
+                    rules
+                } else {
+                    format!("{text}\n\n{rules}")
+                };
+            }
+            out = context(&e, text);
         }
         "UserPromptSubmit" | "PreInvocation" | "BeforeAgent" => {
             let same_turn = if e.name == "PreInvocation" {

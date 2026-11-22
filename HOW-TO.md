@@ -214,6 +214,8 @@ footnote install --memory --lean --add-to-path
 footnote install --lean --remove-rtk
 ```
 
+Experimental write-less rules (`rules/lean/LEAN-B.md`, off by default until benchmarked): `footnote config set memory.lean_rules true` injects the code ladder, never-cut list, and reply prose rules once at `SessionStart`; `footnote config set memory.lean_prose off|lite|full|ultra` picks the reply prose level (`off` injects code rules only, and durable text such as docs, commits, and PR bodies always stays in complete prose).
+
 ### C. Footnote Library (Local Notes, PDFs & Shared Docs Cache)
 
 Index a local folder of Markdown, text, or PDF files:

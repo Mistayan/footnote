@@ -11,8 +11,10 @@ use std::path::{Path, PathBuf};
 pub struct OptionSpec {
     pub key: &'static str,
     pub default: Value,
-    /// Inclusive range for integer options; `None` for booleans.
+    /// Inclusive range for integer options; `None` for booleans and string choices.
     pub range: Option<(u64, u64)>,
+    /// Allowed string choices; `None` for booleans and integers.
+    pub choices: Option<&'static [&'static str]>,
     pub gain: &'static str,
     pub cost: &'static str,
 }
@@ -24,6 +26,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.enabled",
             default: json!(true),
             range: None,
+            choices: None,
             gain: "Agents receive your memories and are asked to save new ones",
             cost: "Off: the hook does nothing at once, no agent restart; `footnote uninstall --memory` removes it for good",
         },
@@ -31,6 +34,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "library.enabled",
             default: json!(true),
             range: None,
+            choices: None,
             gain: "Agents can search your indexed document corpora through Footnote's tools",
             cost: "Off: corpus tools leave agents' tool lists and calls are refused at once; your indexes are kept",
         },
@@ -38,6 +42,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "code.enabled",
             default: json!(true),
             range: None,
+            choices: None,
             gain: "Agents can look up definitions, callers and callees with footnote_code",
             cost: "Off: footnote_code leaves agents' tool lists and calls are refused at once; your code graphs are kept",
         },
@@ -45,6 +50,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.resident",
             default: json!(true),
             range: None,
+            choices: None,
             gain: "Recall by meaning on each prompt, not only by keyword",
             cost: "A background process keeps the models in RAM until idle_seconds pass; about 450 MB with the default pair; some companies forbid resident processes. Recall@3 on real memories 0.91 against keyword 0.77, +13 ms per prompt at p95 (MEMORY-RECALL-SWITCH.md)",
         },
@@ -52,6 +58,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.infer_tags",
             default: json!(false),
             range: None,
+            choices: None,
             gain: "Recall ranks only memories sharing a tag named in the prompt (plus untagged ones): fewer unrelated candidates",
             cost: "A memory tagged without the word the prompt uses is left out; off until bench/experiments/MEMORY-TAGS.md passes",
         },
@@ -59,6 +66,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.skills",
             default: json!(false),
             range: None,
+            choices: None,
             gain: "Each prompt may get up to 2 skills from the themes you indexed (`footnote skills index`), only when one holds 40% of the prompt's topic words",
             cost: "About 1 in 3 prompts that a skill fits get it; a wrong one on about 1 in 25 (bench/experiments/SKILL-RANKING-2026-11-21.md); a few ms per theme per prompt",
         },
@@ -66,6 +74,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.skill_rewrite",
             default: json!(false),
             range: None,
+            choices: None,
             gain: "Agents may change the skills you reuse to fit your projects: they get `footnote_skill_edit`, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
             cost: "Each change request costs one more agent turn, about as much as sending a third of the session's context once as fresh input (see `bench/experiments/SKILL-EDIT-COST-2026-11-21.md`). Later sessions read a changed skill again, and a change that does worse is rolled back. Changes to a skill's scripts wait for your review",
         },
@@ -73,6 +82,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.skill_trial_uses",
             default: json!(5),
             range: Some((2, 50)),
+            choices: None,
             gain: "Higher: an agent's skill edit is judged on more suggestions before it is kept or rolled back",
             cost: "Higher: a worse edit is served longer before the rollback. At any size this catches clear regressions only; it is not a statistical test",
         },
@@ -80,6 +90,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.clean_days",
             default: json!(7),
             range: Some((0, 90)),
+            choices: None,
             gain: "An agent you already use (Claude Code with Haiku, else Codex) retires stale project memories every this many days, so recall stops serving finished work; `footnote memory-restore` undoes any of it (0: off)",
             cost: "Each run sends up to 400 project memories (not your conversations) to that agent's model once, on your subscription: about 40k input tokens at most",
         },
@@ -87,6 +98,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.idle_seconds",
             default: json!(1800),
             range: Some((60, 86_400)),
+            choices: None,
             gain: "Longer: fewer model reloads (about a second each)",
             cost: "Longer: the models stay in RAM longer",
         },
@@ -94,6 +106,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.every_turns",
             default: json!(10),
             range: Some((1, 1000)),
+            choices: None,
             gain: "Lower: more is remembered",
             cost: "Lower: more agent tokens spent on save requests",
         },
@@ -101,6 +114,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.recall_limit",
             default: json!(4),
             range: Some((1, 20)),
+            choices: None,
             gain: "Higher: more memories offered per prompt",
             cost: "Higher: more tokens per prompt and more noise",
         },
@@ -108,6 +122,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.handoff_tokens",
             default: json!(140_000),
             range: Some((0, 2_000_000)),
+            choices: None,
             gain: "Lower: shorter sessions; every call re-reads the whole context, so a long one costs most (0: never ask)",
             cost: "Lower: more often asked to save a handoff and clear the session",
         },
@@ -115,6 +130,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.idle_handoff_minutes",
             default: json!(55),
             range: Some((0, 1_440)),
+            choices: None,
             gain: "Catches 1-hour prompt-cache expiry before paying repeated cold cache writes on a resumed session (0: never ask)",
             cost: "Asks for a handoff when resuming a large session after a long break",
         },
@@ -122,6 +138,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.idle_handoff_min_tokens",
             default: json!(60_000),
             range: Some((0, 2_000_000)),
+            choices: None,
             gain: "Skips idle-expiry handoff on small sessions where a cold cache write is cheap",
             cost: "Higher: larger resumed sessions pay a cold cache write before handing off",
         },
@@ -129,13 +146,31 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.activity",
             default: json!(true),
             range: None,
+            choices: None,
             gain: "The Activity screen shows which memories reached your agents and when",
             cost: "A local log of memory ids, projects and times (memory-hook/activity.jsonl, capped at 512 KB); never what you asked",
+        },
+        OptionSpec {
+            key: "memory.lean_rules",
+            default: json!(false),
+            range: None,
+            choices: None,
+            gain: "Injects Footnote's Lean B write-less rules (code ladder, never-cut list, diff-sized edits, prose level) once at SessionStart",
+            cost: "Adds ~500 tokens to the cached session prefix; experimental and off by default until bench/experiments/LEAN-B-BENCH.md confirms a saving",
+        },
+        OptionSpec {
+            key: "memory.lean_prose",
+            default: json!("full"),
+            range: None,
+            choices: Some(&["off", "lite", "full", "ultra"]),
+            gain: "Reply prose level when memory.lean_rules is on (off = code rules only; lite, full or ultra for chat replies; always off for docs, commits, PR bodies and user-facing text)",
+            cost: "Stronger compression shortens chat replies only (output is a small share of billed cost); never applied to durable text",
         },
         OptionSpec {
             key: "usage.lean_log",
             default: json!(true),
             range: None,
+            choices: None,
             gain: "The Usage view shows what Footnote's trimmed search results saved, measured on each call",
             cost: "One line per agent search in usage/lean.jsonl in the state folder (time, tool, two sizes; never text), capped at about 1 MB",
         },
@@ -143,6 +178,7 @@ pub fn catalogue() -> Vec<OptionSpec> {
             key: "memory.metrics",
             default: json!(false),
             range: None,
+            choices: None,
             gain: "Timings of each hook step, for reviews and support",
             cost: "A local file, metrics.jsonl in the state folder; nothing leaves the machine",
         },
@@ -219,8 +255,21 @@ pub fn options(state: &Path) -> Result<Value> {
                 None => (o.default.clone(), "default", Value::Null),
             },
         };
-        out.push(json!({"key": o.key, "value": value, "source": source, "locked": source == "policy", "reason": reason,
-            "default": o.default, "range": o.range, "gain": o.gain, "cost": o.cost}));
+        let mut entry = json!({
+            "key": o.key,
+            "value": value,
+            "source": source,
+            "locked": source == "policy",
+            "reason": reason,
+            "default": o.default,
+            "range": o.range,
+            "gain": o.gain,
+            "cost": o.cost,
+        });
+        if let Some(choices) = o.choices {
+            entry["choices"] = json!(choices);
+        }
+        out.push(entry);
     }
     Ok(json!({"options": out, "policy_file": policy_path()}))
 }
@@ -245,16 +294,24 @@ pub fn set(state: &Path, key: &str, raw: &str) -> Result<Value> {
             f["reason"].as_str().unwrap_or("no reason given")
         );
     }
-    let value = match o.range {
-        None => match raw {
-            "true" | "on" => json!(true),
-            "false" | "off" => json!(false),
-            _ => bail!("`{key}` takes true or false"),
-        },
-        Some((lo, hi)) => match raw.parse::<u64>() {
-            Ok(n) if (lo..=hi).contains(&n) => json!(n),
-            _ => bail!("`{key}` takes a whole number from {lo} to {hi}"),
-        },
+    let value = if let Some(choices) = o.choices {
+        if choices.contains(&raw) {
+            json!(raw)
+        } else {
+            bail!("`{key}` takes one of: {}", choices.join(", "));
+        }
+    } else {
+        match o.range {
+            None => match raw {
+                "true" | "on" => json!(true),
+                "false" | "off" => json!(false),
+                _ => bail!("`{key}` takes true or false"),
+            },
+            Some((lo, hi)) => match raw.parse::<u64>() {
+                Ok(n) if (lo..=hi).contains(&n) => json!(n),
+                _ => bail!("`{key}` takes a whole number from {lo} to {hi}"),
+            },
+        }
     };
     let (product, name) = key.split_once('.').unwrap_or(("", key));
     set_value(state, product, name, value.clone())?;

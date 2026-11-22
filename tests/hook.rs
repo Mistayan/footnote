@@ -1489,3 +1489,57 @@ fn memory_first_recall_surfaces_anchored_fixes_and_logs_hits_misses_skips() {
         "{status_json}"
     );
 }
+
+/// #239: Lean B rules are off by default, injected deterministically at SessionStart when enabled,
+/// honor `lean_prose: "off"` (code rules only), and are omitted from compact `"binding"` subagent packs.
+#[test]
+fn lean_b_rules_are_opt_in_and_cache_stable_at_session_start() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+
+    // Off by default (even without a DB).
+    assert_eq!(hook(state, event_in("lb0", "SessionStart", "")), "");
+
+    // Opt-in with default prose ("full") injects even before any memory.db exists.
+    fs::write(state.join("memory.json"), r#"{"lean_rules":true}"#).unwrap();
+    let full_raw = hook(state, event_in("lb1", "SessionStart", ""));
+    let full_v: Value = serde_json::from_str(&full_raw).unwrap();
+    let full_ctx = full_v["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(
+        full_ctx.contains("Code ladder")
+            && full_ctx.contains("Never cut")
+            && full_ctx.contains("prose level: full")
+            && full_ctx.contains("documentation, commit messages, PR and issue bodies"),
+        "{full_ctx}"
+    );
+    // Byte-identical across sessions (#242 cache stability).
+    assert_eq!(full_raw, hook(state, event_in("lb2", "SessionStart", "")));
+
+    // `lean_prose: "off"` keeps sections 1-3 (code rules) and omits section 4 prose levels.
+    fs::write(
+        state.join("memory.json"),
+        r#"{"lean_rules":true,"lean_prose":"off"}"#,
+    )
+    .unwrap();
+    let off_raw = hook(state, event_in("lb3", "SessionStart", ""));
+    let off_v: Value = serde_json::from_str(&off_raw).unwrap();
+    let off_ctx = off_v["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(
+        off_ctx.contains("Code ladder")
+            && off_ctx.contains("Never cut")
+            && !off_ctx.contains("## 4. Prose levels"),
+        "{off_ctx}"
+    );
+
+    // Compact `"binding"` subagent pack omits Lean B rules.
+    fs::write(
+        state.join("memory.json"),
+        r#"{"lean_rules":true,"subagent_context":"binding"}"#,
+    )
+    .unwrap();
+    assert_eq!(hook(state, event_in("lb4", "SessionStart", "")), "");
+}

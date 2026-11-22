@@ -112,3 +112,69 @@ fn the_switch_silences_the_hook_and_company_policy_wins() {
     fs::write(&policy, "{not json").unwrap();
     assert!(footnote(&state, &policy, &["options"])["error"].is_string());
 }
+
+#[test]
+fn lean_rules_and_prose_options_validate_choices_and_policy_locks() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, policy) = (dir.path().join("state"), dir.path().join("policy.json"));
+    fs::create_dir_all(&state).unwrap();
+
+    let all = footnote(&state, &policy, &["options"]);
+    let lean_rules = option(&all, "memory.lean_rules");
+    assert_eq!(lean_rules["value"], false);
+    assert_eq!(lean_rules["default"], false);
+
+    let lean_prose = option(&all, "memory.lean_prose");
+    assert_eq!(lean_prose["value"], "full");
+    assert_eq!(
+        lean_prose["choices"],
+        json!(["off", "lite", "full", "ultra"])
+    );
+
+    assert_eq!(
+        footnote(
+            &state,
+            &policy,
+            &["config", "set", "memory.lean_rules", "true"]
+        )["value"],
+        true
+    );
+    for level in ["off", "lite", "full", "ultra"] {
+        assert_eq!(
+            footnote(
+                &state,
+                &policy,
+                &["config", "set", "memory.lean_prose", level]
+            )["value"],
+            level
+        );
+    }
+    assert!(
+        footnote(
+            &state,
+            &policy,
+            &["config", "set", "memory.lean_prose", "verbose"]
+        )["error"]
+            .is_string()
+    );
+
+    fs::write(
+        &policy,
+        r#"{"options": {"memory.lean_prose": {"value": "lite", "reason": "readable prose in team sessions"}}}"#,
+    )
+    .unwrap();
+    let locked = footnote(&state, &policy, &["config", "get", "memory.lean_prose"]);
+    assert_eq!(locked["value"], "lite");
+    assert_eq!(locked["locked"], true);
+    let refused = footnote(
+        &state,
+        &policy,
+        &["config", "set", "memory.lean_prose", "ultra"],
+    );
+    assert!(
+        refused["error"]
+            .as_str()
+            .unwrap()
+            .contains("readable prose")
+    );
+}
