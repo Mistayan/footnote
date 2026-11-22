@@ -32,3 +32,36 @@ Written 22 November 2026, before any measurement for this experiment was collect
 - Changing the embedding models or fusion formula (`ALPHA = 0.55`).
 - Enabling an abstention cutoff by default without passing the held-out gate.
 - LLM answer-quality grading or paid API benchmark runs.
+
+## Result (22 November 2026): dual floors and pointer packing stay opt-in; binding pack passes
+
+Runner: [memory_recall_packing.py](memory_recall_packing.py); raw JSONL in git-ignored `bench/work/recall-packing/` (LongMemEval-S cleaned, default model pair `bekko-a8m` + `gte-small`, `recall_limit = 4`, release binary from this branch).
+
+### 1. Dual relevance floors (`cos_floor`, `inject_floor`)
+
+Dev split (244 question families: 231 answerable, 257 no-answer) selected `cos_floor = 0.479774` and `inject_floor = 0.817429` (dev `any@4` 0.550 → 0.502, -4.76 pp; no-answer injection 100 % → 72.0 %; mean tokens/prompt 169.5 → 79.3).
+
+Held-out split, evaluated once with those floors frozen (256 question families: 239 answerable, 273 no-answer; paired bootstrap 95 % CI, 10,000 resamples, seed `20261122`):
+
+| Held-out measure | Ungated (`recall_limit=4`) | Dual floors (frozen) | Pointer packing (`top_k=2`, 600 chars) |
+|---|---:|---:|---:|
+| `any@4` (answerable, n=239) | 0.448 | 0.393 (-5.44 pp; CI [-8.44, -2.88]) | 0.448 (0.00 pp) |
+| No-answer injection (n=273) | 100.0 % | **70.3 %** (CI [-35.3, -24.4] pp) | 100.0 % |
+| `_abs` / `cross` injection | 100.0 % / 100.0 % | 70.6 % / 70.3 % | 100.0 % / 100.0 % |
+| Mean chars / prompt | 670.7 | 295.2 (-56.0 %) | 586.2 (-12.6 %) |
+| Mean est. tokens / prompt (`chars/4`) | 167.7 | 73.8 | 146.5 |
+
+- **Dual floors decision:** **fails** the held-out gate (no-answer injection 70.3 % > 50.0 % ceiling, and `any@4` drop 5.44 pp > 5.0 pp ceiling). Although dual floors beat the cross-encoder reranker from [MEMORY-ABSTENTION.md](MEMORY-ABSTENTION.md) (70.3 % vs 93.4 % no-answer injection) at zero extra inference cost, defaults stay `cos_floor = None` and `inject_floor = None` (opt-in in `memory.json`).
+- **Pointer packing decision:** preserves 100 % of `any@4` (0.00 pp drop) and cuts injected tokens by 12.6 % on LongMemEval's short extracted sentences (~100 chars avg; larger savings on longer agent-written memories). Below the 25 % default-enable bar, so `pointer_packing` stays `false` by default (opt-in in `memory.json`).
+
+### 2. Compact `"binding"` subagent pack
+
+Deterministic multi-kind fixture (4 preferences + 15 facts/fixes/sessions > 3,000 chars):
+
+| Mode | Memories | Text chars | Est. tokens (`chars/4`) | All preferences? | Reduction vs full |
+|---|---:|---:|---:|---|---:|
+| `full` (`--max-chars 3000`) | 19 | 2,585 | 646.2 | no | — |
+| `binding` (`--binding --max-chars 800`) | 4 | 294 | **73.5** | yes (100 %) | **-88.6 %** |
+
+- **Binding pack decision:** **passes** (73.5 est. tokens ≤ 250 target, 100 % binding preferences retained, zero session/fact prose). Exposed via `footnote memory-pack --binding`, `subagent_context: "binding"` in `memory.json`, `event.subagent = true`, or `FOOTNOTE_SUBAGENT=1`.
+

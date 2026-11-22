@@ -1169,3 +1169,113 @@ fn skill_mute_stops_suggesting_skills_never_read() {
         assert!(session(&claude_reply), "one read keeps it");
     }
 }
+
+#[test]
+fn binding_subagent_pack_and_pointer_packing_stay_compact_without_leaking_text() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let long_fact_1 = format!("Rust workspace layout detail one: {}", "x".repeat(160));
+    let long_fact_2 = format!("Rust workspace layout detail two: {}", "y".repeat(160));
+    let long_fact_3 = format!("Rust workspace layout detail three: {}", "z".repeat(160));
+    let long_fact_4 = format!("Rust workspace layout detail four: {}", "w".repeat(160));
+    command(state)
+        .arg("--db")
+        .arg(state.join("memory.db"))
+        .arg("remember")
+        .write_stdin(
+            json!([
+                {"text": "Always write a decision rule before seeing heldout results.", "kind": "preference", "scope": "global", "observed_at": "2026-11-14"},
+                {"text": long_fact_1, "kind": "fact", "scope": "global", "observed_at": "2026-11-15"},
+                {"text": long_fact_2, "kind": "fact", "scope": "global", "observed_at": "2026-11-16"},
+                {"text": long_fact_3, "kind": "fact", "scope": "global", "observed_at": "2026-11-17"},
+                {"text": long_fact_4, "kind": "fact", "scope": "global", "observed_at": "2026-11-18"},
+                {"text": "Session summary with verbose narrative that subagents do not need.", "kind": "session", "scope": "global", "observed_at": "2026-11-19"}
+            ])
+            .to_string(),
+        )
+        .assert()
+        .success();
+
+    // 1. CLI `memory-pack --binding` returns preferences only.
+    let cli_out = command(state)
+        .arg("--db")
+        .arg(state.join("memory.db"))
+        .args(["memory-pack", "--binding", "--max-chars", "800"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let cli_json: Value = serde_json::from_slice(&cli_out).unwrap();
+    assert_eq!(cli_json["mode"], "binding");
+    let mems = cli_json["memories"].as_array().unwrap();
+    assert_eq!(mems.len(), 1);
+    assert_eq!(mems[0]["kind"], "preference");
+
+    // 2. Hook `subagent_context: "binding"` + `pointer_packing: true` + `metrics: true`.
+    fs::write(
+        state.join("memory.json"),
+        json!({
+            "subagent_context": "binding",
+            "pointer_packing": true,
+            "recall_full_top_k": 2,
+            "recall_max_chars": 600,
+            "metrics": true
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let start: Value = serde_json::from_str(&hook(state, event("SessionStart", ""))).unwrap();
+    let pack = start["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(
+        pack.contains("Binding rules for this user and project"),
+        "{pack}"
+    );
+    assert!(pack.contains("decision rule"), "{pack}");
+    assert!(
+        !pack.contains("Session summary"),
+        "binding pack excludes sessions: {pack}"
+    );
+    assert!(
+        !pack.contains("say so in a few words"),
+        "binding pack omits verbose prose: {pack}"
+    );
+
+    // 3. Per-prompt recall with pointer packing + secret prompt text check on logs.
+    let secret_prompt = "Rust workspace layout detail SUPERSECRET_TOKEN_99";
+    let recall_raw = hook(state, event("UserPromptSubmit", secret_prompt));
+    let recall_v: Value = serde_json::from_str(&recall_raw).unwrap();
+    let recalled = recall_v["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap();
+    assert!(
+        recalled.contains("Rust workspace layout detail"),
+        "{recalled}"
+    );
+    assert!(
+        recalled.len() < 850,
+        "pointer-packed recall must stay compact ({} chars)",
+        recalled.len()
+    );
+
+    // 4. Activity & metrics logs must never contain prompt text or memory text.
+    let activity = fs::read_to_string(state.join("memory-hook/activity.jsonl")).unwrap();
+    let metrics = fs::read_to_string(state.join("metrics.jsonl")).unwrap();
+    for secret in [
+        "SUPERSECRET_TOKEN_99",
+        "Rust workspace layout detail",
+        "decision rule",
+    ] {
+        assert!(
+            !activity.contains(secret),
+            "activity leaked {secret}: {activity}"
+        );
+        assert!(
+            !metrics.contains(secret),
+            "metrics leaked {secret}: {metrics}"
+        );
+    }
+}
