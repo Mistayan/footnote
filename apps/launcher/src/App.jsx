@@ -394,7 +394,7 @@ function Sidebar({ status, projects, screen, go }) {
       <div className="brand" data-tauri-drag-region onMouseDown={onDragMouseDown} onDoubleClick={onTitleDoubleClick}>
         <span className="lens" aria-hidden="true">1</span>
         Footnote
-        {status && <span className="ver mono">{status.version}{stage(status.version)}</span>}
+        {status && <span className="ver mono">{status.version}</span>}
       </div>
       <h2 className="grp">Products</h2>
       <nav className="nav" aria-label="Products">
@@ -428,10 +428,6 @@ function Sidebar({ status, projects, screen, go }) {
     </aside>
   );
 }
-
-/** The release stage after a plain version: every 0.x release is Alpha (docs/VERSIONING.md). A suffixed version already
- * says its stage. */
-const stage = (v) => (/^0\.\d+\.\d+$/.test(v ?? "") ? " Alpha" : "");
 
 /** Once after Footnote reopens on another version: agents keep their running MCP server (the old binary, set aside by the
  * installer) until they restart, so the note names the connected agents to restart. Remembered in this window's storage. */
