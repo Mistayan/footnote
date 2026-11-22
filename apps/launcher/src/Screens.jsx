@@ -35,14 +35,35 @@ const Failed = ({ error }) => (
   <p className="empty warn" role="alert">{error === "ENGINE_MISSING" ? "The Footnote engine was not found." : error}</p>
 );
 
-export function Projects({ projects }) {
+export function Projects({ projects, refresh }) {
   const list = projects?.projects;
+  const [busy, setBusy] = useState(null);
+  const [error, setError] = useState(null);
+  // One at a time: indexing is heavy, and a failure names its project instead of stopping the rest.
+  const index = async (paths) => {
+    setError(null);
+    for (const path of paths) {
+      setBusy(path);
+      try { await footnote("code-index", path); } catch (e) { setError(`${path}: ${e}`); }
+    }
+    setBusy(null);
+    refresh?.();
+  };
+  const todo = (list ?? []).filter((p) => p.exists && !p.code_graph).map((p) => p.path);
   if (!list) return <div className="body"><span className="skel" /></div>;
   return (
     <div className="body">
       <p className="dimmed">
         Every folder where an agent started a session with Footnote Memory on. Git counts are read when this screen opens.
       </p>
+      {todo.length > 0 && (
+        <p>
+          <button className="btn" disabled={busy !== null} onClick={() => index(todo)}>
+            {busy ? "Indexing…" : `Index ${todo.length} project${todo.length === 1 ? "" : "s"} without a code graph`}
+          </button>
+        </p>
+      )}
+      {error && <p className="empty warn" role="alert">{error}</p>}
       {list.length === 0 ? (
         <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>
       ) : (
@@ -67,7 +88,11 @@ export function Projects({ projects }) {
                 <td>{shortDate(p.first_seen)}</td>
                 <td>{seen(p.last_seen)}</td>
                 <td className="num">{num(p.memories)}</td>
-                <td className={p.code_graph ? "ok" : ""}>{p.code_graph ? "built" : "–"}</td>
+                <td className={p.code_graph ? "ok" : ""}>
+                  {p.code_graph ? "built" : busy === p.path ? "indexing…" : p.exists ? (
+                    <button className="btn" disabled={busy !== null} onClick={() => index([p.path])}>Index</button>
+                  ) : "–"}
+                </td>
                 <td className={p.git?.uncommitted > 0 ? "num warn" : "num"}>{p.git ? num(p.git.uncommitted) : "–"}</td>
                 <td className={p.git?.unpushed > 0 ? "num warn" : "num"}>{p.git ? num(p.git.unpushed) : "–"}</td>
               </tr>

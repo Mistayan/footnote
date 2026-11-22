@@ -142,7 +142,7 @@ export default function App() {
         ) : state.error ? (
           <Problem error={state.error} retry={refresh} />
         ) : screen === "projects" ? (
-          <ProjectsScreen projects={projects} />
+          <ProjectsScreen projects={projects} refresh={refresh} />
         ) : screen === "models" ? (
           <Models refresh={refresh} />
         ) : screen === "memory" ? (

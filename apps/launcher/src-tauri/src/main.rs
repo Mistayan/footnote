@@ -46,6 +46,8 @@ fn allowed(args: &[String]) -> bool {
         ["activity" | "usage" | "gain", "--days", d] => d.parse::<u16>().is_ok(),
         ["usage", "--days", d, "--sync-prices"] => d.parse::<u16>().is_ok(),
         ["code-map", "--root", _] => true,
+        // Parser graph of one project (no `--deep`, so no project code runs). The engine refuses a missing folder.
+        ["code-index", root] => plain(root),
         // The impact radius before a change: a read, like `code`.
         ["code-impact", name, "--root", _] => !name.starts_with('-'),
         // The query follows `--`, so text starting with a dash is never read as an option.
@@ -414,6 +416,7 @@ mod tests {
         assert!(!ok("jobs --bad"));
         assert!(!ok("install --memory") && !ok("models remove jina-v5-nano"));
         assert!(ok("forget 12") && !ok("forget abc"));
+        assert!(ok("code-index D:/x") && !ok("code-index --deep") && !ok("code-index a b"));
         assert!(!ok("code --root . --root") && !ok("code-map --root . --depth 2;rm"));
         assert!(
             ok("usage --days 30")
