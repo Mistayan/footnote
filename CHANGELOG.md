@@ -5,6 +5,40 @@ Notable changes to Footnote, newest first. Versions follow semantic versioning, 
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
+## 0.3.0 - 2026-11-22
+
+Projects you can act on from the launcher: commit and push in one click, add or ignore a project, and open its folder at
+once. The Code screen gets a zoomable architecture map. Coming from 0.2.0, the launcher offers this update itself.
+
+### New
+
+- **Commit and push now** (#531): the commit pictogram runs the agent you last used in that project, unattended, to make
+  logical commits and push them (`footnote agent-commit <project>`). It never force-pushes, rewrites history or edits files,
+  and it names anything it left out (generated, unintended or secret files). The pictogram spins while it runs, and a note
+  reports what was committed, pushed and left. Claude Code runs with git commands only; Codex runs in its workspace sandbox.
+  With neither installed, it falls back to the request queued for the next turn.
+- **Projects** (#526):
+  - `footnote projects add <folder>`, `ignore <name>` and `unignore <name>`. An ignored project is no longer recorded; its
+    memories stay.
+  - On the Projects screen: an Ignore button on each card with Undo, a list that restores ignored projects, and **Add
+    project**, which opens the launcher's own folder browser. Folders that no longer exist are hidden.
+  - Opening a project's folder takes 0.05 s instead of 5 to 6 s.
+- **Code › Architecture, zoomable** (#529): the project's blocks laid out left to right, each card with its manifest
+  description or module doc. Selecting a block lights what a change would affect and what it relies on. Double-click opens
+  a block's files (`footnote code-map --block <path>`); drag pans, the wheel zooms, Esc goes back up. The Symbol tab can show
+  both sides, only the callers, or only what it relies on.
+- **Launcher:** the scroll rail is sparser, magnifies under the pointer, and scrolls the popover menus too (#524).
+
+### Fixed
+
+- **The mini window shows again** (#528). In 0.2.0 the tray and the Mini button hid the main window and showed nothing. It
+  now has rounded corners and no white edge on Windows 11.
+- **Large repositories read as fully committed.** With more than about 4 KB of `git status`, the hook waited 5 s and saw no
+  changes; it now reads git's output while git runs (#526).
+- Long memory text on the Code screen wraps inside its card.
+- The release notes lead with the Windows installer (#522).
+- The Docker image compiles again: the build copies the session rules the binary embeds (#536, from @Mistayan).
+
 ## 0.2.0 - 2026-11-22
 
 The first release with a plain version number (#507): from here every version is `X.Y.Z`, and the commits since the last
