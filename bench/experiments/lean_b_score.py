@@ -2,18 +2,21 @@
 import collections, json, sys
 
 def score(rows, price):
-    a = collections.defaultdict(lambda: dict(n=0, ok=0, cost=0.0, out=0, turns=0, read_tokens=0, turns_before_edit=0))
+    a = collections.defaultdict(lambda: dict(n=0, ok=0, cost=0.0, out=0, turns=0, read_tokens=0, turns_before_edit=0,
+                                             fixed_overhead=0, cache_read_cost=0.0))
     for r in rows:
         s = a[r["arm"]]
-        s["read_tokens"] += r.get("read_tokens", 0)  # #240; older rows have none
-        s["turns_before_edit"] += r.get("turns_before_edit", 0)
+        for k in ("read_tokens", "turns_before_edit", "fixed_overhead"):  # #240, #242; older rows have none
+            s[k] += r.get(k, 0)
+        s["cache_read_cost"] += r["cache_read"] * price[2] / 1e6
         s["n"] += 1
         s["ok"] += bool(r["accepted"])
         s["out"] += r["output"]
         s["turns"] += r["turns"]
         s["cost"] += sum(r[k] * p for k, p in zip(("uncached_in", "cache_write", "cache_read", "output"), price)) / 1e6
     # failed runs stay in the numerator: their spend counts against the arm
-    out = {k: dict(v, per_accepted=v["cost"] / v["ok"] if v["ok"] else None) for k, v in a.items()}
+    out = {k: dict(v, per_accepted=v["cost"] / v["ok"] if v["ok"] else None,
+                   cache_read_share=round(v["cache_read_cost"] / v["cost"], 3) if v["cost"] else None) for k, v in a.items()}
     base = (out.get("bare") or {}).get("per_accepted")
     for v in out.values():
         v["vs_bare_pct"] = None if not base or v["per_accepted"] is None else round(100 * (v["per_accepted"] / base - 1), 1)
