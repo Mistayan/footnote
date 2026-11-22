@@ -11,7 +11,7 @@ const models = {
 };
 
 const status = {
-  version: "0.1.0-alpha.1",
+  version: "0.1.0-alpha.3",
   models,
   products: {
     code: { built: true, enabled: true, graphs: 2, rust_indexer: true },
@@ -22,6 +22,7 @@ const status = {
         { agent: "claude-code", hooks: true, mcp_server: true },
         { agent: "codex", hooks: true, mcp_server: true },
         { agent: "deepseek-harness", hooks: false, mcp_server: true },
+        { agent: "gemini-cli", hooks: false, mcp_server: false },
       ],
     },
   },
@@ -233,7 +234,8 @@ const diff2 = {
 
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
-    options: options(), "agent-ask": { queued: true }, "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
+    options: options(), "agent-ask": { queued: true }, "install --memory": { installed: true },
+    "update --check": { installed: "0.1.0-alpha.3", latest: "0.1.0-alpha.4", newer: true, installer: "Footnote-Setup-0.1.0-alpha.4-x64.exe" }, "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
     corpora: { corpora: [
       { path: "D:/docs/atlas.db", exists: true },
       { path: "C:/Users/sample/AppData/Local/footnote/docs/rust-perf-book/latest.db", exists: true },

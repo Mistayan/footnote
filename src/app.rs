@@ -289,11 +289,18 @@ enum Action {
         add_to_path: bool,
     },
     /// Replace this binary with a newer one; the current one is kept beside it so `rollback` can put it back. Data in the state
-    /// folder is not touched.
+    /// folder is not touched. `--check` compares this version with the latest GitHub release; `--download` fetches that
+    /// release's Windows installer and checks its SHA-256 (the launcher then runs it).
     Update {
         /// The new footnote binary (checked with `--version` before anything moves).
-        #[arg(long)]
-        from: PathBuf,
+        #[arg(long, required_unless_present_any = ["check", "download"])]
+        from: Option<PathBuf>,
+        /// Only compare this version with the latest release.
+        #[arg(long, conflicts_with_all = ["from", "download"])]
+        check: bool,
+        /// Download the latest release's Windows installer into the state folder and verify it.
+        #[arg(long, conflicts_with = "from")]
+        download: bool,
     },
     /// Put back the binary that the last `update` replaced.
     Rollback,
@@ -1363,7 +1370,14 @@ fn execute(cli: Cli) -> Result<Value> {
             let mem_out = json!({"error": "this build has no Footnote Memory"});
             return Ok(json!({"dry_run": dry_run, "memory": mem_out, "lean": lean_out}));
         }
-        Action::Update { from } => return crate::update::update(from),
+        Action::Update { check: true, .. } => return crate::update::check(),
+        Action::Update { download: true, .. } => return crate::update::download(),
+        Action::Update { from, .. } => {
+            return crate::update::update(
+                from.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--from names the new binary"))?,
+            );
+        }
         Action::Rollback => return crate::update::rollback(),
         Action::Config { action } => {
             let state = crate::state::state_dir()?;

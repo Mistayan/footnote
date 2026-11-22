@@ -15,7 +15,11 @@ import Mini from "./Mini.jsx";
 import { applySavedPalette } from "./ui.jsx";
 
 applySavedPalette();
+// One palette for both windows: a choice made in one reaches the other through storage.
+addEventListener("storage", (e) => e.key === "footnote.palette" && applySavedPalette());
 
 // One page, two windows: the `mini` window (tauri.conf.json) shows mini mode; in a browser, the `#/mini` route does.
 const mini = inApp ? getCurrentWindow().label === "mini" : location.hash.startsWith("#/mini");
+// The mini window is transparent around its own squircle (no OS frame).
+document.documentElement.classList.toggle("mini-win", mini);
 createRoot(document.getElementById("root")).render(mini ? <Mini /> : <App />);

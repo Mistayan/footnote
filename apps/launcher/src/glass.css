@@ -425,3 +425,77 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
 button.stat.sent:hover:not(:disabled) { color: var(--text); }
 button.stat.sent:hover:not(:disabled) .stat-ic { color: var(--acc-ink); }
 @keyframes sent-drift { 0%, 100% { translate: 0 0; } 50% { translate: 1.5px -1.5px; } }
+
+/* Sidebar foot: the Options gear, then a quiet line. */
+.foot { flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: 10px; white-space: normal; }
+.foot-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; line-height: 1.35; }
+.foot .ic-btn { position: relative; }
+.badge-dot { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 3px; background: var(--ok);
+  box-shadow: 0 0 0 2px var(--side), 0 0 8px var(--ok); }
+.menu.options { position-area: top span-right; transform-origin: bottom left; width: 268px; padding: 6px 8px 10px; }
+.swatches { display: flex; gap: 8px; padding: 2px 8px 6px; }
+.swatch { width: 34px; height: 26px; display: grid; place-items: center; border-radius: 8px; color: #fff;
+  box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.35); transition: scale 300ms var(--spring), box-shadow 200ms var(--ease); }
+.swatch:hover { scale: 1.08; }
+.swatch[aria-checked="true"] { box-shadow: inset 0 0 0 1px rgb(127 127 127 / 0.35), 0 0 0 2px var(--panel), 0 0 0 4px var(--acc); }
+.swatch svg { filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.6)); }
+.upd { display: grid; gap: 6px; padding: 2px 8px 6px; font-size: var(--t-s); }
+.upd-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.upd .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.upd .help-link { justify-self: start; }
+
+/* Agent health: green connected, amber one part missing, red both; the wrench reconnects. */
+.agent.part { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.agent.off { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); }
+.agent.ok { border-color: color-mix(in srgb, var(--ok) 30%, var(--line)); }
+.stat.miss { color: var(--dim); border-style: dashed; }
+.stat.miss .stat-ic { color: var(--dim); background: transparent; }
+.agent.part .stat.miss { border-color: var(--warn); }
+.agent.part .stat.miss .stat-ic { color: var(--warn); }
+.agent.off .stat.miss { border-color: var(--bad); }
+.agent.off .stat.miss .stat-ic { color: var(--bad); }
+.ic-btn.fix { width: 28px; height: 28px; }
+.agent.part .ic-btn.fix { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--line2)); }
+.agent.off .ic-btn.fix { color: #fff; background: var(--bad); border-color: var(--bad); }
+.ic-btn.fix:hover:not(:disabled) svg { animation: wrench 500ms var(--ease); }
+@keyframes wrench { 30% { rotate: -25deg; } 60% { rotate: 15deg; } 100% { rotate: 0deg; } }
+
+/* Mini window (reworked 22 Nov 2026): one squircle widget on a transparent window, a slider of single-KPI cards. */
+html.mini-win, html.mini-win body { background: transparent; }
+.mw { height: 100%; display: grid; grid-template-rows: 34px minmax(0, 1fr) 34px; overflow: hidden; border-radius: 18px;
+  background:
+    radial-gradient(260px 160px at 85% -10%, color-mix(in srgb, var(--acc) 18%, transparent), transparent 70%),
+    radial-gradient(220px 160px at 0% 120%, color-mix(in srgb, var(--acc2) 12%, transparent), transparent 70%),
+    var(--bg);
+  border: 1px solid var(--line); box-shadow: inset 0 1px 0 var(--hi); user-select: none; }
+@supports (corner-shape: squircle) { .mw { corner-shape: squircle; border-radius: 30px; } }
+.mw-top { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 14px; }
+.mw-title { font: 600 var(--t-m) var(--f-title); color: var(--text); flex: 1; }
+.mw-ctl { display: inline-flex; gap: 2px; }
+.mw-btn { width: 26px; height: 24px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--mute);
+  transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+.mw-btn:hover { background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--text); }
+.mw-btn.close:hover { background: #c42b1c; color: #fff; }
+.mw-track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior: contain; }
+.mw-track::-webkit-scrollbar { display: none; }
+.mw-card { flex: 0 0 100%; scroll-snap-align: start; display: grid; align-content: center; gap: 4px; padding: 0 20px; min-width: 0; }
+.mw-kicker { display: inline-flex; align-items: center; gap: 8px; font: 500 var(--t-xs) var(--f-ui); color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.08em; }
+.mw-ic { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 15%, transparent); }
+.mw-card.bad .mw-ic { color: #fff; background: var(--bad); }
+.mw-card.warn .mw-ic { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+.mw-card.ok .mw-ic { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+.mw-big { font: 700 38px / 1.05 var(--f-title); color: var(--text); letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-card.bad .mw-big { color: var(--bad); }
+.mw-sub { color: var(--mute); font-size: var(--t-s); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mw-open { justify-self: start; display: inline-flex; align-items: center; gap: 3px; margin-top: 4px; padding: 2px 8px 2px 0;
+  color: var(--acc); font-size: var(--t-s); border-radius: 6px; }
+.mw-open:hover { color: var(--text); }
+.mw-foot { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; }
+.mw-dots { display: inline-flex; gap: 5px; }
+.mw-dots button { width: 8px; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--dim) 45%, transparent);
+  transition: width 300ms var(--spring), background-color 200ms var(--ease); }
+.mw-dots button[aria-selected="true"] { width: 20px; background: var(--acc); }
+@supports (corner-shape: squircle) { .mw-btn, .mw-ic { corner-shape: squircle; border-radius: 12px; } }

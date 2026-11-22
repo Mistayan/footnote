@@ -47,6 +47,12 @@ export function openLicense(id) {
   return inApp ? invoke("open_support", { to: `license:${id}` }) : Promise.resolve();
 }
 
+/** Download the latest release's installer (checked against its SHA-256), run it, and close: the app does the work and
+ * the page never names a file. Resolves `{ up_to_date: true }` when there is nothing newer. */
+export function installUpdate() {
+  return inApp ? invoke("install_update") : Promise.resolve({ up_to_date: true });
+}
+
 /** Stop the model download in progress (the window keeps at most one). */
 export function cancelInstall() {
   return inApp ? invoke("cancel_install") : Promise.resolve(true);

@@ -14,8 +14,10 @@ import {
   LayoutDashboard,
   Minimize2,
   Minus,
-  Palette,
+  Download,
   Plug,
+  Settings2,
+  Wrench,
   RefreshCw,
   Search as SearchIcon,
   Sparkles,
@@ -31,8 +33,8 @@ import Skills from "./Skills.jsx";
 import Usage from "./Usage.jsx";
 import { switchTo } from "./Mini.jsx";
 import { Activity as ActivityScreen, Models, ProjectCard, Projects as ProjectsScreen } from "./Screens.jsx";
-import { AGENTS, footnote, inApp, load, mb, num, openSupport, shortDate } from "./data.js";
-import { PALETTES, Scroll, Switch, Tip, Toasts, usePalette, useSpotlight } from "./ui.jsx";
+import { AGENTS, footnote, inApp, installUpdate, load, mb, num, openSupport, shortDate } from "./data.js";
+import { PALETTES, Scroll, Switch, Tip, Toasts, clip, toast, usePalette, useSpotlight } from "./ui.jsx";
 
 const SCREENS = {
   overview: { title: "Overview", note: "this week" },
@@ -102,6 +104,13 @@ export default function App() {
     location.hash = `/${name}${query}`;
   }, []);
 
+  // The mini window's cards open a screen here.
+  useEffect(() => {
+    if (!inApp) return;
+    const off = getCurrentWindow().listen("footnote-go", (e) => typeof e.payload === "string" && go(e.payload));
+    return () => { off.then((fn) => fn()).catch(() => {}); };
+  }, [go]);
+
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
@@ -132,7 +141,6 @@ export default function App() {
           <h1>{meta.title}</h1>
           {meta.note && <span className="top-note">· {meta.note}</span>}
           <div className="end">
-            <Appearance />
             <Tip tip="Mini window" side="bottom">
               <button type="button" className="ic-btn" onClick={() => switchTo("mini")} aria-label="Switch to the mini window">
                 <Minimize2 size={15} strokeWidth={1.75} />
@@ -180,39 +188,92 @@ export default function App() {
   );
 }
 
-/** The palette menu (T3 Code's theme picker): five palettes, the choice kept in this window's storage. */
-function Appearance() {
+/** Options, from the gear at the foot of the sidebar: the palette (both windows follow it), updates from the GitHub
+ * releases, and help. The update check runs only when this menu opens; nothing reaches the network otherwise. */
+function Options({ version }) {
   const [palette, choose] = usePalette();
   const menu = useRef(null);
-  const onKey = (e) => {
-    const list = [...(menu.current?.querySelectorAll("[role='menuitemradio']") ?? [])];
-    const at = list.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      list[(at + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length]?.focus();
-    }
+  const [upd, setUpd] = useState({ state: "idle" }); // idle | checking | checked | installing | error
+  const check = () => {
+    setUpd({ state: "checking" });
+    footnote("update", "--check").then(
+      (r) => setUpd({ state: "checked", ...r }),
+      (e) => setUpd({ state: "error", error: String(e) }),
+    );
   };
+  const install = () => {
+    setUpd((u) => ({ ...u, state: "installing" }));
+    installUpdate().then(
+      (r) => r?.up_to_date && setUpd((u) => ({ ...u, state: "checked", newer: false })),
+      (e) => setUpd((u) => ({ ...u, state: "error", error: String(e) })),
+    );
+  };
+  const onToggle = (e) => {
+    if (e.newState !== "open") return;
+    if (upd.state === "idle" || upd.state === "error") check();
+    requestAnimationFrame(() => menu.current?.querySelector("[aria-checked='true']")?.focus());
+  };
+  const onKey = (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const list = [...(menu.current?.querySelectorAll("[role='radio']") ?? [])];
+    const at = list.indexOf(document.activeElement);
+    if (at < 0) return;
+    e.preventDefault();
+    list[(at + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length]?.focus();
+  };
+  const newer = upd.state !== "idle" && upd.newer;
   return (
     <>
-      <Tip tip="Appearance" side="bottom">
-        <button type="button" className="ic-btn anchor-self" popoverTarget="appearance" aria-label="Appearance"
-          aria-haspopup="menu" style={{ "--anchor": "--appearance" }}>
-          <Palette size={15} strokeWidth={1.75} />
+      <Tip tip={newer ? `Options · ${upd.latest} is available` : "Options"} side="right">
+        <button type="button" className={`ic-btn anchor-self${newer ? " on" : ""}`} popoverTarget="options" aria-label="Options"
+          aria-haspopup="dialog" style={{ "--anchor": "--options" }}>
+          <Settings2 size={15} strokeWidth={1.75} />
+          {newer && <span className="badge-dot" aria-hidden="true" />}
         </button>
       </Tip>
-      <div ref={menu} id="appearance" popover="auto" role="menu" aria-label="Palette" className="menu right lglass"
-        style={{ "--anchor": "--appearance" }} onKeyDown={onKey}
-        onToggle={(e) => e.newState === "open" && requestAnimationFrame(() => menu.current?.querySelector("[aria-checked='true']")?.focus())}>
-        <div className="menu-title">Palette</div>
-        <div className="palettes">
+      <div ref={menu} id="options" popover="auto" role="dialog" aria-label="Options" className="menu options lglass"
+        style={{ "--anchor": "--options" }} onToggle={onToggle} onKeyDown={onKey}>
+        <div className="menu-title">Palette · {PALETTES.find((p) => p.id === palette)?.name}</div>
+        <div className="swatches" role="radiogroup" aria-label="Palette">
           {PALETTES.map((p) => (
-            <button key={p.id} type="button" role="menuitemradio" aria-checked={palette === p.id} className="pal"
-              onClick={() => choose(p.id)}>
-              <i style={{ background: `linear-gradient(135deg, ${p.sw[0]} 52%, ${p.sw[1]} 52%)` }} />
-              <span>{p.name}</span>
-              <Check size={14} strokeWidth={2} aria-hidden="true" />
+            <button key={p.id} type="button" role="radio" aria-checked={palette === p.id} aria-label={p.name} className="swatch"
+              onClick={() => choose(p.id)} style={{ background: `linear-gradient(135deg, ${p.sw[0]} 50%, ${p.sw[1]} 50%)` }}>
+              {palette === p.id && <Check size={13} strokeWidth={2.6} aria-hidden="true" />}
             </button>
           ))}
+        </div>
+        <div className="menu-title">Updates</div>
+        <div className="upd">
+          <div className="upd-line">
+            <span className="dimmed">Installed</span>
+            <b className="mono">{version ?? "–"}</b>
+          </div>
+          <div className="upd-line" role="status">
+            <span className="dimmed">Latest</span>
+            {upd.state === "checking" ? <span className="dimmed small">checking GitHub…</span>
+              : upd.state === "error" ? <span className="warn small">{clip(upd.error, 60)}</span>
+              : upd.latest ? <b className={`mono${upd.newer ? " ok" : ""}`}>{upd.latest}</b> : <span className="dimmed">–</span>}
+          </div>
+          {upd.state === "installing" ? (
+            <p className="small dimmed">Downloading and checking the installer. Footnote closes, installs, and reopens by itself.</p>
+          ) : upd.newer ? (
+            <button type="button" className="btn primary" onClick={install}>
+              <Download size={13} strokeWidth={2} /> Update to {upd.latest}
+            </button>
+          ) : upd.state === "checked" ? (
+            <span className="state-dot small">Up to date</span>
+          ) : upd.state === "error" ? (
+            <button type="button" className="btn" onClick={check}>Try again</button>
+          ) : null}
+          <button type="button" className="help-link small" onClick={() => openSupport("install")}>Release notes</button>
+        </div>
+        <div className="menu-title">Help</div>
+        <div className="upd">
+          <span className="small">
+            <button type="button" className="help-link" onClick={() => openSupport("issues")}>Report an issue</button>
+            {" · "}
+            <button type="button" className="help-link" onClick={() => openSupport("email")}>Email</button>
+          </span>
         </div>
       </div>
     </>
@@ -262,7 +323,7 @@ function Sidebar({ status, projects, screen, go }) {
       <div className="brand" data-tauri-drag-region onMouseDown={onDragMouseDown} onDoubleClick={onTitleDoubleClick}>
         <span className="lens" aria-hidden="true">1</span>
         Footnote
-        {status && <span className="ver mono">One {status.version.split("-")[0]}</span>}
+        {status && <span className="ver mono">{status.version}</span>}
       </div>
       <h2 className="grp">Products</h2>
       <nav className="nav" aria-label="Products">
@@ -286,12 +347,10 @@ function Sidebar({ status, projects, screen, go }) {
         {item("enterprise", Building2, "Alias, sign-on…", <span className="n">Learn more</span>)}
       </nav>
       <div className="foot">
-        <span>Free and open source</span>
-        {onDisk > 0 && <span className="mono">{mb(onDisk)} models</span>}
-        <span className="help">
-          Help: <button type="button" className="help-link" onClick={() => openSupport("issues")}>report an issue</button>
-          {" · "}
-          <button type="button" className="help-link" onClick={() => openSupport("email")}>email</button>
+        <Options version={status?.version} />
+        <span className="foot-txt">
+          <span>Free and open source</span>
+          {onDisk > 0 && <span className="mono">{mb(onDisk)} of models</span>}
         </span>
       </div>
     </aside>
@@ -335,7 +394,7 @@ function Overview({ status, projects, refresh, go }) {
         </div>
       )}
       <h2 className="section">Agents</h2>
-      <Agents list={memory?.agents} loading={!status} />
+      <Agents list={memory?.agents} loading={!status} refresh={refresh} />
     </div>
   );
 }
@@ -378,8 +437,11 @@ function Card({ product, title, built, enabled, refresh, big, sub }) {
   );
 }
 
-/** Each connected agent as a glass chip: its name, then two pictograms (Memory hooks, MCP server), lit when on. */
-function Agents({ list, loading }) {
+/** Each agent as a glass chip: green when Memory's hooks and MCP server are both connected, amber when one is missing,
+ * red when both are. A chip that is not green has a repair button: `footnote install --memory` reconnects every agent found
+ * (it rewrites only Footnote's own entries; `footnote uninstall --memory` takes them out again). */
+function Agents({ list, loading, refresh }) {
+  const [busy, setBusy] = useState(false);
   if (loading) return <span className="skel" />;
   if (!list?.length)
     return (
@@ -387,22 +449,47 @@ function Agents({ list, loading }) {
         No agent connected. Run <code>footnote install --memory</code> to connect Claude Code, Codex and others.
       </p>
     );
+  const repair = async (name) => {
+    setBusy(true);
+    try {
+      await footnote("install", "--memory");
+      toast(`Reconnected ${name}. Restart it to load the hooks.`);
+      await refresh?.();
+    } catch (e) {
+      toast(String(e), "warn");
+    } finally {
+      setBusy(false);
+    }
+  };
   const pict = (on, Icon, what) => (
-    <Tip tip={`${what}: ${on ? "on" : "off"}`}>
-      <span className={`stat idle${on ? " on" : " warn"}`} role="img" aria-label={`${what} ${on ? "on" : "off"}`} tabIndex={0}>
+    <Tip tip={`${what}: ${on ? "connected" : "missing"}`}>
+      <span className={`stat idle${on ? " on" : " miss"}`} role="img" aria-label={`${what} ${on ? "connected" : "missing"}`} tabIndex={0}>
         <span className="stat-ic"><Icon size={13} strokeWidth={1.9} /></span>
       </span>
     </Tip>
   );
   return (
     <div className="agents">
-      {list.map((a) => (
-        <div key={a.agent} className="agent surface sq lit">
-          <b>{AGENTS[a.agent] ?? a.agent}</b>
-          {pict(a.hooks, Webhook, "Memory hooks")}
-          {pict(a.mcp_server, Plug, "MCP server")}
-        </div>
-      ))}
+      {list.map((a) => {
+        const name = AGENTS[a.agent] ?? a.agent;
+        const missing = [!a.hooks && "hooks", !a.mcp_server && "MCP server"].filter(Boolean);
+        const health = missing.length === 0 ? "ok" : missing.length === 1 ? "part" : "off";
+        return (
+          <div key={a.agent} className={`agent surface sq lit ${health}`}>
+            <b>{name}</b>
+            {pict(a.hooks, Webhook, "Memory hooks")}
+            {pict(a.mcp_server, Plug, "MCP server")}
+            {health !== "ok" && (
+              <Tip tip={busy ? "Reconnecting…" : `Reconnect: install the missing ${missing.join(" and ")} for every agent found`}>
+                <button type="button" className="ic-btn fix" disabled={busy} onClick={() => repair(name)}
+                  aria-label={`Reconnect ${name}: install the missing ${missing.join(" and ")}`}>
+                  {busy ? <RefreshCw size={14} strokeWidth={1.9} className="spin" /> : <Wrench size={14} strokeWidth={1.9} />}
+                </button>
+              </Tip>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

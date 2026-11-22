@@ -108,6 +108,10 @@ fn allowed(args: &[String]) -> bool {
         // The commit button (22 Nov 2026): queue or withdraw the engine's fixed commit-and-push request for the next agent
         // turn in a project. The window names the project only; the text is the engine's.
         ["agent-ask", project] | ["agent-ask", project, "--cancel"] => plain(project),
+        // Options (22 Nov 2026): compare with the latest GitHub release, fetch and verify its installer (run by
+        // `install_update`, never by the page), and reconnect the agents whose hooks or MCP server are missing.
+        ["update", "--check"] | ["update", "--download"] => true,
+        ["install", "--memory"] => true,
         _ => false,
     }
 }
@@ -300,6 +304,58 @@ fn open_project_folder(path: String) -> Result<(), String> {
     open_outside(folder.as_os_str())
 }
 
+/// Install the latest release (Options, 22 Nov 2026): the engine downloads the Windows installer and checks its SHA-256;
+/// this runs it silently, reopens Footnote when it is done, and closes this window so its files can be replaced. The path
+/// comes from the engine, never from the page.
+#[tauri::command(async)]
+fn install_update(app: tauri::AppHandle) -> Result<Value, String> {
+    let got = footnote(vec!["update".into(), "--download".into()])?;
+    if got["up_to_date"] == true {
+        return Ok(got);
+    }
+    let installer = PathBuf::from(got["installer"].as_str().ok_or("the engine named no installer")?);
+    let name = installer
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let in_updates = installer
+        .parent()
+        .and_then(|d| d.file_name())
+        .is_some_and(|d| d == "updates");
+    if !(installer.is_file() && in_updates && name.starts_with("Footnote-Setup-") && name.ends_with("-x64.exe")) {
+        return Err(format!("not a Footnote installer: {}", installer.display()));
+    }
+    run_installer(&installer)?;
+    // Leave a moment for the reply to reach the page, then free the launcher's files for the installer.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        app.exit(0);
+    });
+    Ok(got)
+}
+
+#[cfg(windows)]
+fn run_installer(installer: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let me = std::env::current_exe().map_err(|e| e.to_string())?;
+    Command::new("cmd.exe")
+        .raw_arg(format!(
+            "/C start \"\" /wait \"{}\" /SILENT /SUPPRESSMSGBOXES /NORESTART & start \"\" \"{}\"",
+            installer.display(),
+            me.display()
+        ))
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+fn run_installer(_: &std::path::Path) -> Result<(), String> {
+    Err("in-app updates install the Windows installer; elsewhere run footnote-installer.sh".into())
+}
+
 /// Stop the model download in progress, if any. Returns whether one was running.
 #[tauri::command]
 fn cancel_install() -> bool {
@@ -344,7 +400,8 @@ fn main() {
             open_support,
             open_skill_folder,
             open_receipt,
-            open_project_folder
+            open_project_folder,
+            install_update
         ])
         // The tray (decided 15 Nov: a compact tray panel plus the full window): a left click opens the mini panel, the menu
         // opens either window or quits. Quitting is only ever from this menu, so closing a window never loses the app.
@@ -442,7 +499,9 @@ mod tests {
                 && ok("code-map --root . --depth 2")
         );
         assert!(!ok("jobs --bad"));
-        assert!(!ok("install --memory") && !ok("models remove jina-v5-nano"));
+        assert!(ok("install --memory") && !ok("install --memory --dry-run") && !ok("install --lean"));
+        assert!(!ok("models remove jina-v5-nano") && !ok("uninstall --memory"));
+        assert!(ok("update --check") && ok("update --download") && !ok("update --from C:/x.exe") && !ok("rollback"));
         assert!(ok("forget 12") && !ok("forget abc"));
         assert!(ok("agent-ask footnote") && ok("agent-ask footnote --cancel"));
         assert!(!ok("agent-ask --cancel") && !ok("agent-ask a b") && !ok("agent-ask footnote --text hi"));

@@ -96,8 +96,13 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 - **Full window (D1 "Console" structure):** sidebar 232 px (products, workspace, not installed, Footnote Enterprise group, quiet
   support link at the foot), top bar 44 px, content, activity column 320 px. Dense tables for projects and agents,
   three product cards with one big number each.
-- **Mini mode (D2 "Lens"):** the tray panel and the floating bubble: one glass lens per product, live data moving between them, a
-  few numbers. A switch moves between mini mode and the full window.
+- **Mini mode (reworked 22 Nov 2026; was D2 "Lens"):** the tray's quick look, opened by a left click on the tray icon. One
+  squircle widget on a transparent, shadowless window (no OS frame or bezel), 380 x 248. A title row with the lens mark and
+  three controls: minimize, open the full window (in place of maximize), close to the tray. Below, a slider of single-KPI
+  cards (Memory, today's tokens and list cost, projects with work to commit, agents connected, Library and Code), each with
+  one big number, one line, and a link that opens the matching screen in the full window. Arrow keys, the bar-shaped page
+  marks or the side chevrons move between cards; the last card shown is remembered. It follows the palette chosen in the
+  full window. Anything to act on happens in the full window.
 - **Tokens:** the site's palette (section 3), Plus Jakarta Sans for titles and big numbers, Hanken Grotesk 14 px for UI text,
   JetBrains Mono for paths, ids and timings. App radius 16 px for cards and 10 px for controls, drawn as squircles (see the glass
   rework below; the site's 21 px stays for marketing blocks). Functional text never below 11 px. Afterglow (dark) is the default palette; four
@@ -148,6 +153,16 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
     arms it (danger fill, one shake) for a second click to confirm. Approve and reject (pending memories, skill changes) are a
     green check and a red cross in 30 px squircles: hover fills them and redraws the mark, the one clicked pulses until the
     engine answers, and each names its effect in a tooltip.
+  - **Options (sidebar foot):** a gear opens the palette (five squircle swatches; both windows follow the choice), updates
+    and help. The installed version shows in full beside the brand (`0.1.0-alpha.3`, as shipped). Updates are checked
+    against the latest GitHub release only when Options opens, never in the background; when a newer one exists the gear
+    gets a green mark and "Update to <version>" downloads the Windows installer, checks it against the release's `.sha256`,
+    runs it silently, and reopens Footnote. The palette button left the top bar.
+  - **Agents:** each agent chip is green (Memory hooks and MCP server connected), amber (one missing, shown dashed) or red
+    (both missing). A non-green chip has a wrench that runs `footnote install --memory` (it reconnects every agent found and
+    rewrites only Footnote's own entries) and asks for a restart of the agent.
+  - **Commit pictogram:** a click sends the engine's fixed commit-and-push request to the next agent turn in that project
+    (`footnote agent-ask`); while it waits the pictogram turns into an accent send mark, and a click withdraws it.
   - **Scrolling:** no native scrollbar in the main area. A tick rail on the right edge has more ticks the more content is off
     screen (about 9 per screen, 10 to 64) and lights the ticks in view; clicking or dragging it scrolls.
   - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
@@ -161,6 +176,7 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
+| 2026-11-22 | Mini window becomes a squircle KPI widget with a card slider and its own minimize / open full / close controls; Options menu (palette, updates from GitHub releases, help) at the sidebar foot; agent chips repair themselves; the commit pictogram sends the request to the agent | Maintainer review of the real window: the mini's lenses and frame read as a bezel, the version label did not match the shipped release, and copying a request to the clipboard was a useless step | Keep the D2 lenses; background update checks (network use the user did not ask for); per-agent installs (the engine connects every agent found in one step) |
 | 2026-11-22 | Launcher shape: squircles everywhere, never full round (pills, tabs, switch, chips, rail, buttons); approve and reject as a green check and a red cross | Maintainer review: the app never used full round, and Apple's squircle is the reference; text Approve/Reject buttons read heavier than the decision needs | Capsule pills and round icon buttons (the first pass of the rework); text buttons |
 | 2026-11-22 | Launcher glass rework: five palettes, glass chrome and heroes, squircle cards, lit borders, tick scroll rail, popover selects, sliding tabs, spring switch, anchored tooltips, armed trash; Projects as cards; Activity only on active days | Maintainer review of the launcher (22 Nov): native controls looked dated, tables were dense and noisy, zero rows and unpushed counts said nothing | Keep dark-only Afterglow with native selects and scrollbars; glass on every row (cost: many blurred layers) |
 | 2026-11-21 | Product heroes get their own canvas scene (magnifier, memory web, call graph) behind an unblurred lens | Each product page should feel alive like the home page but show what that product does | The home swarm settling into each product mark (read as the same animation with a different logo) |
