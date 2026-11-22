@@ -1,5 +1,6 @@
 # The README's one-command installs, run on clean machines (#335): the latest release's shell installer in minimal Linux
-# containers, and its PowerShell installer in a Windows Server Core container, which, unlike the runner itself, has no
+# containers, and its PowerShell installer in a Windows Server container (not Server Core: it lacks DirectML.dll, which
+# desktop Windows ships), which, unlike the runner itself, has no
 # Visual C++ runtime. Each runs the documented prerequisites first, then checks that the installed engine starts.
 # By hand after a release (a release made with GITHUB_TOKEN triggers no workflow), and on changes to this file.
 name: install-smoke
@@ -63,5 +64,5 @@ jobs:
           exit $LASTEXITCODE
           '@
           Set-Content "$env:RUNNER_TEMP\smoke.ps1" $script
-          docker run --rm -v "${env:RUNNER_TEMP}:C:\w" mcr.microsoft.com/windows/servercore:ltsc2022 powershell -NoProfile -ExecutionPolicy Bypass -File C:\w\smoke.ps1
+          docker run --rm -v "${env:RUNNER_TEMP}:C:\w" mcr.microsoft.com/windows/server:ltsc2022 powershell -NoProfile -ExecutionPolicy Bypass -File C:\w\smoke.ps1
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
