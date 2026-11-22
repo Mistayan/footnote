@@ -49,10 +49,15 @@ jobs:
           $exe = Join-Path $env:USERPROFILE '.cargo\bin\footnote.exe'
           $p = Start-Process $exe -ArgumentList '--version' -Wait -PassThru -NoNewWindow
           Write-Host "without the Visual C++ runtime: exit $($p.ExitCode)"
-          Invoke-WebRequest https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile vc_redist.x64.exe
-          Start-Process .\vc_redist.x64.exe -ArgumentList '/install', '/quiet', '/norestart' -Wait
+          Invoke-WebRequest https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile C:\vc_redist.x64.exe -UseBasicParsing
+          $r = Start-Process C:\vc_redist.x64.exe -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+          Write-Host "vc_redist: exit $($r.ExitCode)"
+          foreach ($d in 'vcruntime140', 'vcruntime140_1', 'msvcp140', 'msvcp140_1', 'vcomp140', 'd3d12', 'dxgi', 'directml') {
+            Write-Host "$d.dll in System32: $(Test-Path "$env:SystemRoot\System32\$d.dll")"
+          }
           & $exe --version
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Write-Host "with the runtime: exit $LASTEXITCODE"
+          if ($LASTEXITCODE) { exit 1 }
           $env:FOOTNOTE_STATE_DIR = 'C:\state'
           & $exe status | Out-Null
           exit $LASTEXITCODE
