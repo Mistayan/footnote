@@ -16,6 +16,8 @@ installers = ["shell", "powershell"]
 targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
+# Alpha tags are still published as Latest so people find them; "alpha" in the name and the changelog warning carry the risk.
+force-latest = true
 # Whether to install an updater program
 install-updater = false
 # The Windows installer (engine + tray launcher, #125) is built and attached after the release is announced.
