@@ -2,9 +2,11 @@
 import collections, json, sys
 
 def score(rows, price):
-    a = collections.defaultdict(lambda: dict(n=0, ok=0, cost=0.0, out=0, turns=0))
+    a = collections.defaultdict(lambda: dict(n=0, ok=0, cost=0.0, out=0, turns=0, read_tokens=0, turns_before_edit=0))
     for r in rows:
         s = a[r["arm"]]
+        s["read_tokens"] += r.get("read_tokens", 0)  # #240; older rows have none
+        s["turns_before_edit"] += r.get("turns_before_edit", 0)
         s["n"] += 1
         s["ok"] += bool(r["accepted"])
         s["out"] += r["output"]
