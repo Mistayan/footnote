@@ -27,6 +27,8 @@ use crate::app;
 const PROTOCOL_VERSION: &str = "2024-11-05";
 /// Largest single request line accepted (bytes); larger lines are refused.
 const MAX_LINE: usize = 1_000_000;
+/// Requests being handled right now, so a daemon whose binary was replaced exits between requests, not during one.
+pub static IN_FLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 /// Mirrors the CLI response cap in `app::run`.
 const MAX_RESPONSE: usize = 256_000;
 /// Mirrors the `app::search` query bound.
@@ -162,9 +164,11 @@ pub fn session_loop<R: BufRead, W: Write>(
                 continue;
             }
         };
-        if let Some(response) = handle(shared, &request, &session) {
-            emit(out, &response)?;
-        }
+        IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let response = handle(shared, &request, &session);
+        let sent = response.map_or(Ok(()), |r| emit(out, &r));
+        IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        sent?;
     }
     Ok(())
 }

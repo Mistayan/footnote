@@ -92,20 +92,34 @@ pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
         }
         let _ = std::fs::write(state.join("daemon.pid"), std::process::id().to_string());
     }
-    if let Some(idle) = idle {
-        // Started on demand (the memory hook): leave once no session has been open for `idle`, so nothing stays resident
-        // that nobody uses. Agents' MCP sessions stay open, so the daemon lives as long as one of them does.
-        let started = *STARTED.get_or_init(Instant::now);
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(5).min(idle));
-                let quiet = started.elapsed().as_secs() - LAST_END.load(Ordering::SeqCst);
-                if ACTIVE.load(Ordering::SeqCst) == 0 && quiet >= idle.as_secs() {
-                    std::process::exit(0);
-                }
+    // Idle exit, when started on demand (the memory hook): leave once no session has been open for `idle`, so nothing
+    // stays resident that nobody uses. Agents' MCP sessions stay open, so the daemon lives as long as one of them does.
+    // Update exit (#515): leave between requests once `footnote update` (or anything else) replaces the binary, so a fix
+    // reaches the recall path at once. The next hook call starts the new build; open agent sessions serve in-process.
+    let started = *STARTED.get_or_init(Instant::now);
+    let exe = std::env::current_exe().ok();
+    let built = exe.as_deref().and_then(binary_stamp);
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(
+                idle.map_or(Duration::from_secs(5), |i| Duration::from_secs(5).min(i)),
+            );
+            if let (Some(exe), Some(built)) = (&exe, built)
+                && replaced(exe, built)
+                && crate::mcp::IN_FLIGHT.load(Ordering::SeqCst) == 0
+            {
+                eprintln!(
+                    "footnote daemon: the binary was replaced; exiting so the new build serves"
+                );
+                std::process::exit(0);
             }
-        });
-    }
+            let Some(idle) = idle else { continue };
+            let quiet = started.elapsed().as_secs() - LAST_END.load(Ordering::SeqCst);
+            if ACTIVE.load(Ordering::SeqCst) == 0 && quiet >= idle.as_secs() {
+                std::process::exit(0);
+            }
+        }
+    });
     let shared = Arc::new(shared);
     for connection in listener.incoming() {
         let stream = match connection {
@@ -137,6 +151,17 @@ pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
         });
     }
     Ok(())
+}
+
+/// Size and write time of the binary: a different build at the same path changes at least one of them.
+fn binary_stamp(exe: &Path) -> Option<(u64, std::time::SystemTime)> {
+    let m = std::fs::metadata(exe).ok()?;
+    Some((m.len(), m.modified().ok()?))
+}
+
+/// The file at `exe` is another build than the one this process started from. A missing file (mid-update) is not yet.
+fn replaced(exe: &Path, built: (u64, std::time::SystemTime)) -> bool {
+    binary_stamp(exe).is_some_and(|now| now != built)
 }
 
 /// Connect to this corpus's daemon. Never spawns a child process: a daemon
@@ -379,6 +404,21 @@ mod tests {
             "oversized line accepted"
         );
         assert!(serve("", &token).0.is_err(), "closed connection accepted");
+    }
+
+    #[test]
+    fn a_replaced_binary_is_noticed_and_a_missing_one_is_not() {
+        let dir = std::env::temp_dir().join(format!("footnote-replaced-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("footnote.exe");
+        std::fs::write(&exe, b"old build").unwrap();
+        let built = binary_stamp(&exe).unwrap();
+        assert!(!replaced(&exe, built), "same binary seen as replaced");
+        std::fs::remove_file(&exe).unwrap();
+        assert!(!replaced(&exe, built), "mid-update gap seen as replaced");
+        std::fs::write(&exe, b"the new, longer build").unwrap();
+        assert!(replaced(&exe, built), "new build not noticed");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

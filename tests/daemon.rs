@@ -223,6 +223,47 @@ fn the_hook_recalls_through_a_resident_daemon_that_leaves_when_idle() {
     }
 }
 
+/// `footnote update` replaces the binary under a running daemon: the daemon leaves so the next hook call starts the
+/// new build (#515), even with no idle limit (the logon task's daemon).
+#[test]
+fn a_daemon_leaves_once_its_binary_is_replaced() {
+    use std::process::{Command as Std, Stdio};
+    let t = tmp();
+    let db = fixture(&t);
+    let exe = t
+        .path()
+        .join(format!("footnote{}", std::env::consts::EXE_SUFFIX));
+    fs::copy(assert_cmd::cargo::cargo_bin!("footnote"), &exe).unwrap();
+    let mut daemon = Std::new(&exe)
+        .env("FOOTNOTE_STATE_DIR", t.path().join("state"))
+        .arg("--db")
+        .arg(&db)
+        .args(["serve", "--mcp", "--daemon", "--no-audit"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    assert!(daemon.try_wait().unwrap().is_none(), "daemon did not start");
+
+    // What `footnote update` does: set the running binary aside, put another build in its place.
+    fs::rename(&exe, t.path().join("footnote.replaced")).unwrap();
+    fs::write(&exe, b"another build").unwrap();
+    let mut gone = None;
+    for _ in 0..150 {
+        gone = daemon.try_wait().unwrap();
+        if gone.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if gone.is_none() {
+        daemon.kill().unwrap();
+        panic!("daemon still serving the old build after the update");
+    }
+}
+
 /// An agent's relay outlives its daemon: once the daemon stops (an install replacing the binary, a crash), the
 /// next call is answered in-process instead of the agent losing its memory tools until it reconnects.
 #[test]
