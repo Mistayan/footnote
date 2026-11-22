@@ -499,3 +499,17 @@ html.mini-win, html.mini-win body { background: transparent; }
   transition: width 300ms var(--spring), background-color 200ms var(--ease); }
 .mw-dots button[aria-selected="true"] { width: 20px; background: var(--acc); }
 @supports (corner-shape: squircle) { .mw-btn, .mw-ic { corner-shape: squircle; border-radius: 12px; } }
+
+/* The update button (T3 Code's flow): sync, download with what's new, a ring while it downloads, restart to update. */
+.foot .upd-btn { margin-left: auto; position: relative; }
+.upd-btn.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, var(--line2)); }
+.upd-ring { position: absolute; inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px); pointer-events: none; }
+.upd-ring rect { fill: none; stroke-width: 2; }
+.upd-ring .track { stroke: color-mix(in srgb, var(--acc) 20%, transparent); }
+.upd-ring .fill { stroke: var(--acc); stroke-dasharray: 100; stroke-linecap: round; transition: stroke-dashoffset 300ms var(--ease); }
+.badge-ok { position: absolute; right: -4px; bottom: -4px; width: 13px; height: 13px; display: grid; place-items: center;
+  border-radius: 4px; color: var(--acc-ink); background: var(--ok); box-shadow: 0 0 0 2px var(--side); }
+.upd-card { display: grid; gap: 6px; max-width: 320px; }
+.upd-title { font: 600 var(--t-ui) var(--f-title); color: var(--text); }
+.upd-card ul { margin: 2px 0 0; padding-left: 16px; display: grid; gap: 4px; color: var(--mute); }
+.upd-card li b { color: var(--text); font-weight: 600; }

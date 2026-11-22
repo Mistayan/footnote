@@ -144,7 +144,7 @@ pub fn check() -> Result<Value> {
     let (version, release, asset) = latest()?;
     Ok(json!({
         "installed": current, "latest": version, "newer": newer(&version, current),
-        "published_at": release["published_at"], "page": release["html_url"],
+        "published_at": release["published_at"], "page": release["html_url"], "notes": release["body"],
         "installer": asset.as_ref().map(|a| a["name"].clone()), "bytes": asset.as_ref().map(|a| a["size"].clone()),
     }))
 }
@@ -183,6 +183,12 @@ pub fn download() -> Result<Value> {
     let dir = crate::state::state_dir()?.join("updates");
     crate::state::ensure_private_dir(&dir)?;
     let to = dir.join(&name);
+    // Already fetched and verified (the launcher downloads first, then installs when the user restarts): reuse it.
+    if to.is_file() && crate::models::sha256_file(&to).is_ok_and(|got| got == expected) {
+        return Ok(
+            json!({"installer": to, "version": version, "sha256": expected, "cached": true}),
+        );
+    }
     let part = dir.join(format!("{name}.part"));
     let mut job = footnote_core::jobs::Job::start(
         &crate::state::state_dir()?,

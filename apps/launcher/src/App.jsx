@@ -7,6 +7,7 @@ import {
   Brain,
   Building2,
   Check,
+  CircleAlert,
   Copy,
   Cpu,
   FolderGit2,
@@ -19,6 +20,7 @@ import {
   Settings2,
   Wrench,
   RefreshCw,
+  RotateCw,
   Search as SearchIcon,
   Sparkles,
   Square,
@@ -188,30 +190,12 @@ export default function App() {
   );
 }
 
-/** Options, from the gear at the foot of the sidebar: the palette (both windows follow it), updates from the GitHub
- * releases, and help. The update check runs only when this menu opens; nothing reaches the network otherwise. */
+/** Options, from the gear at the foot of the sidebar: the palette (both windows follow it), the version, and help. */
 function Options({ version }) {
   const [palette, choose] = usePalette();
   const menu = useRef(null);
-  const [upd, setUpd] = useState({ state: "idle" }); // idle | checking | checked | installing | error
-  const check = () => {
-    setUpd({ state: "checking" });
-    footnote("update", "--check").then(
-      (r) => setUpd({ state: "checked", ...r }),
-      (e) => setUpd({ state: "error", error: String(e) }),
-    );
-  };
-  const install = () => {
-    setUpd((u) => ({ ...u, state: "installing" }));
-    installUpdate().then(
-      (r) => r?.up_to_date && setUpd((u) => ({ ...u, state: "checked", newer: false })),
-      (e) => setUpd((u) => ({ ...u, state: "error", error: String(e) })),
-    );
-  };
   const onToggle = (e) => {
-    if (e.newState !== "open") return;
-    if (upd.state === "idle" || upd.state === "error") check();
-    requestAnimationFrame(() => menu.current?.querySelector("[aria-checked='true']")?.focus());
+    if (e.newState === "open") requestAnimationFrame(() => menu.current?.querySelector("[aria-checked='true']")?.focus());
   };
   const onKey = (e) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
@@ -221,14 +205,12 @@ function Options({ version }) {
     e.preventDefault();
     list[(at + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length]?.focus();
   };
-  const newer = upd.state !== "idle" && upd.newer;
   return (
     <>
-      <Tip tip={newer ? `Options · ${upd.latest} is available` : "Options"} side="right">
-        <button type="button" className={`ic-btn anchor-self${newer ? " on" : ""}`} popoverTarget="options" aria-label="Options"
-          aria-haspopup="dialog" style={{ "--anchor": "--options" }}>
+      <Tip tip="Options" side="right">
+        <button type="button" className="ic-btn anchor-self" popoverTarget="options" aria-label="Options" aria-haspopup="dialog"
+          style={{ "--anchor": "--options" }}>
           <Settings2 size={15} strokeWidth={1.75} />
-          {newer && <span className="badge-dot" aria-hidden="true" />}
         </button>
       </Tip>
       <div ref={menu} id="options" popover="auto" role="dialog" aria-label="Options" className="menu options lglass"
@@ -242,34 +224,12 @@ function Options({ version }) {
             </button>
           ))}
         </div>
-        <div className="menu-title">Updates</div>
+        <div className="menu-title">Footnote One</div>
         <div className="upd">
-          <div className="upd-line">
-            <span className="dimmed">Installed</span>
-            <b className="mono">{version ?? "–"}</b>
-          </div>
-          <div className="upd-line" role="status">
-            <span className="dimmed">Latest</span>
-            {upd.state === "checking" ? <span className="dimmed small">checking GitHub…</span>
-              : upd.state === "error" ? <span className="warn small">{clip(upd.error, 60)}</span>
-              : upd.latest ? <b className={`mono${upd.newer ? " ok" : ""}`}>{upd.latest}</b> : <span className="dimmed">–</span>}
-          </div>
-          {upd.state === "installing" ? (
-            <p className="small dimmed">Downloading and checking the installer. Footnote closes, installs, and reopens by itself.</p>
-          ) : upd.newer ? (
-            <button type="button" className="btn primary" onClick={install}>
-              <Download size={13} strokeWidth={2} /> Update to {upd.latest}
-            </button>
-          ) : upd.state === "checked" ? (
-            <span className="state-dot small">Up to date</span>
-          ) : upd.state === "error" ? (
-            <button type="button" className="btn" onClick={check}>Try again</button>
-          ) : null}
-          <button type="button" className="help-link small" onClick={() => openSupport("install")}>Release notes</button>
-        </div>
-        <div className="menu-title">Help</div>
-        <div className="upd">
+          <div className="upd-line"><span className="dimmed">Version</span><b className="mono">{version ?? "–"}</b></div>
           <span className="small">
+            <button type="button" className="help-link" onClick={() => openSupport("install")}>Release notes</button>
+            {" · "}
             <button type="button" className="help-link" onClick={() => openSupport("issues")}>Report an issue</button>
             {" · "}
             <button type="button" className="help-link" onClick={() => openSupport("email")}>Email</button>
@@ -277,6 +237,116 @@ function Options({ version }) {
         </div>
       </div>
     </>
+  );
+}
+
+const SIX_HOURS = 6 * 3600 * 1000;
+const ago = (iso) => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
+
+/** The release's bullet points (its Markdown body), with **bold** kept, for the "what's new" card. */
+function whatsNew(md) {
+  // Top-level bullets only, each with its wrapped continuation lines; nested bullets are details for the release page.
+  const items = [];
+  let open = false;
+  for (const line of String(md ?? "").split(/\r?\n/)) {
+    if (/^[-*] /.test(line)) {
+      items.push(line.slice(2).trim());
+      open = true;
+    } else if (open && /^\s+\S/.test(line) && !/^\s+[-*] /.test(line)) {
+      items[items.length - 1] += ` ${line.trim()}`;
+    } else {
+      open = false;
+    }
+  }
+  const tidy = (t) => {
+    const s = clip(t.replace(/\s*\([^()]*#\d+[^()]*\)/g, "").replace(/`/g, ""), 170).replace(/:$/, "");
+    // A cut can leave one `**` without its pair: drop that one only.
+    return (s.match(/\*\*/g) ?? []).length % 2 ? s.replace(/\*\*(?!.*\*\*)/, "") : s;
+  };
+  const bold = (t) => tidy(t).split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
+  return { shown: items.slice(0, 6).map(bold), more: Math.max(0, items.length - 6) };
+}
+
+/** The update button (T3 Code's flow): a sync mark that checks GitHub's latest release, a download mark with "what's new"
+ * on hover when one is newer, a ring while it downloads and verifies, then "restart to update", which installs without
+ * any window and reopens Footnote. It checks at start and every six hours: one request to GitHub's releases, nothing sent. */
+function Updater({ version }) {
+  const [u, setU] = useState({ state: "idle" }); // idle | checking | current | available | downloading | ready | installing | error
+  const check = useCallback(() => {
+    setU((x) => (x.state === "downloading" || x.state === "ready" || x.state === "installing" ? x : { ...x, state: "checking" }));
+    footnote("update", "--check").then(
+      (r) => setU((x) => (x.state === "downloading" || x.state === "ready" || x.state === "installing" ? x
+        : { ...r, state: r.newer ? "available" : "current" })),
+      (e) => setU((x) => ({ ...x, state: "error", error: String(e), retry: "check" })),
+    );
+  }, []);
+  useEffect(() => {
+    const first = setTimeout(check, 4000);
+    const every = setInterval(check, SIX_HOURS);
+    return () => { clearTimeout(first); clearInterval(every); };
+  }, [check]);
+  useEffect(() => {
+    if (u.state !== "downloading") return;
+    const t = setInterval(() => {
+      footnote("jobs").then((j) => {
+        const job = (j.jobs ?? []).find((x) => x.kind === "update.download" && x.state === "running");
+        if (job?.total) setU((x) => (x.state === "downloading" ? { ...x, pct: Math.min(99, Math.round((100 * job.done) / job.total)) } : x));
+      }, () => {});
+    }, 400);
+    return () => clearInterval(t);
+  }, [u.state]);
+  const download = () => {
+    setU((x) => ({ ...x, state: "downloading", pct: 0 }));
+    footnote("update", "--download").then(
+      (r) => setU((x) => (r.up_to_date ? { ...x, state: "current" } : { ...x, state: "ready", pct: 100 })),
+      (e) => setU((x) => ({ ...x, state: "error", error: String(e), retry: "download" })),
+    );
+  };
+  const restart = () => {
+    setU((x) => ({ ...x, state: "installing" }));
+    installUpdate().then(
+      (r) => r?.up_to_date && setU((x) => ({ ...x, state: "current" })),
+      (e) => setU((x) => ({ ...x, state: "error", error: String(e), retry: "download" })),
+    );
+  };
+  const notes = whatsNew(u.notes);
+  const card = (title) => (
+    <span className="upd-card">
+      <b className="upd-title">{title}</b>
+      <span className="dimmed mono small">{u.latest}{u.published_at ? ` · ${ago(u.published_at)}` : ""}</span>
+      {notes.shown.length > 0 && <ul>{notes.shown.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+      {notes.more > 0 && <span className="small"><b>Plus {notes.more} more changes.</b></span>}
+    </span>
+  );
+  const view = {
+    idle: { Icon: RefreshCw, tip: `Check for updates · ${version ?? ""}`, act: check },
+    checking: { Icon: RefreshCw, tip: "Checking GitHub for a newer release…", spin: true },
+    current: { Icon: RefreshCw, tip: `Up to date · ${u.latest ?? version ?? ""}. Click to check again.`, act: check, badge: "ok" },
+    available: { Icon: Download, tip: card("Update ready to download"), act: download, badge: "new", on: true },
+    downloading: { Icon: Download, tip: `Downloading and verifying ${u.latest} · ${u.pct ?? 0}%`, ring: true, on: true },
+    ready: { Icon: RotateCw, tip: card("Restart Footnote to update"), act: restart, badge: "ok", on: true },
+    installing: { Icon: RefreshCw, tip: "Installing. Footnote closes and reopens by itself.", spin: true, on: true },
+    error: { Icon: CircleAlert, tip: `${clip(u.error, 120)} Click to try again.`, act: u.retry === "download" ? download : check, warn: true },
+  }[u.state];
+  return (
+    <Tip tip={view.tip} side="right">
+      <button type="button" className={`ic-btn upd-btn${view.on ? " on" : ""}${view.warn ? " warn" : ""}`} onClick={view.act}
+        disabled={!view.act} aria-label={typeof view.tip === "string" ? view.tip : `${u.state === "ready" ? "Restart to update to" : "Download"} ${u.latest}`}>
+        <view.Icon size={15} strokeWidth={1.9} className={view.spin ? "spin" : ""} />
+        {view.ring && (
+          <svg className="upd-ring" viewBox="0 0 30 30" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="27" height="27" rx="9" pathLength="100" className="track" />
+            <rect x="1.5" y="1.5" width="27" height="27" rx="9" pathLength="100" className="fill"
+              style={{ strokeDashoffset: 100 - (u.pct ?? 0) }} />
+          </svg>
+        )}
+        {view.badge === "new" && <span className="badge-dot" aria-hidden="true" />}
+        {view.badge === "ok" && u.state === "ready" && <span className="badge-ok" aria-hidden="true"><Check size={8} strokeWidth={4} /></span>}
+      </button>
+    </Tip>
   );
 }
 
@@ -352,6 +422,7 @@ function Sidebar({ status, projects, screen, go }) {
           <span>Free and open source</span>
           {onDisk > 0 && <span className="mono">{mb(onDisk)} of models</span>}
         </span>
+        <Updater version={status?.version} />
       </div>
     </aside>
   );

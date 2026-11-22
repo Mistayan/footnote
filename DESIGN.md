@@ -153,11 +153,16 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
     arms it (danger fill, one shake) for a second click to confirm. Approve and reject (pending memories, skill changes) are a
     green check and a red cross in 30 px squircles: hover fills them and redraws the mark, the one clicked pulses until the
     engine answers, and each names its effect in a tooltip.
-  - **Options (sidebar foot):** a gear opens the palette (five squircle swatches; both windows follow the choice), updates
-    and help. The installed version shows in full beside the brand (`0.1.0-alpha.3`, as shipped). Updates are checked
-    against the latest GitHub release only when Options opens, never in the background; when a newer one exists the gear
-    gets a green mark and "Update to <version>" downloads the Windows installer, checks it against the release's `.sha256`,
-    runs it silently, and reopens Footnote. The palette button left the top bar.
+  - **Options (sidebar foot):** a gear opens the palette (five squircle swatches; both windows follow the choice), the
+    version and help. The installed version shows in full beside the brand (`0.1.0-alpha.3`, as shipped). The palette
+    button left the top bar.
+  - **Updates (T3 Code's flow), beside the gear:** a sync mark checks the latest GitHub release at start and every six
+    hours (one request to GitHub's releases API; nothing is sent). When a newer release exists it becomes a download mark
+    with a green badge, and hovering shows "what's new" from the release notes (top-level bullets, issue numbers dropped).
+    A click downloads the Windows installer and checks it against the release's `.sha256`, drawing a squircle progress
+    ring; then the mark becomes "restart to update". That click runs the installer with no window (`/VERYSILENT`), closes
+    Footnote, and reopens it when the installer is done. Nothing is killed: the installer stops the launcher and sets
+    aside a `footnote.exe` an agent still runs, and those agents pick up the new binary in their next session.
   - **Agents:** each agent chip is green (Memory hooks and MCP server connected), amber (one missing, shown dashed) or red
     (both missing). A non-green chip has a wrench that runs `footnote install --memory` (it reconnects every agent found and
     rewrites only Footnote's own entries) and asks for a restart of the agent.
@@ -176,7 +181,7 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
-| 2026-11-22 | Mini window becomes a squircle KPI widget with a card slider and its own minimize / open full / close controls; Options menu (palette, updates from GitHub releases, help) at the sidebar foot; agent chips repair themselves; the commit pictogram sends the request to the agent | Maintainer review of the real window: the mini's lenses and frame read as a bezel, the version label did not match the shipped release, and copying a request to the clipboard was a useless step | Keep the D2 lenses; background update checks (network use the user did not ask for); per-agent installs (the engine connects every agent found in one step) |
+| 2026-11-22 | Mini window becomes a squircle KPI widget with a card slider and its own minimize / open full / close controls; Options menu (palette, updates from GitHub releases, help) at the sidebar foot; agent chips repair themselves; the commit pictogram sends the request to the agent | Maintainer review of the real window: the mini's lenses and frame read as a bezel, the version label did not match the shipped release, and copying a request to the clipboard was a useless step | Keep the D2 lenses; a check only when Options opens (replaced the same day by T3 Code's flow: check at start and every six hours, download, restart to update); per-agent installs (the engine connects every agent found in one step) |
 | 2026-11-22 | Launcher shape: squircles everywhere, never full round (pills, tabs, switch, chips, rail, buttons); approve and reject as a green check and a red cross | Maintainer review: the app never used full round, and Apple's squircle is the reference; text Approve/Reject buttons read heavier than the decision needs | Capsule pills and round icon buttons (the first pass of the rework); text buttons |
 | 2026-11-22 | Launcher glass rework: five palettes, glass chrome and heroes, squircle cards, lit borders, tick scroll rail, popover selects, sliding tabs, spring switch, anchored tooltips, armed trash; Projects as cards; Activity only on active days | Maintainer review of the launcher (22 Nov): native controls looked dated, tables were dense and noisy, zero rows and unpushed counts said nothing | Keep dark-only Afterglow with native selects and scrollbars; glass on every row (cost: many blurred layers) |
 | 2026-11-21 | Product heroes get their own canvas scene (magnifier, memory web, call graph) behind an unblurred lens | Each product page should feel alive like the home page but show what that product does | The home swarm settling into each product mark (read as the same animation with a different logo) |

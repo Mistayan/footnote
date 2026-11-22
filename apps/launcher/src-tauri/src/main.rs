@@ -304,9 +304,11 @@ fn open_project_folder(path: String) -> Result<(), String> {
     open_outside(folder.as_os_str())
 }
 
-/// Install the latest release (Options, 22 Nov 2026): the engine downloads the Windows installer and checks its SHA-256;
-/// this runs it silently, reopens Footnote when it is done, and closes this window so its files can be replaced. The path
-/// comes from the engine, never from the page.
+/// Restart to update (22 Nov 2026): the page has already had the engine download and verify the installer
+/// (`update --download`), so asking again returns the same verified file at once. This runs it with no window at all,
+/// closes Footnote so its files can be replaced (the installer also stops the launcher and sets aside a `footnote.exe` an
+/// agent still runs), and starts Footnote again when the installer is done. The path comes from the engine, never from
+/// the page.
 #[tauri::command(async)]
 fn install_update(app: tauri::AppHandle) -> Result<Value, String> {
     let got = footnote(vec!["update".into(), "--download".into()])?;
@@ -341,7 +343,7 @@ fn run_installer(installer: &std::path::Path) -> Result<(), String> {
     let me = std::env::current_exe().map_err(|e| e.to_string())?;
     Command::new("cmd.exe")
         .raw_arg(format!(
-            "/C start \"\" /wait \"{}\" /SILENT /SUPPRESSMSGBOXES /NORESTART & start \"\" \"{}\"",
+            "/C start \"\" /wait \"{}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART & start \"\" \"{}\"",
             installer.display(),
             me.display()
         ))
