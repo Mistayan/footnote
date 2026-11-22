@@ -214,7 +214,7 @@ pub fn list(state: &Path) -> Result<Value> {
     )
 }
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
     ureq::Agent::config_builder()
         .tls_config(
@@ -228,7 +228,7 @@ fn agent() -> ureq::Agent {
 }
 
 /// Stream `url` into `to`, reporting bytes against the size the server announces.
-fn download(url: &str, to: &Path, job: &mut footnote_core::jobs::Job) -> Result<()> {
+pub(crate) fn download(url: &str, to: &Path, job: &mut footnote_core::jobs::Job) -> Result<()> {
     use std::io::Write;
     let response = agent()
         .get(url)
@@ -258,7 +258,7 @@ fn download(url: &str, to: &Path, job: &mut footnote_core::jobs::Job) -> Result<
     Ok(())
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
+pub(crate) fn sha256_file(path: &Path) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut f = fs::File::open(path)?;
     let mut h = Sha256::new();

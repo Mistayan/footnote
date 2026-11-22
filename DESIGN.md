@@ -55,7 +55,8 @@ Rule: the accent marks actions, Footnote's own results in charts, and sources. N
 
 ## 5. Space and shape
 - Spacing steps (from the lock): 4, 8, 13, 17, 25, 34, 50, 67 px.
-- Radius: 21 px for blocks and cards; full round for pills and lenses.
+- Radius: 21 px for blocks and cards on the site. The launcher draws every corner as a squircle and never full round (22 Nov
+  2026, section 11); full round stays only for the logo lens, the mini-mode lenses and status dots.
 - Elevation: **slight liquid glass** on chosen elements only (the logo lens, the product palette, one or two hero panels): translucent fill, specular rim, refraction of the moving data behind. Everything else is flat surface + hairline. Never glass on every card.
 - Icons: thin outline, 1.6 stroke on a 24-unit grid, round joins.
 
@@ -95,11 +96,17 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 - **Full window (D1 "Console" structure):** sidebar 232 px (products, workspace, not installed, Footnote Enterprise group, quiet
   support link at the foot), top bar 44 px, content, activity column 320 px. Dense tables for projects and agents,
   three product cards with one big number each.
-- **Mini mode (D2 "Lens"):** the tray panel and the floating bubble: one glass lens per product, live data moving between them, a
-  few numbers. A switch moves between mini mode and the full window.
+- **Mini mode (reworked 22 Nov 2026; was D2 "Lens"):** the tray's quick look, opened by a left click on the tray icon. One
+  squircle widget on a transparent, shadowless window (no OS frame or bezel), 380 x 248. A title row with the lens mark and
+  three controls: minimize, open the full window (in place of maximize), close to the tray. Below, a slider of single-KPI
+  cards (Memory, today's tokens and list cost, projects with work to commit, agents connected, Library and Code), each with
+  one big number, one line, and a link that opens the matching screen in the full window. Arrow keys, the bar-shaped page
+  marks or the side chevrons move between cards; the last card shown is remembered. It follows the palette chosen in the
+  full window. Anything to act on happens in the full window.
 - **Tokens:** the site's palette (section 3), Plus Jakarta Sans for titles and big numbers, Hanken Grotesk 14 px for UI text,
-  JetBrains Mono for paths, ids and timings. App radius 12 px for cards, 8 px for controls, full round for lenses and pills (the
-  site's 21 px stays for marketing blocks). Functional text never below 11 px. Dark only.
+  JetBrains Mono for paths, ids and timings. App radius 16 px for cards and 10 px for controls, drawn as squircles (see the glass
+  rework below; the site's 21 px stays for marketing blocks). Functional text never below 11 px. Afterglow (dark) is the default palette; four
+  more are the viewer's choice since 22 Nov 2026 (see the glass rework below).
 - **Motion:** full window subtle (160 ms, transform and opacity only); mini mode lively (the lenses and data flow); nothing moves
   under reduced motion.
 - **Code views, by zoom level:** architecture map (blocks with import counts and outside services as dashed nodes: the inputs and
@@ -124,9 +131,59 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   - Below the card, under the title "Changes waiting for you" with their count, is the list of agents' pending skill changes. Each item has the name, scope, revision, the date it was proposed, the reason and changed files, then "Show the changes" (the line diff from `footnote skills diff`, with old and new line numbers, removed lines on a `--warn` tint, added on an `--ok` tint, unchanged runs folded into a row that unfolds them in place and moves focus to the first revealed line, or opens the folder for a run over 500 lines; no font ligatures in diffs), "Open folder" (the engine names the folder; the window only names the skill), and Approve / Reject on the right. Approve is a `--acc`-bordered button.
   - All prose is 14 px on a 20 px line, capped at 60ch (at most about 75 characters of Hanken Grotesk); the cost text is at full `--text` strength, and its measurement report opens on the project's site. Spacing is on the 4 px grid. The loading state draws the card and one change as skeletons of the same size.
 
+- **Glass rework (22 Nov 2026, maintainer request; no QLoop pass yet):** Apple-derived chrome on the D1 structure. The
+  tokens live in `apps/launcher/src/styles.css`, the components in `src/ui.jsx`, the materials in `src/glass.css`; each control
+  follows a design-bank recipe (`design-bank/protos/css.html`, `protos/hover.html`).
+  - **Palettes:** Afterglow (family, default), Graphite, Midnight, Ember and Daylight (the only light one), picked from the
+    Appearance menu in the top bar and kept in the window's local storage. Every colour in the window reads a token; chart
+    series use `--c1` to `--c4`, destructive actions `--bad`.
+  - **Materials:** `.lglass` (blur 22 px, saturate 1.5) for the sidebar, top bar, heroes, menus and tooltips; `.surface` (the
+    same tint without blur) for list rows, so a page of 50 rows never stacks 50 blurred layers. Under
+    `prefers-reduced-transparency` both are solid `--panel`. Faint pools of `--acc` and `--acc2` sit behind the glass.
+  - **Shape: squircles, never full round.** Every corner in the window is an Apple-style squircle (`corner-shape: squircle`;
+    the radius grows about 1.6x to keep the same visual size: about 11 px for chips and icon tiles, 15 px for buttons,
+    fields, tabs and the switch, 18 px for tab groups, stats and nav items, 22 px for menus, 27 px for cards). Pills, tabs,
+    the switch track and knob, chips, badges, the scroll rail and the approve/reject buttons are all squircles; thin meters
+    use 3 px. Full round is kept only for the logo lens, the mini-mode lenses and status dots. Without `corner-shape`
+    support the same elements fall back to plain radii, still never full round. Lit border: a 240 px halo follows the
+    pointer across neighbouring `.lit` cards; off for touch and reduced motion.
+  - **Controls:** popover menus replace native selects (entry and exit with `@starting-style`, arrow keys, Escape); tabs carry a
+    sliding pill anchored to the selected tab; the on/off switch is 44 x 26 with a `linear()` spring; tooltips are anchored
+    manual popovers in the top layer and replace `title`; delete is a small trash whose lid lifts on hover, and a first click
+    arms it (danger fill, one shake) for a second click to confirm. Approve and reject (pending memories, skill changes) are a
+    green check and a red cross in 30 px squircles: hover fills them and redraws the mark, the one clicked pulses until the
+    engine answers, and each names its effect in a tooltip.
+  - **Options (sidebar foot):** a gear opens the palette (five squircle swatches; both windows follow the choice), the
+    version and help. The installed version shows in full beside the brand (`0.1.0-alpha.3`, as shipped). The palette
+    button left the top bar.
+  - **Updates (T3 Code's flow), beside the gear:** a sync mark checks the latest GitHub release at start and every six
+    hours (one request to GitHub's releases API; nothing is sent). When a newer release exists it becomes a download mark
+    with a green badge, and hovering shows "what's new" from the release notes (top-level bullets, issue numbers dropped).
+    A click downloads the Windows installer and checks it against the release's `.sha256`, drawing a squircle progress
+    ring; then the mark becomes "restart to update". That click runs the installer with no window (`/VERYSILENT`), closes
+    Footnote, and reopens it when the installer is done. Nothing is killed: the installer stops the launcher and sets
+    aside a `footnote.exe` an agent still runs, and those agents pick up the new binary in their next session.
+  - **Agents:** each agent chip is green (Memory hooks and MCP server connected), amber (one missing, shown dashed) or red
+    (both missing). A non-green chip has a wrench that runs `footnote install --memory` (it reconnects every agent found and
+    rewrites only Footnote's own entries) and asks for a restart of the agent.
+  - **Commit pictogram:** a click sends the engine's fixed commit-and-push request to the next agent turn in that project
+    (`footnote agent-ask`); while it waits the pictogram turns into an accent send mark, and a click withdraws it.
+  - **Scrolling:** no native scrollbar in the main area. A tick rail on the right edge has more ticks the more content is off
+    screen (about 9 per screen, 10 to 64) and lights the ticks in view; clicking or dragging it scrolls.
+  - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
+    are one card each: name (24 characters, full name in the tooltip), last seen, a drive squircle plus the last folder (opens
+    the folder; the shell checks the engine's project list first), then pictograms for memories, code graph (or a build
+    button) and uncommitted changes (red; a click copies a commit-and-push request for the agent). Unpushed counts are
+    dropped. Models: the hero names the active model(s); each licence chip opens what the licence allows and links its text.
+    Memory rows show only id, kind pictogram, first sentence, scope and date; the text opens below with
+    `interpolate-size`. Activity shows only days with activity; a day (bar or list) opens its recalls in a fixed-width table.
+
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
+| 2026-11-22 | Mini window becomes a squircle KPI widget with a card slider and its own minimize / open full / close controls; Options menu (palette, updates from GitHub releases, help) at the sidebar foot; agent chips repair themselves; the commit pictogram sends the request to the agent | Maintainer review of the real window: the mini's lenses and frame read as a bezel, the version label did not match the shipped release, and copying a request to the clipboard was a useless step | Keep the D2 lenses; a check only when Options opens (replaced the same day by T3 Code's flow: check at start and every six hours, download, restart to update); per-agent installs (the engine connects every agent found in one step) |
+| 2026-11-22 | Launcher shape: squircles everywhere, never full round (pills, tabs, switch, chips, rail, buttons); approve and reject as a green check and a red cross | Maintainer review: the app never used full round, and Apple's squircle is the reference; text Approve/Reject buttons read heavier than the decision needs | Capsule pills and round icon buttons (the first pass of the rework); text buttons |
+| 2026-11-22 | Launcher glass rework: five palettes, glass chrome and heroes, squircle cards, lit borders, tick scroll rail, popover selects, sliding tabs, spring switch, anchored tooltips, armed trash; Projects as cards; Activity only on active days | Maintainer review of the launcher (22 Nov): native controls looked dated, tables were dense and noisy, zero rows and unpushed counts said nothing | Keep dark-only Afterglow with native selects and scrollbars; glass on every row (cost: many blurred layers) |
 | 2026-11-21 | Product heroes get their own canvas scene (magnifier, memory web, call graph) behind an unblurred lens | Each product page should feel alive like the home page but show what that product does | The home swarm settling into each product mark (read as the same animation with a different logo) |
 | 2026-11-21 | Home: four product cards (Lean added) in a 2 × 2 staggered grid, each with a static example snippet of its own output instead of the big glyph lens; 21 px card-title size; 320 ms motion cap | Cards looked identical; Lean shipped in v0.1.0-alpha.2; critics flagged ad-hoc title sizes and 0.5 to 1 s transitions | Lean inside the engine section; glyph lens on every card |
 | 2026-11-16 | Launcher: D1 structure (full window) + D2 lenses (mini mode), family palette and fonts | D2 is clean aesthetically but sparse in data; D1 surfaces all operational telemetry; shared palette unifies both modes | D3 Ledger (light paper, serif), D4 Palette (command box first) |

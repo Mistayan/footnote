@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { footnote, num } from "./data.js";
 import { place } from "./layout.js";
+import { Select, Tabs } from "./ui.jsx";
+import { FolderGit2 } from "lucide-react";
 
 // Code, by zoom level (DESIGN.md section 11): the architecture map of a project, then one symbol's callers and callees.
 // Never the whole graph at once.
@@ -22,22 +24,12 @@ export default function Code({ projects, view, go }) {
     <div className="body">
       <div className="bar">
         {graphs.length > 1 ? (
-          <label>
-            <span className="sr-only">Project</span>
-            <select className="btn" value={project.path} onChange={(e) => setRoot(e.target.value)}>
-              {graphs.map((p) => <option key={p.path} value={p.path}>{p.name}</option>)}
-            </select>
-          </label>
+          <Select value={project.path} options={graphs.map((p) => ({ value: p.path, label: p.name }))} onChange={setRoot}
+            label="Project" icon={FolderGit2} />
         ) : (
           <b>{project.name}</b>
         )}
-        <div className="tabs" role="tablist" aria-label="Code view">
-          {[["map", "Architecture"], ["layers", "Layers"], ["symbol", "Symbol"]].map(([k, label]) => (
-            <button key={k} role="tab" aria-selected={view === k} className="tab" onClick={() => go(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
+        <Tabs value={view} options={[["map", "Architecture"], ["layers", "Layers"], ["symbol", "Symbol"]]} onChange={go} label="Code view" />
       </div>
       {view === "symbol" ? <Symbol root={project.path} key={project.path} /> : view === "layers" ? <Layers root={project.path} key={project.path} /> : <Map root={project.path} key={project.path} />}
     </div>
@@ -482,12 +474,11 @@ function Symbol({ root }) {
         {s && (
           <>
             {found.length > 1 && (
-              <label className="dimmed">
-                {found.length} definitions:{" "}
-                <select className="btn" value={i} onChange={(e) => setI(Number(e.target.value))}>
-                  {found.map((f, k) => <option key={k} value={k}>{f.path}:{f.lines[0]}</option>)}
-                </select>
-              </label>
+              <span className="dimmed bar">
+                {found.length} definitions
+                <Select value={i} options={found.map((f, k) => ({ value: k, label: `${f.path}:${f.lines[0]}` }))} onChange={setI}
+                  label="Definition" />
+              </span>
             )}
             <h2 className="title mono">{s.name}</h2>
             <p className="mono sig">{s.signature || s.kind}</p>

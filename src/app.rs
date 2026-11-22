@@ -289,11 +289,18 @@ enum Action {
         add_to_path: bool,
     },
     /// Replace this binary with a newer one; the current one is kept beside it so `rollback` can put it back. Data in the state
-    /// folder is not touched.
+    /// folder is not touched. `--check` compares this version with the latest GitHub release; `--download` fetches that
+    /// release's Windows installer and checks its SHA-256 (the launcher then runs it).
     Update {
         /// The new footnote binary (checked with `--version` before anything moves).
-        #[arg(long)]
-        from: PathBuf,
+        #[arg(long, required_unless_present_any = ["check", "download"])]
+        from: Option<PathBuf>,
+        /// Only compare this version with the latest release.
+        #[arg(long, conflicts_with_all = ["from", "download"])]
+        check: bool,
+        /// Download the latest release's Windows installer into the state folder and verify it.
+        #[arg(long, conflicts_with = "from")]
+        download: bool,
     },
     /// Put back the binary that the last `update` replaced.
     Rollback,
@@ -366,6 +373,16 @@ enum Action {
     /// unpushed git work.
     #[cfg(feature = "memory")]
     Projects,
+    /// Ask the next agent turn in a project to commit and push its uncommitted work (the launcher's commit button). The
+    /// request waits up to a day; the agent receives it once, at a new prompt or session or at the end of a turn.
+    #[cfg(feature = "memory")]
+    AgentAsk {
+        /// The project's name, as `footnote projects` lists it.
+        project: String,
+        /// Withdraw the waiting request instead.
+        #[arg(long)]
+        cancel: bool,
+    },
     /// What memory did, day by day: memories saved, sessions and prompts given memories, the memories used most.
     #[cfg(feature = "memory")]
     Activity {
@@ -1087,6 +1104,10 @@ fn execute(cli: Cli) -> Result<Value> {
         #[cfg(feature = "memory")]
         Action::Projects => return crate::projects::list(&crate::state::state_dir()?),
         #[cfg(feature = "memory")]
+        Action::AgentAsk { project, cancel } => {
+            return crate::projects::ask(&crate::state::state_dir()?, project, *cancel);
+        }
+        #[cfg(feature = "memory")]
         Action::Activity { days } => return crate::activity::activity(*days),
         #[cfg(feature = "memory")]
         Action::MemoryReview { limit } => return crate::review::review(usize::from(*limit)),
@@ -1349,7 +1370,14 @@ fn execute(cli: Cli) -> Result<Value> {
             let mem_out = json!({"error": "this build has no Footnote Memory"});
             return Ok(json!({"dry_run": dry_run, "memory": mem_out, "lean": lean_out}));
         }
-        Action::Update { from } => return crate::update::update(from),
+        Action::Update { check: true, .. } => return crate::update::check(),
+        Action::Update { download: true, .. } => return crate::update::download(),
+        Action::Update { from, .. } => {
+            return crate::update::update(
+                from.as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--from names the new binary"))?,
+            );
+        }
         Action::Rollback => return crate::update::rollback(),
         Action::Config { action } => {
             let state = crate::state::state_dir()?;
@@ -1563,6 +1591,8 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         #[cfg(feature = "memory")]
         Action::Projects => unreachable!("dispatched before the database is opened"),
+        #[cfg(feature = "memory")]
+        Action::AgentAsk { .. } => unreachable!("dispatched before the database is opened"),
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
         Action::Install { .. }
         | Action::Uninstall { .. }
@@ -1743,6 +1773,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Jobs => "jobs",
         #[cfg(feature = "memory")]
         Action::Projects => "projects",
+        #[cfg(feature = "memory")]
+        Action::AgentAsk { .. } => "agent-ask",
         #[cfg(feature = "memory")]
         Action::Activity { .. } => "activity",
         Action::Usage { .. } => "usage",

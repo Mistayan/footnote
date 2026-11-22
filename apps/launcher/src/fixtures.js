@@ -11,7 +11,7 @@ const models = {
 };
 
 const status = {
-  version: "0.1.0-alpha.1",
+  version: "0.1.0-alpha.3",
   models,
   products: {
     code: { built: true, enabled: true, graphs: 2, rust_indexer: true },
@@ -22,6 +22,7 @@ const status = {
         { agent: "claude-code", hooks: true, mcp_server: true },
         { agent: "codex", hooks: true, mcp_server: true },
         { agent: "deepseek-harness", hooks: false, mcp_server: true },
+        { agent: "gemini-cli", hooks: false, mcp_server: false },
       ],
     },
   },
@@ -37,8 +38,8 @@ const iso = (back) => {
 const projects = {
   projects: [
     { name: "atlas-api", path: "D:/work/atlas-api", exists: true, first_seen: iso(20), last_seen: iso(0), memories: 96, code_graph: true, git: { uncommitted: 0, unpushed: 0 } },
-    { name: "harbor-web", path: "D:/work/harbor-web", exists: true, first_seen: iso(12), last_seen: iso(1), memories: 31, code_graph: false, git: { uncommitted: 12, unpushed: 3 } },
-    { name: "ledger-sync", path: "D:/work/ledger-sync", exists: true, first_seen: iso(9), last_seen: iso(3), memories: 18, code_graph: true, git: { uncommitted: 0, unpushed: 5 } },
+    { name: "harbor-web", path: "D:/work/harbor-web", exists: true, first_seen: iso(12), last_seen: iso(1), memories: 31, code_graph: false, git: { uncommitted: 12, unpushed: 3 }, ask: { kind: "commit", asked_at: 1763800000 } },
+    { name: "ledger-sync", path: "D:/work/ledger-sync", exists: true, first_seen: iso(9), last_seen: iso(3), memories: 18, code_graph: true, git: { uncommitted: 4, unpushed: 5 } },
     { name: "old-prototype", path: "D:/archive/old-prototype", exists: false, first_seen: iso(30), last_seen: iso(14), memories: 4, code_graph: false, git: null },
   ],
 };
@@ -53,10 +54,10 @@ const activity = {
     sessions: [0, 2, 4, 0, 6, 5, 7][i],
   })),
   recent: [
-    { t: Date.UTC(2026, 10, 17, 9, 12), event: "recall", project: "atlas-api", memories: [
+    { t: Date.parse(`${iso(0)}T09:12:00Z`), event: "recall", project: "atlas-api", memories: [
       { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident." },
       { id: 42, kind: "preference", scope: "global", observed_at: "2026-11-10", text: "Prefers small pull requests, one per piece of work, with tests run locally before review." }] },
-    { t: Date.UTC(2026, 10, 17, 8, 40), event: "pack", project: "harbor-web", memories: [
+    { t: Date.parse(`${iso(0)}T08:40:00Z`), event: "pack", project: "harbor-web", memories: [
       { id: 88, kind: "fact", scope: "harbor-web", observed_at: "2026-11-09", text: "harbor-web deploys from the release branch only; main is for review builds." },
       { id: 9, gone: true }] },
   ],
@@ -233,11 +234,23 @@ const diff2 = {
 
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
-    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
-    corpora: { corpora: [{ path: "D:/docs/atlas.db", exists: true }] },
-    "memory-list": { total: 2, scopes: [{ scope: "atlas-api", memories: 2 }], memories: [
-      { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", tags: [] },
-      { id: 42, kind: "preference", scope: "atlas-api", observed_at: "2026-11-10", text: "Prefers small pull requests with tests run locally before review.", tags: ["review"] }] },
+    options: options(), "agent-ask": { queued: true }, "install --memory": { installed: true },
+    "update --check": { installed: "0.1.0-alpha.3", latest: "0.1.0-alpha.4", newer: true, installer: "Footnote-Setup-0.1.0-alpha.4-x64.exe",
+      published_at: new Date(Date.now() - 51 * 60000).toISOString(),
+      notes: "## Release Notes\n\nSecond alpha. The headline is a Windows installer that brings the desktop launcher, in the tray. Expect rough edges and\nbreaking changes between versions.\n\n### New\n\n- **Windows installer** (`Footnote-Setup-0.1.0-alpha.3-x64.exe`, #125): the engine and the desktop launcher in one step, for\n  your user, with no administrator rights.\n  - **Always added:** a Start menu shortcut.\n  - **On by default:** Footnote starts in the tray (notification area) when you sign in, and goes on PATH. Both can be\n    unchecked.\n  - **Off by default:** a desktop shortcut, and connecting the coding agents found now (`footnote install`).\n  - It carries the Visual C++ runtime the engine needs, so it runs on a fresh Windows.\n  - **Upgrades:** safe while your agents use Footnote. The old binary is set aside, and their MCP servers keep running.\n  - **Uninstall:** takes Footnote out of your agents first, and keeps your data.\n- **Launcher:**\n  - It starts in the tray without opening a window, and runs once: opening it again shows the window that is already open.\n  - A new **Skills** screen: the skill-rewrite switch with its cost, and your review of pending skill changes (#461).\n- **Agent skill layer, opt-in** (#453, #455, #458, #459, #460):\n  - Agents can propose edits to the skills they use, through `footnote_skill_edit`. Each edit passes check gates, and you\n    review it.\n  - An edit that does worse in trials is rolled back.\n  - Skills that are never read stop being suggested.\n  - Off until you turn on `memory.skill_rewrite`.\n- **Curated skills:** 23 agent skills rewritten, each with a check script (#439).\n- **Library:** search hits carry the crawled page's URL (#438). A refresh re-indexes a page whose words were only reordered\n  (#431).\n- **Memory:** a project's handoffs retire once delivered (#436).\n- **Code:** a Rust project in a subfolder (a Tauri app's `src-tauri`, `backend/`) now gets its compiler indexer (#428).\n\n### Before you install\n\n- **Nothing is code-signed.** Windows SmartScreen asks once: **More info**, then **Run anyway**. Check the file against its\n  `.sha256` first.\n- **Windows 11 hides new tray icons.** It puts them behind the `^` arrow next to the clock. To keep Footnote visible:\n  Settings > Personalization > Taskbar > Other system tray icons > Footnote.\n- **Linux needs glibc 2.38 or newer** (Ubuntu 24.04, Debian 13, Fedora 39 or later). The launcher is Windows-only for now.\n- Encrypted memory (`--features encryption`) is experimental and not in these binaries.\n\n### Install\n\n- **Windows, with the launcher:** download `Footnote-Setup-0.1.0-alpha.3-x64.exe` below and run it.\n- **Windows, command line only:**\n  `powershell -ExecutionPolicy Bypass -c \"irm https://github.com/bobcat88/footnote/releases/download/v0.1.0-alpha.3/footnote-installer.ps1 | iex\"`\n- **Linux x64:**\n  `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bobcat88/footnote/releases/download/v0.1.0-alpha.3/footnote-installer.sh | sh`\n\nThen follow [HOW-TO.md](https:/" },
+    "update --download": { installer: "C:/Users/sample/AppData/Local/footnote/updates/Footnote-Setup-0.1.0-alpha.4-x64.exe", version: "0.1.0-alpha.4" }, "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
+    corpora: { corpora: [
+      { path: "D:/docs/atlas.db", exists: true },
+      { path: "C:/Users/sample/AppData/Local/footnote/docs/rust-perf-book/latest.db", exists: true },
+      { path: "C:/Users/sample/AppData/Local/footnote/docs/jiff-guide/1.0.db", exists: true },
+      { path: "E:/old/handbook.db", exists: false }] },
+    "memory-list": { total: 6, scopes: [{ scope: "atlas-api", memories: 3 }, { scope: "global", memories: 2 }, { scope: "harbor-web", memories: 1 }], memories: [
+      { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident. Pages hold 50 items; the cursor is opaque and signed.", tags: [] },
+      { id: 42, kind: "preference", scope: "global", observed_at: "2026-11-10", text: "Prefers small pull requests with tests run locally before review.", tags: ["review"] },
+      { id: 51, kind: "fix", scope: "atlas-api", observed_at: "2026-11-15", text: "Migrations ran twice under two replicas; an advisory lock now guards them. Run them from the release job only.", tags: ["db"], origin: "claude-code" },
+      { id: 63, kind: "session", scope: "harbor-web", observed_at: "2026-11-18", text: "Session: moved the checkout form to server actions, kept the old route behind a flag until Friday.", tags: [] },
+      { id: 70, kind: "preference", scope: "global", observed_at: "2026-11-19", text: "Wants dates written as 22 Nov 2026 in every user-facing text, never 11/22.", tags: [] },
+      { id: 74, kind: "fact", scope: "atlas-api", observed_at: "2026-11-21", text: "The staging database is reset every Monday at 06:00 UTC.", tags: ["ops"] }] },
     "docs list": { docs: [
       { site: "react.dev", version: "19", state: "ready", pages: 412, bytes: 38_400_000, modified_unix: 1763337600 },
       { site: "docs.pydantic.dev", version: "2.12", state: "embedding 140/388", pages: 388, bytes: 21_000_000, modified_unix: 1763683200 }] }, "skills diff release-checklist": diff2, "skills diff": diff,

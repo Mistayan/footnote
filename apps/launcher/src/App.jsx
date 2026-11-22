@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Activity as ActivityIcon,
@@ -6,6 +6,8 @@ import {
   BookOpen,
   Brain,
   Building2,
+  Check,
+  CircleAlert,
   Copy,
   Cpu,
   FolderGit2,
@@ -13,10 +15,16 @@ import {
   LayoutDashboard,
   Minimize2,
   Minus,
+  Download,
+  Plug,
+  Settings2,
+  Wrench,
   RefreshCw,
+  RotateCw,
   Search as SearchIcon,
   Sparkles,
   Square,
+  Webhook,
   X,
 } from "lucide-react";
 import Code from "./Code.jsx";
@@ -26,8 +34,9 @@ import Search from "./Search.jsx";
 import Skills from "./Skills.jsx";
 import Usage from "./Usage.jsx";
 import { switchTo } from "./Mini.jsx";
-import { Activity as ActivityScreen, Models, Projects as ProjectsScreen } from "./Screens.jsx";
-import { AGENTS, footnote, inApp, load, mb, num, openSupport, seen, shortDate } from "./data.js";
+import { Activity as ActivityScreen, Models, ProjectCard, Projects as ProjectsScreen } from "./Screens.jsx";
+import { AGENTS, footnote, inApp, installUpdate, load, mb, num, openSupport, shortDate } from "./data.js";
+import { PALETTES, Scroll, Switch, Tip, Toasts, clip, toast, usePalette, useSpotlight } from "./ui.jsx";
 
 const SCREENS = {
   overview: { title: "Overview", note: "this week" },
@@ -97,6 +106,13 @@ export default function App() {
     location.hash = `/${name}${query}`;
   }, []);
 
+  // The mini window's cards open a screen here.
+  useEffect(() => {
+    if (!inApp) return;
+    const off = getCurrentWindow().listen("footnote-go", (e) => typeof e.payload === "string" && go(e.payload));
+    return () => { off.then((fn) => fn()).catch(() => {}); };
+  }, [go]);
+
   useEffect(() => {
     const onKey = (e) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
@@ -117,6 +133,8 @@ export default function App() {
 
   const [status, projects, activity] = state.data ?? [];
   const meta = SCREENS[screen];
+  useSpotlight();
+  useUpdatedNote(status);
 
   return (
     <div className={screen === "overview" ? "app" : "app no-feed"}>
@@ -126,17 +144,20 @@ export default function App() {
           <h1>{meta.title}</h1>
           {meta.note && <span className="top-note">· {meta.note}</span>}
           <div className="end">
-            <button className="btn icon-btn" onClick={() => switchTo("mini")} title="Switch to compact mini window">
-              <Minimize2 size={13} strokeWidth={1.75} />
-              Mini
-            </button>
-            <button className="btn icon-btn" onClick={refresh} disabled={state.loading} title="Refresh data">
-              <RefreshCw size={13} strokeWidth={1.75} className={state.loading ? "spin" : ""} />
-              {state.loading ? "Reading…" : "Refresh"}
-            </button>
+            <Tip tip="Mini window" side="bottom">
+              <button type="button" className="ic-btn" onClick={() => switchTo("mini")} aria-label="Switch to the mini window">
+                <Minimize2 size={15} strokeWidth={1.75} />
+              </button>
+            </Tip>
+            <Tip tip={state.loading ? "Reading…" : "Refresh"} side="bottom">
+              <button type="button" className="ic-btn" onClick={refresh} disabled={state.loading} aria-label="Refresh data">
+                <RefreshCw size={15} strokeWidth={1.75} className={state.loading ? "spin" : ""} />
+              </button>
+            </Tip>
             <WindowControls maximized={maximized} />
           </div>
         </header>
+        <Scroll label={meta.title} key={screen}>
         {screen === "enterprise" ? (
           <Enterprise />
         ) : state.error ? (
@@ -160,11 +181,173 @@ export default function App() {
         ) : screen === "code" ? (
           <Code projects={projects} view={["symbol", "layers"].includes(view) ? view : "map"} go={(v) => go(`code/${v}`)} />
         ) : (
-          <Overview status={status} projects={projects} refresh={refresh} />
+          <Overview status={status} projects={projects} refresh={refresh} go={go} />
         )}
+        </Scroll>
       </main>
       {screen === "overview" && !state.error && <Activity activity={activity} />}
+      <Toasts />
     </div>
+  );
+}
+
+/** Options, from the gear at the foot of the sidebar: the palette (both windows follow it), the version, and help. */
+function Options({ version }) {
+  const [palette, choose] = usePalette();
+  const menu = useRef(null);
+  const onToggle = (e) => {
+    if (e.newState === "open") requestAnimationFrame(() => menu.current?.querySelector("[aria-checked='true']")?.focus());
+  };
+  const onKey = (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const list = [...(menu.current?.querySelectorAll("[role='radio']") ?? [])];
+    const at = list.indexOf(document.activeElement);
+    if (at < 0) return;
+    e.preventDefault();
+    list[(at + (e.key === "ArrowRight" ? 1 : list.length - 1)) % list.length]?.focus();
+  };
+  return (
+    <>
+      <Tip tip="Options" side="right">
+        <button type="button" className="ic-btn anchor-self" popoverTarget="options" aria-label="Options" aria-haspopup="dialog"
+          style={{ "--anchor": "--options" }}>
+          <Settings2 size={15} strokeWidth={1.75} />
+        </button>
+      </Tip>
+      <div ref={menu} id="options" popover="auto" role="dialog" aria-label="Options" className="menu options lglass"
+        style={{ "--anchor": "--options" }} onToggle={onToggle} onKeyDown={onKey}>
+        <div className="menu-title">Palette · {PALETTES.find((p) => p.id === palette)?.name}</div>
+        <div className="swatches" role="radiogroup" aria-label="Palette">
+          {PALETTES.map((p) => (
+            <button key={p.id} type="button" role="radio" aria-checked={palette === p.id} aria-label={p.name} className="swatch"
+              onClick={() => choose(p.id)} style={{ background: `linear-gradient(135deg, ${p.sw[0]} 50%, ${p.sw[1]} 50%)` }}>
+              {palette === p.id && <Check size={13} strokeWidth={2.6} aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+        <div className="menu-title">Footnote One</div>
+        <div className="upd">
+          <div className="upd-line"><span className="dimmed">Version</span><b className="mono">{version ?? "–"}</b></div>
+          <span className="small">
+            <button type="button" className="help-link" onClick={() => openSupport("install")}>Release notes</button>
+            {" · "}
+            <button type="button" className="help-link" onClick={() => openSupport("issues")}>Report an issue</button>
+            {" · "}
+            <button type="button" className="help-link" onClick={() => openSupport("email")}>Email</button>
+          </span>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const SIX_HOURS = 6 * 3600 * 1000;
+const ago = (iso) => {
+  const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
+};
+
+/** The release's bullet points (its Markdown body), with **bold** kept, for the "what's new" card. */
+function whatsNew(md) {
+  // Top-level bullets only, each with its wrapped continuation lines; nested bullets are details for the release page.
+  const items = [];
+  let open = false;
+  for (const line of String(md ?? "").split(/\r?\n/)) {
+    if (/^[-*] /.test(line)) {
+      items.push(line.slice(2).trim());
+      open = true;
+    } else if (open && /^\s+\S/.test(line) && !/^\s+[-*] /.test(line)) {
+      items[items.length - 1] += ` ${line.trim()}`;
+    } else {
+      open = false;
+    }
+  }
+  const tidy = (t) => {
+    const s = clip(t.replace(/\s*\([^()]*#\d+[^()]*\)/g, "").replace(/`/g, ""), 170).replace(/:$/, "");
+    // A cut can leave one `**` without its pair: drop that one only.
+    return (s.match(/\*\*/g) ?? []).length % 2 ? s.replace(/\*\*(?!.*\*\*)/, "") : s;
+  };
+  const bold = (t) => tidy(t).split(/\*\*(.+?)\*\*/g).map((part, i) => (i % 2 ? <b key={i}>{part}</b> : part));
+  return { shown: items.slice(0, 6).map(bold), more: Math.max(0, items.length - 6) };
+}
+
+/** The update button (T3 Code's flow): a sync mark that checks GitHub's latest release, a download mark with "what's new"
+ * on hover when one is newer, a ring while it downloads and verifies, then "restart to update", which installs without
+ * any window and reopens Footnote. It checks at start and every six hours: one request to GitHub's releases, nothing sent. */
+function Updater({ version }) {
+  const [u, setU] = useState({ state: "idle" }); // idle | checking | current | available | downloading | ready | installing | error
+  const check = useCallback(() => {
+    setU((x) => (x.state === "downloading" || x.state === "ready" || x.state === "installing" ? x : { ...x, state: "checking" }));
+    footnote("update", "--check").then(
+      (r) => setU((x) => (x.state === "downloading" || x.state === "ready" || x.state === "installing" ? x
+        : { ...r, state: r.newer ? "available" : "current" })),
+      (e) => setU((x) => ({ ...x, state: "error", error: String(e), retry: "check" })),
+    );
+  }, []);
+  useEffect(() => {
+    const first = setTimeout(check, 4000);
+    const every = setInterval(check, SIX_HOURS);
+    return () => { clearTimeout(first); clearInterval(every); };
+  }, [check]);
+  useEffect(() => {
+    if (u.state !== "downloading") return;
+    const t = setInterval(() => {
+      footnote("jobs").then((j) => {
+        const job = (j.jobs ?? []).find((x) => x.kind === "update.download" && x.state === "running");
+        if (job?.total) setU((x) => (x.state === "downloading" ? { ...x, pct: Math.min(99, Math.round((100 * job.done) / job.total)) } : x));
+      }, () => {});
+    }, 400);
+    return () => clearInterval(t);
+  }, [u.state]);
+  const download = () => {
+    setU((x) => ({ ...x, state: "downloading", pct: 0 }));
+    footnote("update", "--download").then(
+      (r) => setU((x) => (r.up_to_date ? { ...x, state: "current" } : { ...x, state: "ready", pct: 100 })),
+      (e) => setU((x) => ({ ...x, state: "error", error: String(e), retry: "download" })),
+    );
+  };
+  const restart = () => {
+    setU((x) => ({ ...x, state: "installing" }));
+    installUpdate().then(
+      (r) => r?.up_to_date && setU((x) => ({ ...x, state: "current" })),
+      (e) => setU((x) => ({ ...x, state: "error", error: String(e), retry: "download" })),
+    );
+  };
+  const notes = whatsNew(u.notes);
+  const card = (title) => (
+    <span className="upd-card">
+      <b className="upd-title">{title}</b>
+      <span className="dimmed mono small">{u.latest}{u.published_at ? ` · ${ago(u.published_at)}` : ""}</span>
+      {notes.shown.length > 0 && <ul>{notes.shown.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+      {notes.more > 0 && <span className="small"><b>Plus {notes.more} more changes.</b></span>}
+    </span>
+  );
+  const view = {
+    idle: { Icon: RefreshCw, tip: `Check for updates · ${version ?? ""}`, act: check },
+    checking: { Icon: RefreshCw, tip: "Checking GitHub for a newer release…", spin: true },
+    current: { Icon: RefreshCw, tip: `Up to date · ${u.latest ?? version ?? ""}. Click to check again.`, act: check, badge: "ok" },
+    available: { Icon: Download, tip: card("Update ready to download"), act: download, badge: "new", on: true },
+    downloading: { Icon: Download, tip: `Downloading and verifying ${u.latest} · ${u.pct ?? 0}%`, ring: true, on: true },
+    ready: { Icon: RotateCw, tip: card("Restart Footnote to update"), act: restart, badge: "ok", on: true },
+    installing: { Icon: RefreshCw, tip: "Installing. Footnote closes and reopens by itself.", spin: true, on: true },
+    error: { Icon: CircleAlert, tip: `${clip(u.error, 120)} Click to try again.`, act: u.retry === "download" ? download : check, warn: true },
+  }[u.state];
+  return (
+    <Tip tip={view.tip} side="right">
+      <button type="button" className={`ic-btn upd-btn${view.on ? " on" : ""}${view.warn ? " warn" : ""}`} onClick={view.act}
+        disabled={!view.act} aria-label={typeof view.tip === "string" ? view.tip : `${u.state === "ready" ? "Restart to update to" : "Download"} ${u.latest}`}>
+        <view.Icon size={15} strokeWidth={1.9} className={view.spin ? "spin" : ""} />
+        {view.ring && (
+          <svg className="upd-ring" viewBox="0 0 30 30" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="27" height="27" rx="9" pathLength="100" className="track" />
+            <rect x="1.5" y="1.5" width="27" height="27" rx="9" pathLength="100" className="fill"
+              style={{ strokeDashoffset: 100 - (u.pct ?? 0) }} />
+          </svg>
+        )}
+        {view.badge === "new" && <span className="badge-dot" aria-hidden="true" />}
+        {view.badge === "ok" && u.state === "ready" && <span className="badge-ok" aria-hidden="true"><Check size={8} strokeWidth={4} /></span>}
+      </button>
+    </Tip>
   );
 }
 
@@ -211,7 +394,7 @@ function Sidebar({ status, projects, screen, go }) {
       <div className="brand" data-tauri-drag-region onMouseDown={onDragMouseDown} onDoubleClick={onTitleDoubleClick}>
         <span className="lens" aria-hidden="true">1</span>
         Footnote
-        {status && <span className="ver mono">One {status.version.split("-")[0]}</span>}
+        {status && <span className="ver mono">{status.version}</span>}
       </div>
       <h2 className="grp">Products</h2>
       <nav className="nav" aria-label="Products">
@@ -235,16 +418,39 @@ function Sidebar({ status, projects, screen, go }) {
         {item("enterprise", Building2, "Alias, sign-on…", <span className="n">Learn more</span>)}
       </nav>
       <div className="foot">
-        <span>Free and open source</span>
-        {onDisk > 0 && <span className="mono">{mb(onDisk)} models</span>}
-        <span className="help">
-          Help: <button type="button" className="help-link" onClick={() => openSupport("issues")}>report an issue</button>
-          {" · "}
-          <button type="button" className="help-link" onClick={() => openSupport("email")}>email</button>
+        <Options version={status?.version} />
+        <span className="foot-txt">
+          <span>Free and open source</span>
+          {onDisk > 0 && <span className="mono">{mb(onDisk)} of models</span>}
         </span>
+        <Updater version={status?.version} />
       </div>
     </aside>
   );
+}
+
+/** Once after Footnote reopens on another version: agents keep their running MCP server (the old binary, set aside by the
+ * installer) until they restart, so the note names the connected agents to restart. Remembered in this window's storage. */
+function useUpdatedNote(status) {
+  const version = status?.version;
+  useEffect(() => {
+    if (!version) return;
+    let seen = null;
+    try {
+      seen = localStorage.getItem("footnote.version.seen");
+      localStorage.setItem("footnote.version.seen", version);
+    } catch {
+      return; // no storage: no way to tell a new version from a first start
+    }
+    if (!seen || seen === version) return;
+    const agents = (status.products?.memory?.agents ?? []).filter((a) => a.mcp_server).map((a) => AGENTS[a.agent] ?? a.agent);
+    toast(
+      `Updated to ${version}. Restart ${agents.length ? agents.join(", ") : "your agents"} to load the new MCP server; hooks use it already.`,
+      "ok",
+      { sticky: true },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version]);
 }
 
 /** A product is live when it is in this build and switched on (the dot beside its name). */
@@ -252,11 +458,12 @@ const live = (p) => p !== undefined && p.built !== false && p.enabled !== false;
 
 const graphs = (n) => (n === undefined ? "" : n === 1 ? "1 graph" : `${num(n)} graphs`);
 
-function Overview({ status, projects, refresh }) {
+function Overview({ status, projects, refresh, go }) {
   const p = status?.products;
   const memory = p?.memory;
   const code = p?.code;
   const sw = (key, title) => ({ product: key, title, built: p?.[key]?.built, enabled: p?.[key]?.enabled !== false, refresh });
+  const recent = (projects?.projects ?? []).filter((x) => x.exists).slice(0, 6);
   return (
     <div className="body">
       <div className="row">
@@ -267,10 +474,23 @@ function Overview({ status, projects, refresh }) {
         <Card {...sw("code", "Code")} big={code && (code.built ? num(code.graphs) : "–")}
           sub={code && (!code.built ? "" : `project ${code.graphs === 1 ? "graph" : "graphs"}${code.rust_indexer ? " · rust-analyzer found" : ""}`)} />
       </div>
-      <h2 className="section">Projects agents worked in</h2>
-      <Projects list={projects?.projects} />
+      <div className="bar">
+        <h2 className="section">Projects agents worked in</h2>
+        {projects?.projects?.length > recent.length && (
+          <button type="button" className="help-link" style={{ marginLeft: "auto" }} onClick={() => go("projects")}>
+            All {num(projects.projects.length)} projects
+          </button>
+        )}
+      </div>
+      {!projects ? <span className="skel" /> : recent.length === 0 ? (
+        <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>
+      ) : (
+        <div className="mini-projects">
+          {recent.map((x) => <ProjectCard key={x.path} p={x} refresh={refresh} />)}
+        </div>
+      )}
       <h2 className="section">Agents</h2>
-      <Agents list={memory?.agents} loading={!status} />
+      <Agents list={memory?.agents} loading={!status} refresh={refresh} />
     </div>
   );
 }
@@ -294,62 +514,30 @@ function Card({ product, title, built, enabled, refresh, big, sub }) {
     }
   };
   return (
-    <section className={known && (!built || !enabled) ? "card muted" : "card"}>
+    <section className={`card sq lit${known && (!built || !enabled) ? " muted" : ""}`}>
       <h2>
         <span className={known && built && enabled ? "dot" : "dot off"} />
         {title}
         {known && (built ? (
-          <button type="button" role="switch" aria-checked={enabled} aria-label={`${title} on`} className="switch"
-            onClick={flip} disabled={busy}>
-            <span aria-hidden="true" />
-          </button>
+          <Switch checked={enabled} label={`${title} on`} onChange={flip} disabled={busy} />
         ) : (
           <span className="state">Not in this build</span>
         ))}
       </h2>
       {big === undefined ? <span className="skel big" /> : <div className="big">{big}</div>}
       {sub === undefined ? <span className="skel" /> : (
-        <div className="sub">{known && built && !enabled ? "Off: agents don't get its tools. Nothing is deleted." : sub}</div>
+        <div className="sub">{known && built && !enabled ? "Off: agents get none of its tools. Nothing is deleted." : sub}</div>
       )}
       {error && <div className="sub warn" role="alert">{error}</div>}
     </section>
   );
 }
 
-function Projects({ list }) {
-  if (!list) return <span className="skel" />;
-  if (list.length === 0)
-    return <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>;
-  const warn = (n) => (n > 0 ? "num warn" : "num");
-  return (
-    <table className="tbl">
-      <thead>
-        <tr>
-          <th scope="col">Project</th>
-          <th scope="col">Last seen</th>
-          <th scope="col" className="num">Memories</th>
-          <th scope="col">Code graph</th>
-          <th scope="col" className="num">Uncommitted</th>
-          <th scope="col" className="num">Unpushed</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.map((p) => (
-          <tr key={p.path}>
-            <td title={p.path}>{p.name}</td>
-            <td>{p.exists ? seen(p.last_seen) : <span className="warn">folder missing</span>}</td>
-            <td className="num">{num(p.memories)}</td>
-            <td className={p.code_graph ? "ok" : ""}>{p.code_graph ? "built" : "–"}</td>
-            <td className={warn(p.git?.uncommitted)}>{p.git ? num(p.git.uncommitted) : "–"}</td>
-            <td className={warn(p.git?.unpushed)}>{p.git ? num(p.git.unpushed) : "–"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-function Agents({ list, loading }) {
+/** Each agent as a glass chip: green when Memory's hooks and MCP server are both connected, amber when one is missing,
+ * red when both are. A chip that is not green has a repair button: `footnote install --memory` reconnects every agent found
+ * (it rewrites only Footnote's own entries; `footnote uninstall --memory` takes them out again). */
+function Agents({ list, loading, refresh }) {
+  const [busy, setBusy] = useState(false);
   if (loading) return <span className="skel" />;
   if (!list?.length)
     return (
@@ -357,26 +545,48 @@ function Agents({ list, loading }) {
         No agent connected. Run <code>footnote install --memory</code> to connect Claude Code, Codex and others.
       </p>
     );
-  const onOff = (v) => <td className={v ? "ok" : "warn"}>{v ? "on" : "off"}</td>;
+  const repair = async (name) => {
+    setBusy(true);
+    try {
+      await footnote("install", "--memory");
+      toast(`Reconnected ${name}. Restart it to load the hooks.`);
+      await refresh?.();
+    } catch (e) {
+      toast(String(e), "warn");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pict = (on, Icon, what) => (
+    <Tip tip={`${what}: ${on ? "connected" : "missing"}`}>
+      <span className={`stat idle${on ? " on" : " miss"}`} role="img" aria-label={`${what} ${on ? "connected" : "missing"}`} tabIndex={0}>
+        <span className="stat-ic"><Icon size={13} strokeWidth={1.9} /></span>
+      </span>
+    </Tip>
+  );
   return (
-    <table className="tbl">
-      <thead>
-        <tr>
-          <th scope="col">Agent</th>
-          <th scope="col">Memory hooks</th>
-          <th scope="col">MCP server</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.map((a) => (
-          <tr key={a.agent}>
-            <td>{AGENTS[a.agent] ?? a.agent}</td>
-            {onOff(a.hooks)}
-            {onOff(a.mcp_server)}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="agents">
+      {list.map((a) => {
+        const name = AGENTS[a.agent] ?? a.agent;
+        const missing = [!a.hooks && "hooks", !a.mcp_server && "MCP server"].filter(Boolean);
+        const health = missing.length === 0 ? "ok" : missing.length === 1 ? "part" : "off";
+        return (
+          <div key={a.agent} className={`agent surface sq lit ${health}`}>
+            <b>{name}</b>
+            {pict(a.hooks, Webhook, "Memory hooks")}
+            {pict(a.mcp_server, Plug, "MCP server")}
+            {health !== "ok" && (
+              <Tip tip={busy ? "Reconnecting…" : `Reconnect: install the missing ${missing.join(" and ")} for every agent found`}>
+                <button type="button" className="ic-btn fix" disabled={busy} onClick={() => repair(name)}
+                  aria-label={`Reconnect ${name}: install the missing ${missing.join(" and ")}`}>
+                  {busy ? <RefreshCw size={14} strokeWidth={1.9} className="spin" /> : <Wrench size={14} strokeWidth={1.9} />}
+                </button>
+              </Tip>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

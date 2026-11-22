@@ -396,6 +396,87 @@ fn session_start_records_the_project_for_the_projects_list() {
     assert_eq!(again["projects"][0]["first_seen"], first);
 }
 
+/// The launcher's commit button (`footnote agent-ask`): the next agent turn in that project gets the request once. At the
+/// end of a turn it is the reason to continue; at a prompt it rides with the context. Nothing to commit is refused.
+#[test]
+fn a_commit_request_from_the_window_reaches_the_next_turn_once() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let repo = t.path().join("shop-api");
+    fs::create_dir_all(&state).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(state.join("memory.json"), r#"{"every_turns":1000}"#).unwrap();
+    seed(&state, &[]);
+    let git = |args: &[&str]| {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .status()
+                .unwrap()
+                .success()
+        );
+    };
+    git(&["init", "-q"]);
+    let at = |session: &str, name: &str| json!({"hook_event_name": name, "session_id": session, "cwd": repo.to_string_lossy(), "prompt": "go on"});
+    hook(&state, at("a1", "SessionStart"));
+    command(&state)
+        .args(["agent-ask", "shop-api"])
+        .assert()
+        .failure(); // a clean tree: nothing to commit
+    fs::write(repo.join("orders.rs"), "fn main() {}\n").unwrap();
+    let queued: Value = serde_json::from_slice(
+        &command(&state)
+            .args(["agent-ask", "shop-api"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(queued["uncommitted"], 1, "{queued}");
+    let listed: Value = serde_json::from_slice(
+        &command(&state)
+            .arg("projects")
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(listed["projects"][0]["ask"]["kind"], "commit", "{listed}");
+
+    let stop: Value = serde_json::from_str(&hook(&state, at("a1", "Stop"))).unwrap();
+    assert_eq!(stop["decision"], "block", "{stop}");
+    let reason = stop["reason"].as_str().unwrap();
+    assert!(
+        reason.contains("commit and push") && reason.contains("shop-api"),
+        "{reason}"
+    );
+    let again = hook(&state, at("a1", "Stop"));
+    assert!(
+        !again.contains("commit and push"),
+        "delivered once: {again}"
+    );
+
+    // Queued again, a prompt carries it in its context; cancelling withdraws it.
+    command(&state)
+        .args(["agent-ask", "shop-api"])
+        .assert()
+        .success();
+    let prompt = hook(&state, at("a2", "UserPromptSubmit"));
+    assert!(prompt.contains("commit and push"), "{prompt}");
+    command(&state)
+        .args(["agent-ask", "shop-api"])
+        .assert()
+        .success();
+    command(&state)
+        .args(["agent-ask", "shop-api", "--cancel"])
+        .assert()
+        .success();
+    assert!(!hook(&state, at("a2", "UserPromptSubmit")).contains("commit and push"));
+}
+
 /// Past the context threshold, Stop asks once for a handoff (#250); the saved handoff leads the next session's pack.
 #[test]
 fn a_long_session_is_asked_once_for_a_handoff_that_leads_the_next_pack() {

@@ -1028,6 +1028,20 @@ fn context(event: &Event, text: String) -> Option<Value> {
     }
 }
 
+/// Add `text` to the context a start-of-turn hook already gives, in either agent's shape.
+fn with_context(event: &Event, out: Option<Value>, text: String) -> Option<Value> {
+    let Some(mut v) = out else {
+        return context(event, text);
+    };
+    if let Some(given) = v["hookSpecificOutput"]["additionalContext"].as_str() {
+        let joined = format!("{given}\n\n{text}");
+        v["hookSpecificOutput"]["additionalContext"] = json!(joined);
+    } else if let Some(steps) = v["injectSteps"].as_array_mut() {
+        steps.push(json!({"systemMessage": {"systemMessage": text}}));
+    }
+    Some(v)
+}
+
 fn stop_ask(event: &Event, reason: String) -> Value {
     let decision = if event.agy {
         "continue"
@@ -1710,6 +1724,23 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             }
         }
         _ => {}
+    }
+    // A request the user queued from the window for this project (`footnote agent-ask`) goes to the first agent turn that
+    // can take it: with a session start or a prompt, beside what else is given; at the end of a turn, as the reason to
+    // continue, but only when nothing else was asked and the agent is not already continuing for a hook.
+    let ends_turn = matches!(e.name.as_str(), "Stop" | "AfterAgent");
+    let starts_turn = matches!(
+        e.name.as_str(),
+        "SessionStart" | "UserPromptSubmit" | "PreInvocation" | "BeforeAgent"
+    );
+    if (starts_turn || (ends_turn && out.is_none() && !e.stop_active))
+        && let Some(text) = crate::projects::take(state, &project)
+    {
+        out = if ends_turn {
+            Some(stop_ask(&e, text))
+        } else {
+            with_context(&e, out, text)
+        };
     }
     // Rewriting through a temp file also drops legacy transcript/cwd fields. Only counters survive.
     let mut temp = tempfile::NamedTempFile::new_in(&dir)?;
