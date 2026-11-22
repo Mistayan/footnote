@@ -1,6 +1,7 @@
-# Allowlist: the build needs only the Cargo workspace.
+# Allowlist: the build needs only the Cargo workspace and the rules the binary embeds.
 *
 !Cargo.toml
 !Cargo.lock
 !src
 !crates
+!rules

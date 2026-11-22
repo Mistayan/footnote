@@ -11,6 +11,8 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src src
 COPY crates crates
+# Embedded at compile time (include_str!), for example the Lean B session rules.
+COPY rules rules
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     cargo build --locked --release && cp target/release/footnote /usr/local/bin/footnote
