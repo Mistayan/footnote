@@ -77,12 +77,15 @@ anyway**). Details and silent install: [installer/README.md](installer/README.md
 Download the latest archive or run the installer from [GitHub Releases](https://github.com/bobcat88/footnote/releases):
 
 ```powershell
-# Windows (PowerShell)
+# Windows (PowerShell). The engine needs the Visual C++ runtime, which the Setup installer above carries and a fresh
+# Windows lacks; skip this line if Visual Studio or another app already installed it.
+winget install --id Microsoft.VCRedist.2015+.x64 -e
 irm https://github.com/bobcat88/footnote/releases/latest/download/footnote-installer.ps1 | iex
 ```
 
 ```bash
-# Linux (x86_64)
+# Linux (x86_64): glibc 2.38 or newer (Ubuntu 24.04, Debian 13, Fedora 39 and later), with OpenMP and OpenSSL 3
+sudo apt install libgomp1 libssl3t64   # Debian and Ubuntu; most desktops already have both
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bobcat88/footnote/releases/latest/download/footnote-installer.sh | sh
 ```
 
