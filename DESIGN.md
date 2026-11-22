@@ -168,8 +168,10 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
     rewrites only Footnote's own entries) and asks for a restart of the agent.
   - **Commit pictogram:** a click sends the engine's fixed commit-and-push request to the next agent turn in that project
     (`footnote agent-ask`); while it waits the pictogram turns into an accent send mark, and a click withdraws it.
-  - **Scrolling:** no native scrollbar in the main area. A tick rail on the right edge has more ticks the more content is off
-    screen (about 9 per screen, 10 to 64) and lights the ticks in view; clicking or dragging it scrolls.
+  - **Scrolling (T3 Code's rail):** no native scrollbar in the main area or in menus. A sparse tick rail on the right edge,
+    about four ticks per screen of content (8 to 36; three per screen in a menu, 6 to 20). The screen in view is brighter,
+    and one long white tick marks where you are. On hover the rail spreads and the ticks near the pointer grow like a
+    magnifier, the one under it in `--acc`; widths and spacing move on the spring curve. Clicking or dragging scrolls.
   - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
     are one card each: name (24 characters, full name in the tooltip), last seen, a drive squircle plus the last folder (opens
     the folder; the shell checks the engine's project list first), then pictograms for memories, code graph (or a build

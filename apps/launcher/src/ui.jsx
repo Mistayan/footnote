@@ -76,14 +76,16 @@ export function Select({ value, options, onChange, label, icon: Icon, className 
       </button>
       <div ref={menu} id={`${anchor}-m`} popover="auto" className="menu lglass" role="listbox" aria-label={label}
         style={{ "--anchor": anchor }} onToggle={onToggle} onKeyDown={onKey}>
-        {options.map((o) => (
-          <button key={String(o.value)} type="button" role="option" aria-selected={o.value === value} className="menu-item"
-            onClick={() => pick(o.value)}>
-            <Check size={14} strokeWidth={2} aria-hidden="true" className="menu-check" />
-            <span className="menu-lbl">{o.label}</span>
-            {o.hint != null && <span className="menu-hint">{o.hint}</span>}
-          </button>
-        ))}
+        <Scroll compact className="menu-scroll">
+          {options.map((o) => (
+            <button key={String(o.value)} type="button" role="option" aria-selected={o.value === value} className="menu-item"
+              onClick={() => pick(o.value)}>
+              <Check size={14} strokeWidth={2} aria-hidden="true" className="menu-check" />
+              <span className="menu-lbl">{o.label}</span>
+              {o.hint != null && <span className="menu-hint">{o.hint}</span>}
+            </button>
+          ))}
+        </Scroll>
       </div>
     </>
   );
@@ -233,19 +235,24 @@ export const clip = (text, max) => {
 
 /** The scroll container with a tick rail in place of the scrollbar (T3 Code's rail): the more content is off screen, the
  * more ticks; the ticks in view are lit. Clicking or dragging the rail scrolls. Wheel, keys and touch scroll natively. */
-export function Scroll({ children, className = "", label }) {
+export function Scroll({ children, className = "", label, compact = false }) {
   const box = useRef(null);
-  const [m, setM] = useState({ ticks: 0, from: 0, to: 0 });
+  const [m, setM] = useState({ ticks: 0, from: 0, to: 0, here: 0 });
+  const [near, setNear] = useState(null); // the tick under the pointer, for the magnifier
   const measure = useCallback(() => {
     const el = box.current;
     if (!el) return;
     const { scrollHeight: sh, clientHeight: ch, scrollTop: st } = el;
-    if (sh <= ch + 2) return setM((p) => (p.ticks === 0 ? p : { ticks: 0, from: 0, to: 0 }));
-    const ticks = Math.min(64, Math.max(10, Math.round((sh / ch) * 9)));
+    if (sh <= ch + 2) return setM((p) => (p.ticks === 0 ? p : { ticks: 0, from: 0, to: 0, here: 0 }));
+    // About four ticks per screen of content (three in a menu), so the rail stays sparse like T3 Code's.
+    const ticks = compact
+      ? Math.min(20, Math.max(6, Math.round((sh / ch) * 3)))
+      : Math.min(36, Math.max(8, Math.round((sh / ch) * 4)));
     const from = Math.floor((st / sh) * ticks);
     const to = Math.min(ticks - 1, Math.ceil(((st + ch) / sh) * ticks) - 1);
-    setM((p) => (p.ticks === ticks && p.from === from && p.to === to ? p : { ticks, from, to }));
-  }, []);
+    const here = Math.min(ticks - 1, Math.floor(((st + ch / 2) / sh) * ticks));
+    setM((p) => (p.ticks === ticks && p.from === from && p.to === to && p.here === here ? p : { ticks, from, to, here }));
+  }, [compact]);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -268,16 +275,23 @@ export function Scroll({ children, className = "", label }) {
     const f = Math.min(1, Math.max(0, (e.clientY - rail.top) / rail.height));
     el.scrollTo({ top: f * el.scrollHeight - el.clientHeight / 2, behavior: smooth ? "smooth" : "instant" });
   };
+  const point = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setNear(Math.min(m.ticks - 1, Math.max(0, Math.floor(((e.clientY - r.top) / r.height) * m.ticks))));
+  };
   return (
-    <div className={`scroll-wrap ${className}`}>
-      <div ref={box} className="scroll" role="region" aria-label={label}>{children}</div>
+    <div className={`scroll-wrap ${className}${m.ticks > 0 ? " has-rail" : ""}${compact ? " compact" : ""}`}>
+      <div ref={box} className="scroll" role={compact ? undefined : "region"} aria-label={compact ? undefined : label}>{children}</div>
       {m.ticks > 0 && (
         <div className="rail" aria-hidden="true"
           onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); seek(e, true); }}
-          onPointerMove={(e) => e.buttons === 1 && seek(e, false)}>
-          {Array.from({ length: m.ticks }, (_, i) => (
-            <i key={i} className={i >= m.from && i <= m.to ? "on" : ""} />
-          ))}
+          onPointerMove={(e) => { point(e); if (e.buttons === 1) seek(e, false); }}
+          onPointerLeave={() => setNear(null)}>
+          {Array.from({ length: m.ticks }, (_, i) => {
+            const d = near === null ? 9 : Math.abs(i - near);
+            const cls = [i >= m.from && i <= m.to && "on", i === m.here && "here", d < 3 && `h${d}`].filter(Boolean).join(" ");
+            return <i key={i} className={cls} />;
+          })}
         </div>
       )}
     </div>

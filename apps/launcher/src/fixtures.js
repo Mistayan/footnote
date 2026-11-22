@@ -244,7 +244,9 @@ export const fixtures = {
       { path: "C:/Users/sample/AppData/Local/footnote/docs/rust-perf-book/latest.db", exists: true },
       { path: "C:/Users/sample/AppData/Local/footnote/docs/jiff-guide/1.0.db", exists: true },
       { path: "E:/old/handbook.db", exists: false }] },
-    "memory-list": { total: 6, scopes: [{ scope: "atlas-api", memories: 3 }, { scope: "global", memories: 2 }, { scope: "harbor-web", memories: 1 }], memories: [
+    "memory-list": { total: 6, scopes: [{ scope: "atlas-api", memories: 3 }, { scope: "global", memories: 2 }, { scope: "harbor-web", memories: 1 },
+      ...["ledger-sync", "old-prototype", "design-notes", "site", "infra", "mobile-app", "data-pipeline", "billing", "docs-portal",
+        "2026-11-21-research-scratch"].map((scope) => ({ scope, memories: 1 }))], memories: [
       { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident. Pages hold 50 items; the cursor is opaque and signed.", tags: [] },
       { id: 42, kind: "preference", scope: "global", observed_at: "2026-11-10", text: "Prefers small pull requests with tests run locally before review.", tags: ["review"] },
       { id: 51, kind: "fix", scope: "atlas-api", observed_at: "2026-11-15", text: "Migrations ran twice under two replicas; an advisory lock now guards them. Run them from the release job only.", tags: ["db"], origin: "claude-code" },
