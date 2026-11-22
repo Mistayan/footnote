@@ -984,6 +984,79 @@ fn skill_outcomes_log_reads_and_script_runs() {
     );
 }
 
+/// #471: a Codex session (rollout file, `transcript_path` in the hook payload) is read like a Claude Code one: a skill read,
+/// a passing and a failing script run are logged with `checked`, and with `skill_rewrite` on the Stop asks for an edit.
+#[test]
+fn skill_outcomes_read_codex_sessions() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let dir = state.join("my-skills").join("css-transitions");
+    fs::create_dir_all(dir.join("scripts")).unwrap();
+    fs::write(
+        dir.join("SKILL.md"),
+        "---\nname: css-transitions\ndescription: Add CSS transitions to dropdowns, modals and toasts.\n---\n# Body\n",
+    )
+    .unwrap();
+    command(state)
+        .args(["skills", "index", "web"])
+        .arg(state.join("my-skills"))
+        .assert()
+        .success();
+    let rollout = include_str!("fixtures/codex-skill-rollout.jsonl")
+        .replace("{SKILL}", &dir.display().to_string().replace('\\', "/"))
+        .replace("{CWD}", "/work");
+    let log = state.join("memory-hook").join("skill-outcomes.jsonl");
+    let session = |name: &str| {
+        let transcript = state.join(format!("rollout-{name}.jsonl"));
+        fs::write(&transcript, "").unwrap();
+        let mut ev = event_in(name, "UserPromptSubmit", "add a transition to the dropdown");
+        ev["transcript_path"] = json!(transcript);
+        assert!(hook(state, ev.clone()).contains("css-transitions"));
+        fs::write(&transcript, &rollout).unwrap();
+        ev["hook_event_name"] = json!("Stop");
+        ev.as_object_mut().unwrap().remove("prompt");
+        hook(state, ev)
+    };
+
+    fs::write(state.join("memory.json"), r#"{"skills":true}"#).unwrap();
+    assert!(!session("codex-1").contains("footnote_skill_edit"));
+    let raw = fs::read_to_string(&log).unwrap();
+    let events: Vec<(String, Option<bool>)> = raw
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .map(|r| (r["event"].as_str().unwrap().to_string(), r["ok"].as_bool()))
+        .collect();
+    let want = |e: &str, ok: Option<bool>| (e.to_string(), ok);
+    assert_eq!(
+        events,
+        vec![
+            want("suggested", None),
+            want("read", None),
+            want("run", Some(true)),
+            want("run", Some(false)),
+            want("checked", None)
+        ]
+    );
+    for leak in ["secret-flag", "SKILL.md", "check.mjs", "my-skills", "pwsh"] {
+        assert!(!raw.contains(leak), "{leak} leaked into {raw}");
+    }
+
+    fs::write(
+        state.join("memory.json"),
+        r#"{"skills":true,"skill_rewrite":true}"#,
+    )
+    .unwrap();
+    let ask: Value = serde_json::from_str(&session("codex-2")).unwrap();
+    assert_eq!(ask["decision"], "block", "{ask}");
+    assert!(
+        ask["reason"]
+            .as_str()
+            .unwrap()
+            .contains("footnote_skill_edit"),
+        "{ask}"
+    );
+}
+
 fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut out = vec![];
     for e in fs::read_dir(dir).unwrap() {
