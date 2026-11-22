@@ -114,6 +114,7 @@ footnote code-index .
 footnote docs add https://flask.palletsprojects.com/en/stable/ --site flask
 ```
 
+- **What the code graph leaves out:** files your `.gitignore` ignores; any folder whose name starts with a dot (`.claude`, `.venv`, `.next`…); dependency and build folders named `target`, `node_modules`, `dist`, `build`, `out`, `vendor`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`, `.gradle`, `bin`, `obj` or `coverage`; and whatever a `.footnoteignore` file at the project root lists (`.gitignore` syntax, e.g. `skills/`). To keep a folder of scripts or skills off the map, add it there or start its name with a dot, then run `footnote code-index` again.
 - **Local notes corpus:** `footnote --db ~/.footnote/knowledge.db index --root ~/notes --allow ~/notes` followed by `rebuild-embeddings` and `footnote --db ~/.footnote/knowledge.db install`.
 - **Update & rollback:** `footnote update --from <new-binary>` atomically swaps binaries even while agents run; `footnote rollback` restores the previous one.
 - **Uninstall:** `footnote uninstall --memory --lean` cleanly removes hooks and MCP entries while keeping your databases and backups.

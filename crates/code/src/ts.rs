@@ -1929,6 +1929,27 @@ fn rebinds(t: &str, name: &str) -> bool {
 /// repository or without git, ripgrep's parallel `ignore` walker honoring `.gitignore`, dot-folder / `SKIP` pruning,
 /// symlink rejection, and deterministic sorted output (#355).
 pub(crate) fn candidates(root: &Path) -> Vec<String> {
+    let mut files = listed(root);
+    // The same folder rules in and outside git: git lists untracked dot folders like `.claude/worktrees` (copies of the
+    // project), and `.footnoteignore` (gitignore syntax) lets a project keep scripts or skills off its code map.
+    let mut ig = ignore::gitignore::GitignoreBuilder::new(root);
+    ig.add(root.join(IGNORE_FILE));
+    let ig = ig
+        .build()
+        .unwrap_or_else(|_| ignore::gitignore::Gitignore::empty());
+    files.retain(|f| {
+        let mut dirs: Vec<&str> = f.split('/').collect();
+        dirs.pop();
+        !dirs.iter().any(|d| d.starts_with('.') || SKIP.contains(d))
+            && !ig.matched_path_or_any_parents(f, false).is_ignore()
+    });
+    files
+}
+
+/// A project's own list of paths to leave off the code map, in `.gitignore` syntax.
+pub const IGNORE_FILE: &str = ".footnoteignore";
+
+fn listed(root: &Path) -> Vec<String> {
     let git = std::process::Command::new("git")
         .args(["ls-files", "-co", "--exclude-standard", "-z"])
         .current_dir(root)
@@ -2496,6 +2517,33 @@ mod tests {
             std::fs::write(f, "").unwrap();
         }
         assert_eq!(candidates(t.path()), ["src/a.ts"]);
+    }
+
+    #[test]
+    fn in_git_dot_folders_and_footnoteignore_paths_are_left_out() {
+        let t = tempfile::tempdir().unwrap();
+        for p in [
+            "src/a.ts",
+            ".claude/worktrees/x/src/a.ts",
+            "skills/s/run.py",
+            "tools/t.py",
+        ] {
+            let f = t.path().join(p);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, "").unwrap();
+        }
+        std::fs::write(t.path().join(IGNORE_FILE), "skills/\n").unwrap();
+        let git = std::process::Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .current_dir(t.path())
+            .status();
+        if !git.is_ok_and(|s| s.success()) {
+            return; // no git on this machine: the walk path is covered above
+        }
+        let mut files = candidates(t.path());
+        files.sort();
+        assert_eq!(files, [IGNORE_FILE, "src/a.ts", "tools/t.py"]);
     }
 
     #[test]
