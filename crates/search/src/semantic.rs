@@ -474,10 +474,13 @@ struct Dense {
     keys: Vec<(u8, i64)>,
     sigs: Vec<Arc<str>>,
     z: Vec<f64>,
+    /// Mean raw cosine similarity across models (NaN when invalid), used for optional relevance floors (#356).
+    cos: Vec<f64>,
 }
 impl Dense {
     fn blend(keys: Vec<(u8, i64)>, sigs: Vec<Arc<str>>, cos: Vec<Vec<f32>>) -> Dense {
         let mut z = vec![0.0; keys.len()];
+        let mut mean_cos = vec![0.0; keys.len()];
         let inv_models = 1.0 / cos.len().max(1) as f64;
         for per_model in &cos {
             // Two-pass mean/variance avoids allocating an up-to-SCAN_LIMIT Vec<f64> per model per query (#355).
@@ -499,11 +502,17 @@ impl Dense {
             }
             let var = var_sum / n;
             let sd = if var > 0.0 { var.sqrt() } else { 1.0 };
-            for (zi, &c) in z.iter_mut().zip(per_model) {
+            for ((zi, ci), &c) in z.iter_mut().zip(&mut mean_cos).zip(per_model) {
                 *zi += (c as f64 - mean) / sd * inv_models; // NaN stays NaN
+                *ci += c as f64 * inv_models; // NaN stays NaN
             }
         }
-        Dense { keys, sigs, z }
+        Dense {
+            keys,
+            sigs,
+            z,
+            cos: mean_cos,
+        }
     }
     /// Exact: score every stored vector of every model (eligible entries only).
     fn scan(mats: &[Arc<Matrix>], qvecs: &[Vec<f64>], keep: impl Fn(&str, i64) -> bool) -> Dense {
@@ -590,9 +599,9 @@ impl Dense {
         }
         Ok(Dense::blend(keys, sigs, cos))
     }
-    fn get(&self, key: &(u8, i64)) -> Option<(f64, &Arc<str>)> {
+    fn get(&self, key: &(u8, i64)) -> Option<(f64, f64, &Arc<str>)> {
         let i = self.keys.binary_search(key).ok()?;
-        (!self.z[i].is_nan()).then(|| (self.z[i], &self.sigs[i]))
+        (!self.z[i].is_nan()).then(|| (self.z[i], self.cos[i], &self.sigs[i]))
     }
     /// The `n` best keys by blended score (ties by key).
     fn top(&self, n: usize) -> Vec<(u8, i64)> {
@@ -620,6 +629,7 @@ struct Cand {
     id: i64,
     lex: Option<f64>,
     dense: Option<f64>, // blended z-score over the shortlist, None when any model has no current vector
+    dense_cos: Option<f64>, // mean raw cosine across models, None when any model has no current vector
 }
 fn zscore_stats<I>(len: usize, values: impl Fn() -> I) -> (f64, f64)
 where
@@ -863,16 +873,18 @@ pub fn search(
         let Some(signature) = live else {
             continue; // deleted, or its source is no longer indexed
         };
-        let d = dense
+        let d_entry = dense
             .get(&(kind, id))
-            .filter(|(_, sig)| signature.split('|').any(|s| *s == ***sig))
-            .map(|(b, _)| b);
+            .filter(|(_, _, sig)| signature.split('|').any(|s| *s == ***sig));
+        let d = d_entry.map(|(b, _, _)| b);
+        let d_cos = d_entry.map(|(_, c, _)| c);
         with_vectors += usize::from(d.is_some());
         cands.push(Cand {
             kind,
             id,
             lex: lex.get(&(kind, id)).copied(),
             dense: d,
+            dense_cos: d_cos,
         });
     }
     let ranked = fuse(&cands, POOL, ALPHA);
@@ -912,6 +924,11 @@ pub fn search(
             }
         }
         v["fusion_score"] = json!(score);
+        if let Some(c) = cand.dense_cos
+            && c.is_finite()
+        {
+            v["dense_cosine"] = json!(c);
+        }
         if cand.kind == 1 {
             records.push(v)
         } else {
@@ -961,6 +978,7 @@ mod tests {
             id,
             lex,
             dense,
+            dense_cos: None,
         }
     }
     #[test]
@@ -1219,12 +1237,12 @@ mod tests {
             if (e.kind, e.id) == (0, 5) {
                 continue;
             }
-            let (zs, sig_s) = scan_dense.get(&(e.kind, e.id)).expect("scan hit");
-            let (zh, sig_h) = short_dense.get(&(e.kind, e.id)).expect("shortlist hit");
+            let (zs, cs, sig_s) = scan_dense.get(&(e.kind, e.id)).expect("scan hit");
+            let (zh, ch, sig_h) = short_dense.get(&(e.kind, e.id)).expect("shortlist hit");
             assert_eq!(sig_s, sig_h);
             assert!(
-                (zs - zh).abs() < 1e-5,
-                "z-score drift on ({},{}): scan={zs} shortlist={zh}",
+                (zs - zh).abs() < 1e-5 && (cs - ch).abs() < 1e-5,
+                "score drift on ({},{}): scan=({zs},{cs}) shortlist=({zh},{ch})",
                 e.kind,
                 e.id
             );
@@ -1237,11 +1255,15 @@ mod tests {
         let build_cands = |d: &Dense| -> Vec<Cand> {
             entries
                 .iter()
-                .map(|e| Cand {
-                    kind: e.kind,
-                    id: e.id,
-                    lex: lex.get(&(e.kind, e.id)).copied(),
-                    dense: d.get(&(e.kind, e.id)).map(|(z, _)| z),
+                .map(|e| {
+                    let hit = d.get(&(e.kind, e.id));
+                    Cand {
+                        kind: e.kind,
+                        id: e.id,
+                        lex: lex.get(&(e.kind, e.id)).copied(),
+                        dense: hit.map(|(z, _, _)| z),
+                        dense_cos: hit.map(|(_, c, _)| c),
+                    }
                 })
                 .collect()
         };

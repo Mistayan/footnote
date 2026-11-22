@@ -220,6 +220,9 @@ enum Action {
         project: Option<String>,
         #[arg(long, default_value_t = 3000)]
         max_chars: usize,
+        /// Compact subagent pack: binding preferences only (#356).
+        #[arg(long)]
+        binding: bool,
     },
     #[cfg(feature = "memory")]
     /// Agent memories relevant to a prompt: global ones and the given project's.
@@ -1483,8 +1486,16 @@ fn execute(cli: Cli) -> Result<Value> {
             offset,
         } => crate::memory::list(&c, project.as_deref(), kind.as_deref(), limit, offset),
         #[cfg(feature = "memory")]
-        Action::MemoryPack { project, max_chars } => {
-            crate::memory::pack(&c, project.as_deref(), max_chars)
+        Action::MemoryPack {
+            project,
+            max_chars,
+            binding,
+        } => {
+            if binding {
+                crate::memory::pack_binding(&c, project.as_deref(), max_chars)
+            } else {
+                crate::memory::pack(&c, project.as_deref(), max_chars)
+            }
         }
         #[cfg(feature = "memory")]
         Action::MemoryRecall {
