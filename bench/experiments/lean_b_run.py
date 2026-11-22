@@ -7,6 +7,9 @@ from evaluation import luna_pilot, dependency_pilot
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from explore_cost import explore
 FN = os.environ["FOOTNOTE_BIN"]
+# A/B arms (memory 448): full CLAUDE_CONFIG_DIR copies built by ab/setup_arms.py, T3's prompt and tool names appended to both
+AB = {"base-dev": "codebase-memory-mcp", "footnote": "footnote-memory"}
+AB_ROOT = pathlib.Path.home() / ".claude-ab"; T3 = pathlib.Path(__file__).parent / "ab/t3-append.md"
 RULES = pathlib.Path(__file__).resolve().parents[2] / "rules/lean/LEAN-B.md"
 TASKS = {"L1": (luna_pilot, ["-m", "integration.check_intervals", "{w}", "--followup"], "TASK.txt, CONTRACT.txt and DECISION.txt"),
          "L2": (dependency_pilot, ["-m", "evaluation.dependency_fixture", "{w}"], "TASK.txt, CONTRACT.txt and DECISION.txt")}
@@ -25,30 +28,39 @@ def workspace(task, tmp):
 def run_one(arm, task, n, model, effort, tmp):
     work = workspace(task, tmp)
     prompt = (f"Complete exactly one evaluation delivery in {work.as_posix()}. Read {TASKS[task][2]}. Own only files listed in TASK.txt. "
-              "No MCP, network, installs, commits or delegation. Run every command from the workspace. Run local tests and deliver once. "
+              + ("" if arm in AB else "No MCP, ") + "network, installs, commits or delegation. Run every command from the workspace. Run local tests and deliver once. "
               + ("Include the word checks in delivery.txt. " if task == "L2" else "") + "Short final answer.")
     args = ["claude", "-p", prompt, "--model", model, "--effort", effort, "--setting-sources", "project,local", "--strict-mcp-config",
             "--disable-slash-commands", "--permission-mode", "bypassPermissions", "--output-format", "stream-json", "--verbose"]
-    if arm == "ponytail":
+    if arm in AB:
+        args = [a for a in args if a not in ("--strict-mcp-config", "--disable-slash-commands")]
+        i = args.index("--setting-sources"); del args[i:i + 2]; args += ["--append-system-prompt-file", str(T3)]
+    elif arm == "ponytail":
         s = tmp / "pt.json"; s.write_text(json.dumps({"enabledPlugins": {"ponytail@ponytail": True}})); args += ["--settings", str(s)]
     elif arm != "bare":
         args += ["--append-system-prompt-file", str(rule_file(arm, tmp))]
     env = {k: v for k, v in os.environ.items() if not k.startswith(("FOOTNOTE_", "CLAUDECODE", "CLAUDE_CODE_"))}
-    env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
+    if arm in AB:
+        env.update(CLAUDE_CONFIG_DIR=str(AB_ROOT / arm), ENABLE_CLAUDEAI_MCP_SERVERS="false")
+        if arm == "footnote": env["FOOTNOTE_STATE_DIR"] = str(AB_ROOT / "footnote-state")
+    else:
+        env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] = "1"
     t0 = time.time()
     out = subprocess.run(args, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=1200).stdout
     sec = round(time.time() - t0)
     ev = [json.loads(l) for l in out.splitlines() if l.startswith("{")]
     init = next((e for e in ev if e.get("subtype") == "init"), {}); res = next((e for e in ev if e.get("type") == "result"), {})
     plug = [p["source"] for p in init.get("plugins", []) if not p["source"].endswith("@builtin")]
-    active = any("ponytail" in p for p in plug) if arm == "ponytail" else not plug  # rule arms: proven by the flag, plugins must be empty
+    mcp = {m["name"]: m["status"] for m in init.get("mcp_servers", [])}
+    if arm in AB: active = mcp.get(AB[arm]) == "connected"  # the arm's own stack loaded
+    else: active = any("ponytail" in p for p in plug) if arm == "ponytail" else not plug  # rule arms: proven by the flag, plugins must be empty
     sid = res.get("session_id")
-    f = next(pathlib.Path.home().glob(f".claude/projects/*/{sid}.jsonl"), None)
+    f = next((AB_ROOT / arm if arm in AB else pathlib.Path.home() / ".claude").glob(f"projects/*/{sid}.jsonl"), None)
     u = json.loads(subprocess.run([FN, "usage", "--file", str(f)], capture_output=True, text=True).stdout)["totals"]
     chk = subprocess.run([sys.executable, *[a.replace("{w}", str(work)) for a in TASKS[task][1]]], capture_output=True, text=True)
     return {"arm": arm, "task": task, "run": n, "accepted": chk.returncode == 0 and active, "turns": res.get("num_turns"),
             "uncached_in": u["input"], "cache_write": u["cache_write_5m"] + u["cache_write_1h"], "cache_read": u["cache_read"],
-            "output": u["output"], "seconds": sec, "usd": u.get("api_price_usd"), "plugins": plug, "active": active, **explore(f)}
+            "output": u["output"], "seconds": sec, "usd": u.get("api_price_usd"), "plugins": plug, "mcp": mcp, "tools": len(init.get("tools", [])), "skills": len(init.get("skills", [])), "active": active, **explore(f)}
 
 if __name__ == "__main__":
     out, model, effort, runs = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
