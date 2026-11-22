@@ -15,6 +15,27 @@ python scripts/setup_tests.py     # prepares all of it: .venv, the test models, 
 
 All three must pass. Tests that need a model are in `tests/hybrid*.rs`; they use the models under `artifacts/models/`.
 
+## Build and install a local release binary
+
+Release builds include llama.cpp (`dist-workspace.toml`), which runs GGUF models such as `jina-v5-nano`. A local build
+without it cannot load them: recall falls back to keywords and new memories get no vectors. Build the same way:
+
+- **Prerequisites:** CMake and libclang (LLVM) on PATH, plus the C++ build tools (Visual Studio Build Tools on Windows).
+- **Windows** (PowerShell): a short target folder keeps llama.cpp's build paths under the Windows limit (#506), and
+  `MSBUILDDISABLENODEREUSE=1` stops MSBuild from leaving worker processes running after the build.
+
+  ```powershell
+  $env:MSBUILDDISABLENODEREUSE = "1"; $env:CARGO_TARGET_DIR = "C:\t\fn"
+  cargo build --release --features llama
+  footnote update --from C:\t\fn\release\footnote.exe
+  ```
+
+- **Linux and macOS:** `cargo build --release --features llama`, then `footnote update --from target/release/footnote`.
+
+`footnote update --from` warns when the new binary has no llama.cpp while Memory uses a GGUF model, and `footnote models
+use` refuses such a model on a build without it. After switching builds, `footnote rebuild-embeddings` gives every
+memory its vector.
+
 ## Changes that touch retrieval
 
 Retrieval quality and speed are measured, not argued. A change to ranking, chunking, models, fusion or storage needs:

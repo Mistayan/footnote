@@ -451,6 +451,11 @@ pub fn use_models(state: &Path, names: &[String]) -> Result<Value> {
         if !dir.join("manifest.json").exists() {
             bail!("`{name}` is not installed; run `footnote models install {name}` first");
         }
+        // #515: configuring a model this build cannot load leaves recall on keywords and new memories without vectors.
+        ensure!(
+            cfg!(feature = "llama") || !dir.join("model.gguf").exists(),
+            "`{name}` runs through llama.cpp, which this build of Footnote does not include; install a release build (or build with `--features llama`) first"
+        );
         paths.push(dir.to_string_lossy().replace('\\', "/"));
     }
     if paths.is_empty() || paths.len() > 3 {
@@ -695,7 +700,13 @@ mod tests {
             (row["imported"].clone(), row["bytes"].clone()),
             (serde_json::json!(true), serde_json::json!(4))
         );
-        super::use_models(state, &["my-embed".into()]).unwrap();
+        let used = super::use_models(state, &["my-embed".into()]);
+        if !cfg!(feature = "llama") {
+            // #515: a GGUF model is refused by a build that cannot load it; the rest needs it configured.
+            assert!(used.unwrap_err().to_string().contains("llama.cpp"));
+            return;
+        }
+        used.unwrap();
         assert!(
             super::list(state).unwrap()["memory_uses_from_elsewhere"]
                 .as_array()

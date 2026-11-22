@@ -51,6 +51,9 @@ pub fn update(from: &Path) -> Result<Value> {
     if !out.status.success() || !version.starts_with("footnote ") {
         bail!("{} is not a Footnote binary that runs", from.display());
     }
+    let warning = lacks_llama(from).then_some(
+        "the new binary has no llama.cpp, and Memory is configured with a GGUF model: recall will rank by keyword only and new memories get no vectors. Install a release build, or build with `--features llama` (CONTRIBUTING.md)"
+    );
     let keep = exe.with_file_name(format!(
         "{}.replaced-{}",
         exe.file_name().context("binary name")?.to_string_lossy(),
@@ -66,8 +69,30 @@ pub fn update(from: &Path) -> Result<Value> {
         let _ = std::fs::remove_file(old);
     }
     Ok(
-        json!({"updated": exe, "version": version, "previous": keep, "note": "`footnote rollback` puts the previous binary back; data in the state folder is not touched"}),
+        json!({"updated": exe, "version": version, "previous": keep, "warning": warning, "note": "`footnote rollback` puts the previous binary back; data in the state folder is not touched"}),
     )
+}
+
+/// #515: Memory is configured with a GGUF model and `from` says (in `models list`) it has no llama.cpp. A binary too old to
+/// say gives no warning.
+fn lacks_llama(from: &Path) -> bool {
+    let Ok(state) = crate::state::state_dir() else {
+        return false;
+    };
+    let models: Vec<PathBuf> = footnote_core::config::product_settings(&state, "memory")
+        .ok()
+        .and_then(|s| serde_json::from_value(s["models"].clone()).ok())
+        .unwrap_or_default();
+    if !models.iter().any(|m| m.join("model.gguf").exists()) {
+        return false;
+    }
+    let Ok(out) = std::process::Command::new(from)
+        .args(["models", "list"])
+        .output()
+    else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&out.stdout).is_ok_and(|v| v["llama"] == json!(false))
 }
 
 const LATEST: &str = "https://api.github.com/repos/bobcat88/footnote/releases/latest";

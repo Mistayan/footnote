@@ -50,8 +50,18 @@ fn update_keeps_the_previous_binary_and_rollback_restores_it() {
     assert!(!refused.status.success());
     assert_eq!(sha(&installed), old_sha, "nothing moved");
 
+    // #515: Memory configured with a GGUF model, and a new binary without llama.cpp, gives a warning.
+    let gguf = t.path().join("state").join("models").join("my-embed");
+    fs::create_dir_all(&gguf).unwrap();
+    fs::write(gguf.join("model.gguf"), b"1234").unwrap();
+    fs::write(
+        t.path().join("state").join("memory.json"),
+        serde_json::json!({"models": [gguf]}).to_string(),
+    )
+    .unwrap();
     let up = run(&["update", "--from", newer.to_str().unwrap()]);
     assert_eq!(sha(&installed), new_sha, "{up}");
+    assert_eq!(up["warning"].is_string(), !cfg!(feature = "llama"), "{up}");
     assert_eq!(sha(Path::new(up["previous"].as_str().unwrap())), old_sha);
 
     let back = run(&["rollback"]);
