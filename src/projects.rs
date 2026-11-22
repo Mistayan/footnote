@@ -30,7 +30,8 @@ fn today() -> String {
 /// Record that an agent session started in `root` for `project` (the hook's name for it). Same name, same project: a second
 /// clone of one repository updates the path to the latest one used, except a linked git worktree (`.git` is a file) never
 /// overwrites an existing main checkout path, so worktree sessions do not hide the main repository's code graph.
-pub fn seen(state: &Path, project: &str, root: &str) -> Result<()> {
+/// `agent` is the agent whose session it is (`claude`, `codex`, ... or empty when unknown): the commit button runs that one.
+pub fn seen(state: &Path, project: &str, root: &str, agent: &str) -> Result<()> {
     if ignored(state).contains(project) {
         return Ok(()); // the user asked Footnote to leave this project alone
     }
@@ -53,10 +54,18 @@ pub fn seen(state: &Path, project: &str, root: &str) -> Result<()> {
             old_p.is_dir() && new_p.join(".git").is_file() && !old_p.join(".git").is_file()
         })
         .unwrap_or(root);
+    let agent = if agent.is_empty() {
+        prev.as_ref()
+            .and_then(|v| v["agent"].as_str())
+            .unwrap_or_default()
+            .to_string()
+    } else {
+        agent.to_string()
+    };
     let tmp = path.with_extension("json.tmp");
     fs::write(
         &tmp,
-        json!({"name": project, "path": kept_root, "first_seen": first, "last_seen": today()})
+        json!({"name": project, "path": kept_root, "first_seen": first, "last_seen": today(), "agent": agent})
             .to_string(),
     )?;
     fs::rename(&tmp, &path)?;
@@ -149,7 +158,7 @@ pub fn add(state: &Path, folder: &str) -> Result<Value> {
     if ignored(state).contains(&name) {
         ignore(state, &name, false)?;
     }
-    seen(state, &name, &root)?;
+    seen(state, &name, &root, "")?;
     Ok(json!({"added": true, "name": name, "path": root}))
 }
 
@@ -179,6 +188,152 @@ pub fn ignore(state: &Path, project: &str, on: bool) -> Result<Value> {
 
 /// How long a request from the window waits for an agent turn in its project before it is dropped.
 const ASK_TTL_SECS: i64 = 24 * 3600;
+
+const COMMIT_RUN: &str = "You were started unattended by the user, from the Footnote window, to commit and push the \
+uncommitted work in this repository ({path}, {n} changed file(s)). Read `git log --oneline -15` for its conventions, then \
+`git status` and `git diff`. Group the changes into logical commits with clear messages in those conventions, then push the \
+current branch (`git push`; with no upstream, `git push -u origin HEAD`). Never force-push, rewrite history or edit files. \
+You cannot ask anything: leave uncommitted any change that looks unintended, generated or secret (keys, tokens, .env \
+files) and name it. End with at most three short lines: what you committed, whether the push worked, what you left.";
+
+/// How long an unattended commit may take before it is stopped.
+const COMMIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// `footnote agent-commit <project>`: commit and push the project's uncommitted work now, unattended, with the agent last
+/// used there (Claude Code or Codex, else whichever is installed). Claude Code may run git only; Codex runs in its
+/// workspace sandbox with network for the push. Memory's hook stays off for the run. Returns the agent's last lines and the
+/// work left after it.
+pub fn commit_now(state: &Path, project: &str) -> Result<Value> {
+    let known: Value = fs::read(
+        state
+            .join("projects")
+            .join(format!("{}.json", file_name(project))),
+    )
+    .ok()
+    .and_then(|b| serde_json::from_slice(&b).ok())
+    .ok_or_else(|| anyhow::anyhow!("no project named {project}: `footnote projects` lists them"))?;
+    let root = known["path"].as_str().unwrap_or_default().to_string();
+    anyhow::ensure!(
+        Path::new(&root).is_dir(),
+        "the folder of {project} no longer exists: {root}"
+    );
+    let before = git_state(&root)["uncommitted"].as_u64().unwrap_or(0);
+    anyhow::ensure!(before > 0, "nothing to commit in {root}");
+    let prompt = COMMIT_RUN
+        .replace("{path}", &root)
+        .replace("{n}", &before.to_string());
+    let last = known["agent"].as_str().unwrap_or_default();
+    let order: Vec<&str> = if last == "codex" {
+        vec!["codex", "claude"]
+    } else {
+        vec!["claude", "codex"]
+    };
+    let mut tried = Vec::new();
+    for agent in order {
+        match run_agent(agent, &root, &prompt) {
+            Ok(said) => {
+                let after = git_state(&root);
+                let _ = fs::remove_file(ask_path(state, project)); // a queued request is answered too
+                return Ok(json!({"project": project, "agent": agent, "before": before,
+                    "uncommitted": after["uncommitted"], "unpushed": after["unpushed"], "said": said.trim()}));
+            }
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                tried.push(agent);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    anyhow::bail!(
+        "neither `{}` is installed on PATH: the request can wait for the next agent turn instead",
+        tried.join("` nor `")
+    )
+}
+
+fn run_agent(agent: &str, root: &str, prompt: &str) -> Result<String> {
+    use anyhow::Context;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    use wait_timeout::ChildExt;
+    let out_file = std::env::temp_dir().join(format!("footnote-commit-{}.txt", std::process::id()));
+    let mut cmd = if agent == "claude" {
+        let mut c = Command::new("claude");
+        c.args([
+            "-p",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+            "--output-format",
+            "json",
+            "--allowedTools",
+        ]);
+        c.args([
+            "Bash(git status:*)",
+            "Bash(git diff:*)",
+            "Bash(git log:*)",
+            "Bash(git add:*)",
+            "Bash(git commit:*)",
+            "Bash(git push:*)",
+            "Bash(git rev-parse:*)",
+            "Bash(git branch:*)",
+            "Bash(git remote:*)",
+        ]);
+        c
+    } else {
+        let mut c = Command::new("codex");
+        c.args([
+            "exec",
+            "--full-auto",
+            "-c",
+            "sandbox_workspace_write.network_access=true",
+            "--ephemeral",
+            "-o",
+        ])
+        .arg(&out_file)
+        .arg("-");
+        c
+    };
+    cmd.current_dir(root)
+        .env("FOOTNOTE_HOOK_OFF", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn()?;
+    child
+        .stdin
+        .take()
+        .context("no stdin")?
+        .write_all(prompt.as_bytes())?;
+    let mut stdout = child.stdout.take().context("no stdout")?;
+    let reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut s);
+        s
+    });
+    let Some(status) = child.wait_timeout(COMMIT_TIMEOUT)? else {
+        let _ = child.kill();
+        let _ = child.wait();
+        anyhow::bail!(
+            "`{agent}` was stopped after {} minutes",
+            COMMIT_TIMEOUT.as_secs() / 60
+        );
+    };
+    let out = reader.join().unwrap_or_default();
+    anyhow::ensure!(status.success(), "`{agent}` failed ({status})");
+    if agent == "claude" {
+        let v: Value = serde_json::from_str(out.trim()).context("`claude` did not answer JSON")?;
+        anyhow::ensure!(
+            v["is_error"] != true,
+            "`claude` reported an error: {}",
+            v["result"].as_str().unwrap_or_default()
+        );
+        return Ok(v["result"].as_str().unwrap_or_default().to_string());
+    }
+    let said = fs::read_to_string(&out_file).unwrap_or(out);
+    let _ = fs::remove_file(&out_file);
+    Ok(said)
+}
 
 const COMMIT_ASK: &str = "Footnote: the user asks, from the Footnote window, that you commit and push the uncommitted work in \
 the folder {path} ({n} changed file(s) when they asked). Run `git status` and read the diff there, group the changes into \
@@ -310,8 +465,8 @@ mod tests {
         let root = state.join("scratch");
         std::fs::create_dir_all(&root).unwrap();
         let root = root.to_string_lossy();
-        super::seen(state, "scratch", &root).unwrap();
-        super::seen(state, "kept", &root).unwrap();
+        super::seen(state, "scratch", &root, "").unwrap();
+        super::seen(state, "kept", &root, "").unwrap();
         let names = |v: serde_json::Value| -> Vec<String> {
             v["projects"]
                 .as_array()
@@ -322,12 +477,12 @@ mod tests {
         };
         assert_eq!(names(super::list(state, true).unwrap()).len(), 2);
         super::ignore(state, "scratch", true).unwrap();
-        super::seen(state, "scratch", &root).unwrap(); // a new session there records nothing
+        super::seen(state, "scratch", &root, "").unwrap(); // a new session there records nothing
         let listed = super::list(state, true).unwrap();
         assert_eq!(names(listed.clone()), ["kept"]);
         assert_eq!(listed["ignored"], serde_json::json!(["scratch"]));
         super::ignore(state, "scratch", false).unwrap();
-        super::seen(state, "scratch", &root).unwrap();
+        super::seen(state, "scratch", &root, "").unwrap();
         assert_eq!(names(super::list(state, true).unwrap()).len(), 2);
     }
 

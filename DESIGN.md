@@ -174,8 +174,12 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   - **Agents:** each agent chip is green (Memory hooks and MCP server connected), amber (one missing, shown dashed) or red
     (both missing). A non-green chip has a wrench that runs `footnote install --memory` (it reconnects every agent found and
     rewrites only Footnote's own entries) and asks for a restart of the agent.
-  - **Commit pictogram:** a click sends the engine's fixed commit-and-push request to the next agent turn in that project
-    (`footnote agent-ask`); while it waits the pictogram turns into an accent send mark, and a click withdraws it.
+  - **Commit pictogram:** a click commits and pushes now, in the background (`footnote agent-commit`): the agent last used in
+    that project (recorded by the hook; Claude Code or Codex, else whichever is installed) runs unattended with the engine's
+    fixed request. Claude Code may run git commands only; Codex runs in its workspace sandbox with network for the push. The
+    pictogram spins while it runs, then a note that stays until dismissed says what was committed and pushed and what was
+    left. With neither command line installed, the request waits for the next agent turn instead (`footnote agent-ask`):
+    the pictogram turns into an accent send mark, and a click withdraws it.
   - **Scrolling (T3 Code's rail):** no native scrollbar in the main area or in menus. A sparse tick rail on the right edge,
     about four ticks per screen of content (8 to 36; three per screen in a menu, 6 to 20). The screen in view is brighter,
     and one long white tick marks where you are. On hover the rail spreads and the ticks near the pointer grow like a
@@ -183,7 +187,7 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
     are one card each: name (24 characters, full name in the tooltip), last seen, a drive squircle plus the last folder (opens
     the folder; the shell checks the engine's project list first), then pictograms for memories, code graph (or a build
-    button) and uncommitted changes (red; a click sends the agent a commit-and-push request). Unpushed counts are
+    button) and uncommitted changes (red; a click commits and pushes in the background). Unpushed counts are
     dropped. At the bottom right, an eye-off button ignores the project: it leaves the list and new sessions there are not
     recorded (memories stay); the note that confirms it has Undo, and "N ignored projects" under the grid restores any.
     Opening a folder checks it against the quick project list (names and folders, no git), so it opens at once. Models: the hero names the active model(s); each licence chip opens what the licence allows and links its text.

@@ -368,11 +368,25 @@ fn session_start_records_the_project_for_the_projects_list() {
         .clone();
     let list: Value = serde_json::from_slice(&out).unwrap();
     let p = &list["projects"][0];
-    // This repository: named after its remote, recorded at its top folder, with git state read live.
+    // This repository: named after its remote, recorded at its top folder, with git state read live. From a linked worktree
+    // the hook records the main checkout instead (the folder holding the shared `.git`), so the test expects that one.
     assert!(p["name"].as_str().is_some_and(|n| !n.is_empty()), "{list}");
+    let common = std::process::Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .unwrap();
+    let common = String::from_utf8_lossy(&common.stdout).trim().to_string();
+    let main_checkout = Path::new(&common)
+        .parent()
+        .filter(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join(".git").is_file())
+        .map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf(),
+            Path::to_path_buf,
+        );
     assert_eq!(
         fs::canonicalize(p["path"].as_str().unwrap()).unwrap(),
-        fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap(),
+        fs::canonicalize(main_checkout).unwrap(),
         "{list}"
     );
     assert_eq!(p["exists"], true);
@@ -475,6 +489,79 @@ fn a_commit_request_from_the_window_reaches_the_next_turn_once() {
         .assert()
         .success();
     assert!(!hook(&state, at("a2", "UserPromptSubmit")).contains("commit and push"));
+}
+
+/// The commit button's unattended run (`footnote agent-commit`): the hook records which agent a session was (from where it
+/// keeps its session file), and with neither `claude` nor `codex` on PATH the run says so, so the launcher can queue the
+/// request for the next agent turn instead.
+#[test]
+fn a_session_records_its_agent_and_a_commit_without_agent_cli_says_so() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let repo = t.path().join("shop-api");
+    fs::create_dir_all(&state).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    seed(&state, &[]);
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let transcript = t.path().join(".claude").join("projects").join("s.jsonl");
+    hook(
+        &state,
+        json!({"hook_event_name": "SessionStart", "session_id": "c1", "cwd": repo.to_string_lossy(),
+            "transcript_path": transcript.to_string_lossy()}),
+    );
+    let projects = read_projects(&state);
+    assert_eq!(projects["projects"][0]["agent"], "claude", "{projects}");
+
+    fs::write(repo.join("orders.rs"), "fn main() {}\n").unwrap();
+    // A PATH with git only: neither agent command line can start.
+    let git = std::process::Command::new("git")
+        .args(["--exec-path"])
+        .output()
+        .unwrap();
+    let git_dir = Path::new(String::from_utf8_lossy(&git.stdout).trim())
+        .ancestors()
+        .find(|d| {
+            d.join(if cfg!(windows) { "git.exe" } else { "git" })
+                .is_file()
+                || d.join("cmd").join("git.exe").is_file()
+        })
+        .map(|d| {
+            if d.join("cmd").join("git.exe").is_file() {
+                d.join("cmd")
+            } else {
+                d.to_path_buf()
+            }
+        })
+        .unwrap_or_default();
+    let out = command(&state)
+        .env("PATH", &git_dir)
+        .args(["agent-commit", "shop-api"])
+        .assert()
+        .failure()
+        .get_output()
+        .clone();
+    let said =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("installed on PATH"), "{said}");
+}
+
+fn read_projects(state: &Path) -> Value {
+    serde_json::from_slice(
+        &command(state)
+            .args(["projects", "--quick"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap()
 }
 
 /// Past the context threshold, Stop asks once for a handoff (#250); the saved handoff leads the next session's pack.

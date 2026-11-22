@@ -1340,7 +1340,20 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 e.cwd.clone()
             };
             // Best effort: the project list must never cost the agent its memory pack.
-            let _ = crate::projects::seen(state, &project, &main_root);
+            // Which agent this is, for the launcher's commit button: Claude Code and Codex keep their session files under
+            // `.claude` and `.codex`.
+            let agent = if e.agy {
+                "antigravity"
+            } else if e.gemini_cli {
+                "gemini"
+            } else if e.transcript.contains(".codex") {
+                "codex"
+            } else if e.transcript.contains(".claude") {
+                "claude"
+            } else {
+                ""
+            };
+            let _ = crate::projects::seen(state, &project, &main_root, agent);
             embed_in_background(s, &db)?;
             // Best effort: a cleaning that cannot start must not cost the agent its memory pack.
             let _ = crate::clean::start_if_due(state, s.clean_days);
