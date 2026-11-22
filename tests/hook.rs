@@ -368,11 +368,25 @@ fn session_start_records_the_project_for_the_projects_list() {
         .clone();
     let list: Value = serde_json::from_slice(&out).unwrap();
     let p = &list["projects"][0];
-    // This repository: named after its remote, recorded at its top folder, with git state read live.
+    // This repository: named after its remote, recorded at its top folder, with git state read live. From a linked worktree
+    // the hook records the main checkout instead (the folder holding the shared `.git`), so the test expects that one.
     assert!(p["name"].as_str().is_some_and(|n| !n.is_empty()), "{list}");
+    let common = std::process::Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .unwrap();
+    let common = String::from_utf8_lossy(&common.stdout).trim().to_string();
+    let main_checkout = Path::new(&common)
+        .parent()
+        .filter(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join(".git").is_file())
+        .map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).to_path_buf(),
+            Path::to_path_buf,
+        );
     assert_eq!(
         fs::canonicalize(p["path"].as_str().unwrap()).unwrap(),
-        fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap(),
+        fs::canonicalize(main_checkout).unwrap(),
         "{list}"
     );
     assert_eq!(p["exists"], true);
