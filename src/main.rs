@@ -4,6 +4,8 @@ mod app;
 mod audit_prefix;
 #[cfg(feature = "library")]
 mod bundle;
+#[cfg(feature = "memory")]
+mod clean;
 mod daemon;
 #[cfg(feature = "library")]
 mod docs;

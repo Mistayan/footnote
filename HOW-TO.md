@@ -171,6 +171,15 @@ footnote skills drop css-transitions --project my-app        # back to the curat
 footnote skills list            # agent skills too, with `behind` when the curated skill changed since the copy
 ```
 
+**Memory cleaning.** Every 7 days, the next session start asks an agent you already use (Claude Code with Haiku, else Codex) to retire stale project memories: finished work, decisions a later memory replaces, repeats. Exact duplicates and session notes older than 30 days go without asking the model. It costs about 40k input tokens on your subscription, and never sends conversations or global memories. A failed run (no tokens left, CLI missing) is retried the next day, up to 7 times. `footnote status` shows the next run and any warning.
+
+```bash
+footnote memory-clean --dry-run              # what it would retire, and why
+footnote memory-clean --agent codex       # run now with Codex; the choice is kept for later runs
+footnote memory-restore 354                  # bring one back
+footnote config set memory.clean_days 0      # turn the schedule off
+```
+
 **Letting agents change skills (opt-in).** `footnote config set memory.skill_rewrite true` gives agents the `footnote_skill_edit` tool. It costs agent tokens: one extra turn for each change, and later sessions re-read the changed skill; `footnote options` gives the details. A change to Markdown files must pass the skill-check rules (description of at most 1024 characters, SKILL.md of at most 500 lines, links that resolve inside the skill), then goes live. A change that touches anything else, such as a script, waits for you, and Footnote never runs it:
 
 ```bash

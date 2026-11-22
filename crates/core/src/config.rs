@@ -77,6 +77,13 @@ pub fn catalogue() -> Vec<OptionSpec> {
             cost: "Higher: a worse edit is served longer before the rollback. At any size this catches clear regressions only; it is not a statistical test",
         },
         OptionSpec {
+            key: "memory.clean_days",
+            default: json!(7),
+            range: Some((0, 90)),
+            gain: "An agent you already use (Claude Code with Haiku, else Codex) retires stale project memories every this many days, so recall stops serving finished work; `footnote memory-restore` undoes any of it (0: off)",
+            cost: "Each run sends up to 400 project memories (not your conversations) to that agent's model once, on your subscription: about 40k input tokens at most",
+        },
+        OptionSpec {
             key: "memory.idle_seconds",
             default: json!(1800),
             range: Some((60, 86_400)),

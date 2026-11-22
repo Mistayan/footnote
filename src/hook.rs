@@ -138,6 +138,8 @@ struct Settings {
     skill_rewrite: bool,
     /// Suggestions an agent's skill edit is on trial for before it is kept or rolled back (#447).
     skill_trial_uses: u64,
+    /// Days between scheduled memory cleanings (#437); 0 turns them off.
+    clean_days: u64,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -155,6 +157,7 @@ impl Default for Settings {
             skills: false,
             skill_rewrite: false,
             skill_trial_uses: 5,
+            clean_days: 7,
             handoff_tokens: 140_000,
             idle_handoff_minutes: 55,
             idle_handoff_min_tokens: 60_000,
@@ -765,6 +768,8 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             let _ =
                 crate::projects::seen(state, &project, if top.is_empty() { &e.cwd } else { &top });
             embed_in_background(s, &db)?;
+            // Best effort: a cleaning that cannot start must not cost the agent its memory pack.
+            let _ = crate::clean::start_if_due(state, s.clean_days);
             st.handoff_asked = false; // after a compaction the context is small again
             st.idle_handoff_due = None;
             st.turn_prompt_hash = None;
@@ -1053,6 +1058,10 @@ fn run_inner(state: &Path, embed: bool) -> Result<()> {
 }
 
 pub fn run(embed: bool) {
+    // Set by `footnote memory-clean` on the agent it runs, so that session neither recalls nor saves memories.
+    if std::env::var_os("FOOTNOTE_HOOK_OFF").is_some() {
+        return;
+    }
     let Ok(state) = crate::state::state_dir() else {
         return;
     };

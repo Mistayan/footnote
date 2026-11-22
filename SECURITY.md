@@ -1,6 +1,6 @@
 # Security policy
 
-Footnote is a local tool that serves your own documents to your own agents. It opens outbound network connections only in commands you run yourself (`footnote models install`, `footnote crawl <url>`, `footnote docs add`, `footnote docs refresh`, `footnote docs install <url>`) and in `footnote find`'s fetch on miss, which reads up to 3 pages of an already cached docs site when no cached passage matches well and never sends your query (`FOOTNOTE_NO_LIVE_FETCH=1` turns it off; see the README's security model), and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database and, only when you turn on `memory.skill_rewrite`, change a copy of a skill in the state folder (see [Agent skill edits](#agent-skill-edits)). Agent memories are written by the agent you already use, into a local file; no other model receives your conversation.
+Footnote is a local tool that serves your own documents to your own agents. It opens outbound network connections only in commands you run yourself (`footnote models install`, `footnote crawl <url>`, `footnote docs add`, `footnote docs refresh`, `footnote docs install <url>`) and in `footnote find`'s fetch on miss, which reads up to 3 pages of an already cached docs site when no cached passage matches well and never sends your query (`FOOTNOTE_NO_LIVE_FETCH=1` turns it off; see the README's security model), and its MCP tools cannot write to your documents; the only write tools add or retire agent memories in a separate memory database and, only when you turn on `memory.skill_rewrite`, change a copy of a skill in the state folder (see [Agent skill edits](#agent-skill-edits)). Agent memories are written by the agent you already use, into a local file; no other model receives your conversation. Once a week, that agent's CLI also reviews your project memories (see [Memory cleaning](#memory-cleaning)).
 The model that describes what it defends against is in the README under [Security model](README.md#security-model).
 
 ## Reporting a vulnerability
@@ -28,6 +28,14 @@ With `memory.skill_rewrite` on (off by default), agents get `footnote_skill_edit
 - **The review shows the code.** `footnote skills diff` and the launcher's Skills screen show a pending change line by line against the version it would replace, and the launcher can open its folder. The launcher's page names only the skill: the folder path comes from the engine, so a page cannot make the window open an arbitrary path.
 - **Footnote never runs a skill's scripts.** It does not run them to check a change either. The agent runs them in its own shell, under its own permission prompts.
 - **What remains:** a Markdown change goes live without review, so an injected instruction can still reach later sessions through prose. It is limited to the skill's own folder, visible in the revision history, and reversible. Treat `skill_rewrite` like any setting that lets agents write instructions for other agents.
+
+## Memory cleaning
+
+Every `memory.clean_days` (7 by default; 0 turns it off), the next session start runs `footnote memory-clean` in the background. It sends up to 400 project memories, each cut to 300 characters, to Claude Code (Haiku) or Codex through that agent's own CLI and sign-in. Footnote stores no API key, and the run uses the user's own subscription. Conversations and global memories are never sent. Memory text may carry injected instructions, so:
+- **The agent runs without tools**, in an empty folder, with Footnote's own hook off: Claude Code with `--tools ""` and `--strict-mcp-config`, Codex in its read-only sandbox.
+- **The model only names ids.** Ids outside the memories it was sent are ignored, and global memories are never sent, so it cannot retire one.
+- **A run is capped.** A run that would retire more than 15% of the live memories retires nothing and leaves a warning in `footnote status`.
+- **Every retirement can be undone.** `footnote memory-restore <id>` brings a memory back, and the run's report lists each id with its reason.
 
 ## Out of scope
 

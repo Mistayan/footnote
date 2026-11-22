@@ -181,6 +181,22 @@ enum Action {
         limit: u16,
     },
     #[cfg(feature = "memory")]
+    /// Retire stale project memories with an agent you already use (Claude Code or Codex); `memory-restore` undoes it.
+    MemoryClean {
+        /// Show what would be retired; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// claude or codex; kept for the scheduled runs.
+        #[arg(long)]
+        agent: Option<String>,
+        /// The model to ask (default: haiku for claude, Codex's own default); kept for the scheduled runs.
+        #[arg(long)]
+        model: Option<String>,
+        /// Started by the hook on schedule: records the outcome and the next run.
+        #[arg(long, hide = true)]
+        scheduled: bool,
+    },
+    #[cfg(feature = "memory")]
     /// Add or remove tags on an agent memory (at most 10; lowercase words such as rust, windows, bugfix, resolved).
     MemoryTag {
         id: i64,
@@ -1068,6 +1084,15 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Activity { days } => return crate::activity::activity(*days),
         #[cfg(feature = "memory")]
         Action::MemoryReview { limit } => return crate::review::review(usize::from(*limit)),
+        #[cfg(feature = "memory")]
+        Action::MemoryClean {
+            dry_run,
+            agent,
+            model,
+            scheduled,
+        } => {
+            return crate::clean::run(*dry_run, agent.as_deref(), model.as_deref(), *scheduled);
+        }
         Action::Usage { days, file } => {
             return match file {
                 Some(f) => crate::usage::session(f),
@@ -1466,7 +1491,7 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Serve { .. } => unreachable!("serve is dispatched before the database is opened"),
         Action::Mcp => unreachable!("mcp is dispatched before the database is opened"),
         #[cfg(feature = "memory")]
-        Action::Activity { .. } | Action::MemoryReview { .. } => {
+        Action::Activity { .. } | Action::MemoryReview { .. } | Action::MemoryClean { .. } => {
             unreachable!("dispatched before the database is opened")
         }
         Action::Usage { .. } | Action::Find { .. } | Action::Corpora { .. } => {
@@ -1642,6 +1667,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::MemoryRestore { .. } => "memory-restore",
         #[cfg(feature = "memory")]
         Action::MemoryReview { .. } => "memory-review",
+        #[cfg(feature = "memory")]
+        Action::MemoryClean { .. } => "memory-clean",
         #[cfg(feature = "memory")]
         Action::MemoryTag { .. } => "memory-tag",
         #[cfg(feature = "memory")]

@@ -30,6 +30,7 @@
       <li><code>footnote memory-list</code> lists what is stored.</li>
       <li><code>footnote memory-review</code> lists the memories worth a second look, and the preferences waiting for you. <code>footnote memory-restore &lt;id&gt;</code> approves one.</li>
       <li><code>footnote forget &lt;id&gt;</code> deletes one, or rejects a pending preference.</li>
+      <li>Once a week, an agent you already use (Claude Code with Haiku, or Codex) retires stale project memories: finished work, replaced decisions, repeats. It reads memory text only, never your conversations, and global memories never leave. <code>footnote memory-clean --dry-run</code> shows what it would retire, <code>footnote memory-restore &lt;id&gt;</code> brings one back, and <code>footnote config set memory.clean_days 0</code> turns it off.</li>
       <li>The Launcher shows recent memory activity and token use.</li>
     </ul>
   </section>

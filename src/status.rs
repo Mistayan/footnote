@@ -103,6 +103,7 @@ fn memory(state: &Path) -> Result<Value> {
         )?);
     }
     out["recalls_last_7_days"] = recalls_last_week(state);
+    out["clean"] = crate::clean::status(state);
     Ok(out)
 }
 
