@@ -476,15 +476,15 @@ button.stat.sent:hover:not(:disabled) .stat-ic { color: var(--acc-ink); }
 .ic-btn.fix:hover:not(:disabled) svg { animation: wrench 500ms var(--ease); }
 @keyframes wrench { 30% { rotate: -25deg; } 60% { rotate: 15deg; } 100% { rotate: 0deg; } }
 
-/* Mini window (reworked 22 Nov 2026): one squircle widget on a transparent window, a slider of single-KPI cards. */
-html.mini-win, html.mini-win body { background: transparent; }
-.mw { height: 100%; display: grid; grid-template-rows: 34px minmax(0, 1fr) 34px; overflow: hidden; border-radius: 18px;
+/* Mini window (reworked 22 Nov 2026): the widget fills the window; Windows 11 rounds and outlines the window itself (a
+   transparent window did not show at all, #527). A slider of single-KPI cards. */
+html.mini-win, html.mini-win body { background: var(--bg); }
+.mw { height: 100%; display: grid; grid-template-rows: 34px minmax(0, 1fr) 34px; overflow: hidden;
   background:
     radial-gradient(260px 160px at 85% -10%, color-mix(in srgb, var(--acc) 18%, transparent), transparent 70%),
     radial-gradient(220px 160px at 0% 120%, color-mix(in srgb, var(--acc2) 12%, transparent), transparent 70%),
     var(--bg);
-  border: 1px solid var(--line); box-shadow: inset 0 1px 0 var(--hi); user-select: none; }
-@supports (corner-shape: squircle) { .mw { corner-shape: squircle; border-radius: 30px; } }
+  user-select: none; }
 .mw-top { display: flex; align-items: center; gap: 8px; padding: 0 6px 0 14px; }
 .mw-title { font: 600 var(--t-m) var(--f-title); color: var(--text); flex: 1; }
 .mw-ctl { display: inline-flex; gap: 2px; }

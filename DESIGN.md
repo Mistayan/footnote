@@ -97,7 +97,8 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   support link at the foot), top bar 44 px, content, activity column 320 px. Dense tables for projects and agents,
   three product cards with one big number each.
 - **Mini mode (reworked 22 Nov 2026; was D2 "Lens"):** the tray's quick look, opened by a left click on the tray icon. One
-  squircle widget on a transparent, shadowless window (no OS frame or bezel), 380 x 248. A title row with the lens mark and
+  widget that fills its 380 x 248 window; Windows 11 rounds and shadows the window itself (no bezel). A
+  transparent window, tried first, never showed on Windows (#525). A title row with the lens mark and
   three controls: minimize, open the full window (in place of maximize), close to the tray. Below, a slider of single-KPI
   cards (Memory, today's tokens and list cost, projects with work to commit, agents connected, Library and Code), each with
   one big number, one line, and a link that opens the matching screen in the full window. Arrow keys, the bar-shaped page
