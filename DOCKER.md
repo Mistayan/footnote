@@ -250,7 +250,14 @@ docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64
 
 The backup holds every memory in clear text: keep it where only you can read it. On Linux, the target folder must be writable by UID `10001` (for example `sudo install -d -m 0700 -o 10001 -g 10001 ./backups`, then mount `./backups`).
 
-**Upgrade:** pull the repository, then `docker compose build` and `docker compose up -d`. The state volume is kept. Recreating the container ends any open MCP session (`docker exec -i … mcp`), so reconnect or restart each running agent afterwards.
+**Upgrade:** pull the repository, then `docker compose build` and `docker compose up -d`. The state volume is kept, but recreating the container ends every open MCP session (`docker exec -i … mcp`). To upgrade while agents are working, rotate instead:
+
+```bash
+docker build -t footnote:next .
+bash scripts/docker-rotate.sh --image footnote:next --auto-stop
+```
+
+The script first proves the new image away from the live stack: the smoke test, then the live settings on a copy of the state volume. There, the previous and the new daemon run side by side, and the new one must keep serving once the previous one stops. Then it starts the new daemon next to the live one and moves the name `footnote` to it over one Docker API connection, so `docker exec footnote` always finds a container. The previous container keeps the sessions it already has. With `--auto-stop` it stops when the last one ends; `--drain SECONDS` waits in the foreground instead. `bash scripts/docker-rotate.sh --finish` then checks the new daemon again and removes the previous container. If a check fails before the switch, the new container is removed and the previous daemon serves new connections again. The image that was live keeps the tag `footnote:previous`, to rotate back. After a rotation, the live container belongs to the Compose project `footnote-b`, and the next rotation moves it back to `footnote`. Use `docker compose -p footnote-b ...` for it in the meantime.
 
 **A volume written by an image that ran as root** (the first Dockerfile, #415) needs its owner changed once, or the non-root image fails with `attempt to write a readonly database`:
 
@@ -275,7 +282,7 @@ docker run --rm -u 0 -v footnote-state:/state --entrypoint chown footnote:local 
 | **`footnote memory-clean`** | **Not supported for model review** | Model review calls the host's `claude` CLI over the network (not in the image); `--agent codex` runs local rules only. Scheduled background cleaning is paused when `FOOTNOTE_NO_LIVE_FETCH=1`. |
 | **`footnote agent-commit`** | **Not supported** | Runs the host's `claude` or `codex` CLI with write and network access (`agent-ask` still queues a request for the next agent turn). |
 | **Footnote Lean** (`run`, `hook lean`, `audit-prefix --probe-mcp`) | **Not supported from a Windows host** | `footnote run` executes inside the Linux container, without the host's toolchains. |
-| **`footnote install` / `update` / `rollback`** | **Not applicable** | Register agents with `scripts/docker-agents.ps1` / `scripts/docker-agents.sh` (Section 3.2). Rebuild the image and run `docker compose up -d` to upgrade, keeping the state volume (binary-replacement daemon exit is inactive on the read-only rootfs). |
+| **`footnote install` / `update` / `rollback`** | **Not applicable** | Register agents with `scripts/docker-agents.ps1` / `scripts/docker-agents.sh` (Section 3.2). Rebuild the image to upgrade, keeping the state volume (binary-replacement daemon exit is inactive on the read-only rootfs); `scripts/docker-rotate.sh` switches without ending open sessions (Section 4). |
 | **`footnote personal` (DPAPI encryption) / `apps/launcher`** | **Not supported** | Windows-native DPAPI / Tauri GUI only. |
 | **`footnote models recommend`** | **Approximate** | Reads the WSL 2 / container VM RAM (`/proc/meminfo`) and cannot see Windows host GPUs. |
 
