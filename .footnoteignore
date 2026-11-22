@@ -1,2 +1,4 @@
 # Kept off Footnote's code map (.gitignore syntax). The skill library is scripts and docs for agents, not the product.
 skills/
+# Benchmarks and experiments: measurement code, not the product.
+bench/
