@@ -261,6 +261,8 @@ function Map({ root }) {
         <figcaption className="dimmed">
           From the compiler&apos;s index. Arrows point from a block to what it uses; thicker means more references.
           {data.depth ? ` Blocks are folders ${data.depth} deep.` : ""}
+          {" "}Left out: dot folders, build and dependency folders, and paths listed in <code>.footnoteignore</code> at the project root
+          (<code>.gitignore</code> syntax, e.g. <code>skills/</code>); index again after editing it.
         </figcaption>
       </figure>
       <aside className="panel">
