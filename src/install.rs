@@ -764,7 +764,7 @@ pub fn lean(dry_run: bool, remove_rtk: bool) -> Result<Value> {
             add_matcher_hook(
                 &hooks,
                 "PreToolUse",
-                "Bash|Read",
+                "Bash|PowerShell|Read",
                 5,
                 &command,
                 is_lean_hook,

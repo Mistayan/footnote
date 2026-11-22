@@ -204,7 +204,7 @@ What one request costs:
 
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
-Installs the fast `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles. In Claude Code it also sees `Read`: a whole-file read of a file over 500 lines that `footnote code-index` indexed is answered with the file's outline (definitions and line ranges), and the agent then reads only the part it needs with `offset` and `limit`:
+Installs the fast `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles. Agents rarely send one bare command, so each part of a compound line is handled on its own: `cd x && cargo test 2>&1 | head -40` becomes `cd x && footnote run -- cargo test 2>&1 | head -40`, and `Set-Location x; git status && git diff` gets both `git` parts wrapped. Every other byte is kept, so `&&`, `||` and `;` behave as before. A part is left alone when its output goes to a file, its stderr is discarded (`2>/dev/null`), or it pipes into anything but `head` or `Select-Object -First`. A line with a heredoc, here-string, subshell or script block is left whole. Claude Code's `Bash` and `PowerShell` tools, Codex and Antigravity get the same rules. In Claude Code it also sees `Read`: a whole-file read of a file over 500 lines that `footnote code-index` indexed is answered with the file's outline (definitions and line ranges), and the agent then reads only the part it needs with `offset` and `limit`:
 
 ```bash
 # Preview, then wire Memory + Lean + User PATH in one command:
@@ -337,9 +337,9 @@ footnote grep "enclosing_symbols" . --glob "*.rs"
 footnote run -- git log -n 20
 footnote gain --days 7
 
-# 4. Lean PreToolUse hook rewrite (eligible command rewritten; piped command untouched)
+# 4. Lean PreToolUse hook rewrite (filtered parts rewritten; a pipe into sort left untouched)
 echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo test --workspace"}}' | footnote hook lean
-echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | head -n 5"}}' | footnote hook lean
+echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | sort"}}' | footnote hook lean
 
 # 5. Turn-1 fixed prefix & MCP schema audit (read-only)
 footnote audit-prefix --root . --probe-mcp
@@ -373,7 +373,7 @@ try {
 
     # 4. Lean PreToolUse hook rewrite
     '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo test --workspace"}}' | footnote hook lean
-    '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | head -n 5"}}' | footnote hook lean
+    '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | sort"}}' | footnote hook lean
 
     # 5. Turn-1 fixed prefix & MCP schema audit (read-only)
     footnote audit-prefix --root . --probe-mcp

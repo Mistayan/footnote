@@ -53,11 +53,11 @@ fn hook_lean_rewrites_supported_bash_and_passes_through_pipes() {
         "footnote run -- cargo test --workspace"
     );
 
-    // Piped commands must pass through untouched (empty stdout).
+    // A pipe into anything but head/tail must pass through untouched (empty stdout).
     let piped = json!({
         "hook_event_name": "PreToolUse",
         "tool_name": "Bash",
-        "tool_input": {"command": "rg foo src | head -n 5"}
+        "tool_input": {"command": "rg foo src | sort"}
     });
     let out2 = cargo_bin_cmd!("footnote")
         .env("FOOTNOTE_STATE_DIR", state.path())
@@ -70,6 +70,39 @@ fn hook_lean_rewrites_supported_bash_and_passes_through_pipes() {
         String::from_utf8_lossy(&out2.stdout).trim().is_empty(),
         "piped command must not be rewritten"
     );
+
+    // #565: a compound line keeps its `cd` and pipe; only the filtered program is wrapped.
+    // #572: Claude Code's PowerShell tool gets the same treatment as Bash.
+    for (tool, cmd, want) in [
+        (
+            "Bash",
+            "cd D:/x && cargo test 2>&1 | head -40",
+            "cd D:/x && footnote run -- cargo test 2>&1 | head -40",
+        ),
+        (
+            "PowerShell",
+            "Set-Location D:/x; git status",
+            "Set-Location D:/x; footnote run -- git status",
+        ),
+    ] {
+        let payload = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool,
+            "tool_input": {"command": cmd}
+        });
+        let out = cargo_bin_cmd!("footnote")
+            .env("FOOTNOTE_STATE_DIR", state.path())
+            .env("PATH", &bin_dir)
+            .args(["hook", "lean"])
+            .write_stdin(payload.to_string())
+            .output()
+            .unwrap();
+        let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(
+            v["hookSpecificOutput"]["updatedInput"]["command"], want,
+            "{tool}: {v}"
+        );
+    }
 }
 
 #[test]
@@ -113,7 +146,29 @@ fn hook_lean_rewrites_antigravity_tool_call_and_gemini_cli_before_tool() {
         "Antigravity must not receive Claude hookSpecificOutput: {agy_v}"
     );
 
-    // Antigravity passthrough (chained command) must emit explicit `{"decision": "allow"}`
+    // A chained line gets each filtered part wrapped (#565).
+    let agy_chain = json!({
+        "conversationId": "conv-123",
+        "hookEventName": "PreToolUse",
+        "toolCall": {
+            "id": "toolu_02",
+            "name": "run_command",
+            "args": { "CommandLine": "Set-Location D:/x; git status && git diff" }
+        }
+    });
+    let agy_chain_out = cargo_bin_cmd!("footnote")
+        .env("FOOTNOTE_STATE_DIR", state.path())
+        .env("PATH", &bin_dir)
+        .args(["hook", "lean"])
+        .write_stdin(agy_chain.to_string())
+        .output()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&agy_chain_out.stdout).unwrap()["overwrite"]["CommandLine"],
+        "Set-Location D:/x; footnote run -- git status && footnote run -- git diff"
+    );
+
+    // Antigravity passthrough (nothing filtered) must emit explicit `{"decision": "allow"}`
     // because Antigravity treats a missing `decision` field as a denial.
     let agy_chain = json!({
         "conversationId": "conv-123",
@@ -121,7 +176,7 @@ fn hook_lean_rewrites_antigravity_tool_call_and_gemini_cli_before_tool() {
         "toolCall": {
             "id": "toolu_02",
             "name": "run_command",
-            "args": { "CommandLine": "git status && git diff" }
+            "args": { "CommandLine": "Write-Host hi; Get-ChildItem -Name" }
         }
     });
     let agy_pass = cargo_bin_cmd!("footnote")
@@ -162,7 +217,7 @@ fn hook_lean_rewrites_antigravity_tool_call_and_gemini_cli_before_tool() {
     let gemini_pipe = json!({
         "hook_event_name": "BeforeTool",
         "tool_name": "run_shell_command",
-        "tool_input": { "command": "rg foo src | head -n 5" }
+        "tool_input": { "command": "rg foo src | sort" }
     });
     let gemini_pass = cargo_bin_cmd!("footnote")
         .env("FOOTNOTE_STATE_DIR", state.path())

@@ -167,8 +167,8 @@ fn format_exe_for_shell(exe: &Path) -> String {
     }
 }
 
-/// Decide whether a raw shell command string is safe to rewrite to `footnote run -- <cmd>` inside a PreToolUse hook.
-/// Never touches pipes, redirects, chains, subshells, interactive tools, or commands already invoking `footnote`.
+/// Rewrite the parts of a shell command line that Footnote Lean filters to `footnote run -- <part>`, inside a
+/// PreToolUse hook. Returns `None` when nothing is rewritten.
 #[must_use]
 pub fn rewrite_command(cmd: &str) -> Option<String> {
     rewrite_command_with_bin(cmd, "footnote")
@@ -176,24 +176,212 @@ pub fn rewrite_command(cmd: &str) -> Option<String> {
 
 /// Same as `rewrite_command`, using an explicit binary invocation string (e.g. an absolute path when `footnote` is
 /// not on `PATH` in a non-interactive agent shell).
+///
+/// Agents rarely send one bare command: they write `cd X && cargo test 2>&1 | tail -5`, `Set-Location X; rg …`,
+/// `git status && git diff`. The line is split at top-level `&&`, `||`, `;` and newlines, and each part that runs a
+/// filtered program gets `footnote run -- ` in front of that program. Everything else in the line is kept byte for
+/// byte, so separators, `cd` and `$env:` statements and exit-code semantics are unchanged (#565). A part is left alone
+/// when it redirects output to a file (or stderr to the null device) or pipes into anything but `head` or
+/// `Select-Object -First`, because filtered output would change what lands there. A line with a heredoc, here-string, subshell, script block,
+/// backtick or input redirect is left whole, since its separators cannot be found safely.
 #[must_use]
 pub fn rewrite_command_with_bin(cmd: &str, bin_cmd: &str) -> Option<String> {
-    let trimmed = cmd.trim();
-    if trimmed.is_empty() || trimmed.contains('\n') || trimmed.contains('\r') {
+    if cmd.trim().is_empty() {
         return None;
     }
-    // Reject shell operators that pipe, redirect, chain, background, or run subshells.
-    for forbidden in ["|", ">", "<", "&&", "||", ";", "$(", "`", "\0"] {
-        if trimmed.contains(forbidden) {
-            return None;
+    let inserts: Vec<usize> = line_parts(cmd)?
+        .iter()
+        .filter_map(|part| part_rewrite_point(cmd, part))
+        .collect();
+    if inserts.is_empty() {
+        return None;
+    }
+    let prefix = format!("{bin_cmd} run -- ");
+    let mut out = String::with_capacity(cmd.len() + inserts.len() * prefix.len());
+    let mut last = 0;
+    for at in inserts {
+        out.push_str(&cmd[last..at]);
+        out.push_str(&prefix);
+        last = at;
+    }
+    out.push_str(&cmd[last..]);
+    Some(out.trim().to_string())
+}
+
+/// One top-level part of a command line: the bytes between `&&`, `||`, `;` and newlines, with the offsets of its `|`
+/// pipes and whether it redirects any output (other than merging stderr into stdout with `2>&1`).
+struct LinePart {
+    start: usize,
+    end: usize,
+    pipes: Vec<usize>,
+    redirects: bool,
+}
+
+impl LinePart {
+    fn at(start: usize) -> Self {
+        Self {
+            start,
+            end: start,
+            pipes: Vec::new(),
+            redirects: false,
         }
     }
-    let parts = split_simple_words(trimmed)?;
-    let first = parts.first()?;
-    let bin = Path::new(first)
+}
+
+/// Split a command line into its top-level parts, or `None` when it holds a construct whose separators a quote-aware
+/// scan cannot find safely: heredocs and input redirects, `$(…)`, `${…}`, backticks, `(…)`, `{…}`, PowerShell
+/// `@(…)`, `@{…}` and here-strings, a background `&`, or an unclosed quote.
+fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
+    let b = cmd.as_bytes();
+    let n = b.len();
+    let mut parts = Vec::new();
+    let mut part = LinePart::at(0);
+    let close = |parts: &mut Vec<LinePart>, part: &mut LinePart, end: usize, next: usize| {
+        part.end = end;
+        let done = std::mem::replace(part, LinePart::at(next));
+        if !cmd[done.start..done.end].trim().is_empty() {
+            parts.push(done);
+        }
+    };
+    let mut word_start = true;
+    let mut i = 0;
+    while i < n {
+        match b[i] {
+            b'\'' => {
+                i = i + 1 + cmd[i + 1..].find('\'')? + 1;
+                word_start = false;
+            }
+            b'"' => {
+                let mut j = i + 1;
+                loop {
+                    match b.get(j)? {
+                        b'\\' => j += 2,
+                        b'"' => break,
+                        b'`' => return None,
+                        b'$' if matches!(b.get(j + 1), Some(b'(' | b'{')) => return None,
+                        _ => j += 1,
+                    }
+                }
+                i = j + 1;
+                word_start = false;
+            }
+            b'\\' => {
+                i += 2;
+                word_start = false;
+            }
+            b'`' | b'(' | b')' | b'{' | b'}' | b'<' | b'\0' => return None,
+            b'$' if matches!(b.get(i + 1), Some(b'(' | b'{')) => return None,
+            b'@' if matches!(b.get(i + 1), Some(b'(' | b'{' | b'\'' | b'"')) => return None,
+            b'#' if word_start => {
+                while i < n && b[i] != b'\n' {
+                    i += 1;
+                }
+            }
+            b'&' if b.get(i + 1) == Some(&b'&') => {
+                close(&mut parts, &mut part, i, i + 2);
+                i += 2;
+                word_start = true;
+            }
+            b'|' if b.get(i + 1) == Some(&b'|') => {
+                close(&mut parts, &mut part, i, i + 2);
+                i += 2;
+                word_start = true;
+            }
+            b';' | b'\n' => {
+                close(&mut parts, &mut part, i, i + 1);
+                i += 1;
+                word_start = true;
+            }
+            b'|' => {
+                part.pipes.push(i);
+                i += 1;
+                word_start = true;
+            }
+            b'>' => {
+                // Only `2>&1` keeps the part rewritable: it merges stderr into what the agent reads anyway. Any other
+                // redirect sends output elsewhere, and `footnote run` prints the program's stderr on its own stdout, so
+                // even a `2>/dev/null` meant to hide errors would stop hiding them.
+                let stderr = i > 0 && b[i - 1] == b'2' && (i < 2 || b[i - 2].is_ascii_whitespace());
+                i += 1;
+                let merges_stderr =
+                    stderr && b.get(i) == Some(&b'&') && b.get(i + 1) == Some(&b'1');
+                if b.get(i) == Some(&b'&') {
+                    i += 1;
+                    while i < n && b[i].is_ascii_digit() {
+                        i += 1;
+                    }
+                } else {
+                    if b.get(i) == Some(&b'>') {
+                        i += 1;
+                    }
+                    while i < n && matches!(b[i], b' ' | b'\t') {
+                        i += 1;
+                    }
+                    while i < n
+                        && !b[i].is_ascii_whitespace()
+                        && !matches!(b[i], b';' | b'|' | b'&')
+                    {
+                        i += 1;
+                    }
+                }
+                part.redirects |= !merges_stderr;
+                word_start = false;
+            }
+            b'&' => {
+                if b.get(i + 1) == Some(&b'>') {
+                    // `&>file`: both streams to a file.
+                    part.redirects = true;
+                    i += 2;
+                    word_start = false;
+                    continue;
+                }
+                // PowerShell's call operator starts a stage (`& "C:\x\tool.exe" …`); anywhere else `&` backgrounds.
+                let stage_start = part.pipes.last().map_or(part.start, |p| p + 1);
+                if !cmd[stage_start..i].trim().is_empty() {
+                    return None;
+                }
+                i += 1;
+                word_start = true;
+            }
+            c if c.is_ascii_whitespace() => {
+                i += 1;
+                word_start = true;
+            }
+            _ => {
+                i += 1;
+                word_start = false;
+            }
+        }
+    }
+    close(&mut parts, &mut part, n, n);
+    Some(parts)
+}
+
+/// Where `footnote run -- ` goes in this part (the byte offset of the program that starts its pipeline), or `None`
+/// when the part runs nothing Footnote Lean filters, or its output goes somewhere a filter would change.
+fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<usize> {
+    if part.redirects {
+        return None;
+    }
+    // Every later pipeline stage must only keep the first or last lines, which a filtered stream does not change.
+    let mut bounds = part.pipes.clone();
+    bounds.push(part.end);
+    if !bounds.windows(2).all(|w| trims_lines(&cmd[w[0] + 1..w[1]])) {
+        return None;
+    }
+    let producer = &cmd[part.start..bounds[0]];
+    let words = word_spans(producer)?;
+    // `FOO=1 cargo test`: the assignments stay in front so the program still sees them.
+    let first = words.iter().position(|(_, w)| !is_env_assignment(w))?;
+    let argv: Vec<String> = words[first..]
+        .iter()
+        .map(|(_, w)| w.clone())
+        .filter(|w| !w.starts_with("2>"))
+        .collect();
+    let bin = Path::new(argv.first()?)
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or(first.as_str())
+        .unwrap_or("")
         .to_ascii_lowercase();
     if matches!(
         bin.as_str(),
@@ -201,11 +389,75 @@ pub fn rewrite_command_with_bin(cmd: &str, bin_cmd: &str) -> Option<String> {
     ) {
         return None;
     }
-    let family = classify_command(&parts);
-    if family == CommandFamily::Generic {
+    if classify_command(&argv) == CommandFamily::Generic {
         return None;
     }
-    Some(format!("{bin_cmd} run -- {trimmed}"))
+    Some(part.start + words[first].0)
+}
+
+/// `head` with at most a line count, or PowerShell `Select-Object -First N`.
+fn trims_lines(stage: &str) -> bool {
+    let Some(words) = split_simple_words(stage.trim()) else {
+        return false;
+    };
+    let count = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_digit());
+    match words[0].to_ascii_lowercase().as_str() {
+        // Not `tail` or `-Last`: `footnote run` ends with a one-line note on where the full output is, which would take
+        // one of the last lines the agent asked for.
+        "head" => words[1..].iter().all(|w| {
+            w == "-n"
+                || count(w)
+                || w.strip_prefix("-n").is_some_and(count)
+                || w.strip_prefix('-').is_some_and(count)
+                || w.strip_prefix("--lines=").is_some_and(count)
+        }),
+        "select-object" | "select" => {
+            words.len() == 3 && words[1].eq_ignore_ascii_case("-first") && count(&words[2])
+        }
+        _ => false,
+    }
+}
+
+fn is_env_assignment(word: &str) -> bool {
+    word.split_once('=').is_some_and(|(name, _)| {
+        !name.is_empty()
+            && !name.starts_with(|c: char| c.is_ascii_digit())
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    })
+}
+
+/// Words of a simple command with the byte offset where each starts (quotes removed from the value).
+fn word_spans(s: &str) -> Option<Vec<(usize, String)>> {
+    let mut words = Vec::new();
+    let mut cur = String::new();
+    let mut start = None;
+    let mut quote: Option<char> = None;
+    for (i, c) in s.char_indices() {
+        match (quote, c) {
+            (Some(q), ch) if ch == q => quote = None,
+            (Some(_), ch) => cur.push(ch),
+            (None, '\'' | '"') => {
+                start.get_or_insert(i);
+                quote = Some(c);
+            }
+            (None, ch) if ch.is_whitespace() => {
+                if let Some(at) = start.take() {
+                    words.push((at, std::mem::take(&mut cur)));
+                }
+            }
+            (None, ch) => {
+                start.get_or_insert(i);
+                cur.push(ch);
+            }
+        }
+    }
+    if quote.is_some() {
+        return None;
+    }
+    if let Some(at) = start {
+        words.push((at, cur));
+    }
+    (!words.is_empty()).then_some(words)
 }
 
 fn split_simple_words(s: &str) -> Option<Vec<String>> {
@@ -2046,7 +2298,13 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
     }
     let is_shell = matches!(
         tool.to_ascii_lowercase().as_str(),
-        "bash" | "shell" | "run_command" | "run_shell_command" | "command" | "terminal"
+        "bash"
+            | "powershell"
+            | "shell"
+            | "run_command"
+            | "run_shell_command"
+            | "command"
+            | "terminal"
     );
     if !is_shell {
         return None;
@@ -2232,13 +2490,103 @@ mod tests {
             rewrite_command("git status").as_deref(),
             Some("footnote run -- git status")
         );
-        assert_eq!(rewrite_command("rg foo src | head -n 5"), None);
+        assert_eq!(rewrite_command("rg foo src | sort"), None);
         assert_eq!(rewrite_command("cargo test > out.txt"), None);
-        assert_eq!(rewrite_command("git status && git diff"), None);
         assert_eq!(rewrite_command("footnote run -- cargo test"), None);
         assert_eq!(rewrite_command("rtk cargo test"), None);
         assert_eq!(rewrite_command("echo $(whoami)"), None);
         assert_eq!(rewrite_command("env"), None);
+    }
+
+    /// #565: agents send compound lines; each filtered part is wrapped and every other byte is kept.
+    #[test]
+    fn rewrite_command_wraps_each_filtered_part_of_a_compound_line() {
+        let cases: &[(&str, Option<&str>)] = &[
+            // Bash, as Claude Code writes it.
+            (
+                "cd D:/x && cargo test --test mcp 2>&1 | head -40",
+                Some("cd D:/x && footnote run -- cargo test --test mcp 2>&1 | head -40"),
+            ),
+            (
+                "git status && git diff",
+                Some("footnote run -- git status && footnote run -- git diff"),
+            ),
+            (
+                "cargo fmt --check && cargo test --test lean_d2 && git status -s",
+                Some(
+                    "cargo fmt --check && footnote run -- cargo test --test lean_d2 && footnote run -- git status -s",
+                ),
+            ),
+            (
+                "rg -n \"fn tag\" crates | head -20",
+                Some("footnote run -- rg -n \"fn tag\" crates | head -20"),
+            ),
+            (
+                "RUST_LOG=debug cargo test",
+                Some("RUST_LOG=debug footnote run -- cargo test"),
+            ),
+            (
+                "cargo test 2>&1 || echo failed",
+                Some("footnote run -- cargo test 2>&1 || echo failed"),
+            ),
+            // PowerShell, as Antigravity and Codex write it.
+            (
+                "Set-Location D:\\x; rg -n foo src",
+                Some("Set-Location D:\\x; footnote run -- rg -n foo src"),
+            ),
+            (
+                "$env:RUSTC_WRAPPER = ''\ncargo fmt --all &&\ncargo test --test mcp",
+                Some(
+                    "$env:RUSTC_WRAPPER = ''\ncargo fmt --all &&\nfootnote run -- cargo test --test mcp",
+                ),
+            ),
+            (
+                "git diff --stat | Select-Object -First 20",
+                Some("footnote run -- git diff --stat | Select-Object -First 20"),
+            ),
+            (
+                "Write-Host \"=== a; b ===\"; git log --oneline -3",
+                Some("Write-Host \"=== a; b ===\"; footnote run -- git log --oneline -3"),
+            ),
+            // Separators inside quotes and comments are not separators.
+            ("git commit -m \"a && cargo test\"", None),
+            ("echo 'x; cargo test'", None),
+            ("# cargo test; git status\necho hi", None),
+            // Output that goes somewhere a filter would change is left alone.
+            ("cargo test | grep FAILED", None),
+            (
+                "git diff > patch.txt && git status",
+                Some("git diff > patch.txt && footnote run -- git status"),
+            ),
+            ("cargo test >&2", None),
+            ("cargo test &> log.txt", None),
+            ("git log | wc -l", None),
+            // `footnote run` ends with a note line, which `tail` and `-Last` would return instead of the program's.
+            ("cargo test 2>&1 | tail -5", None),
+            ("git log --oneline | Select-Object -Last 3", None),
+            // `footnote run` prints the program's stderr, so hiding it must keep working.
+            ("git diff --nope 2>/dev/null && echo ok", None),
+            ("git status 2>$null", None),
+            // Constructs whose separators cannot be found safely leave the whole line alone.
+            ("cat <<'EOF' | cargo test\nx\nEOF", None),
+            ("for f in a b; do (cd $f && cargo test); done", None),
+            ("if (Test-Path x) { cargo test }", None),
+            ("cargo test & git status", None),
+            ("echo \"$(git status)\" && cargo test", None),
+            ("git status `\n && cargo test", None),
+            ("$out = @'\ncargo test\n'@", None),
+            ("echo \"unclosed && cargo test", None),
+            // Nothing filtered at all.
+            ("cd x && ls -la", None),
+            ("& \"C:\\tools\\x.exe\" --help; Write-Output done", None),
+        ];
+        for (cmd, want) in cases {
+            assert_eq!(rewrite_command(cmd).as_deref(), *want, "{cmd:?}");
+            // Only insertions: removing every `footnote run -- ` gives back the original line.
+            if let Some(w) = want {
+                assert_eq!(w.replace("footnote run -- ", ""), cmd.trim(), "{cmd:?}");
+            }
+        }
     }
 
     #[test]
