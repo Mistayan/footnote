@@ -118,6 +118,13 @@ pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
             if ACTIVE.load(Ordering::SeqCst) == 0 && quiet >= idle.as_secs() {
                 std::process::exit(0);
             }
+            // Agents keep sessions open all day, so idle is also counted on requests (#515): the models leave RAM
+            // (`memory.idle_seconds`, the Models screen's "Keep in memory") and the next recall loads them again.
+            let unused = crate::mcp::unix_secs()
+                .saturating_sub(crate::mcp::LAST_REQUEST.load(Ordering::SeqCst));
+            if unused >= idle.as_secs() && crate::mcp::IN_FLIGHT.load(Ordering::SeqCst) == 0 {
+                footnote_search::semantic::unload();
+            }
         }
     });
     let shared = Arc::new(shared);

@@ -29,6 +29,13 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 const MAX_LINE: usize = 1_000_000;
 /// Requests being handled right now, so a daemon whose binary was replaced exits between requests, not during one.
 pub static IN_FLIGHT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// When the last request finished (Unix seconds), so the daemon can drop its models after `idle_seconds` without use.
+pub static LAST_REQUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
 /// Mirrors the CLI response cap in `app::run`.
 const MAX_RESPONSE: usize = 256_000;
 /// Mirrors the `app::search` query bound.
@@ -168,6 +175,7 @@ pub fn session_loop<R: BufRead, W: Write>(
         let response = handle(shared, &request, &session);
         let sent = response.map_or(Ok(()), |r| emit(out, &r));
         IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        LAST_REQUEST.store(unix_secs(), std::sync::atomic::Ordering::SeqCst);
         sent?;
     }
     Ok(())

@@ -72,6 +72,15 @@ fn helper_hash() -> Result<String> {
 type Shared = std::sync::Arc<Mutex<crate::encoder::Encoder>>;
 static ENCODERS: OnceLock<Mutex<HashMap<PathBuf, (String, Shared)>>> = OnceLock::new();
 
+/// Drop every loaded encoder (a resident daemon left unused): returns how many were loaded. One in use is freed when its
+/// request ends; the next request loads it again.
+pub fn unload() -> usize {
+    ENCODERS
+        .get()
+        .and_then(|pool| pool.lock().ok())
+        .map_or(0, |mut pool| std::mem::take(&mut *pool).len())
+}
+
 fn encode_batch(model: &Path, expected: &str, texts: &[String], kind: &str) -> Result<Encoded> {
     let one: Shared = {
         let pool = ENCODERS.get_or_init(Default::default);

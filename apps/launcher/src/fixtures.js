@@ -214,7 +214,8 @@ const rewrite = {
   gain: "Agents may change the skills you reuse to fit your projects: they get `footnote_skill_edit`, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
   cost: "Each change request costs one more agent turn, about as much as sending a third of the session's context once as fresh input (see `bench/experiments/SKILL-EDIT-COST-2026-11-21.md`). Later sessions read a changed skill again, and a change that does worse is rolled back. Changes to a skill's scripts wait for your review",
 };
-const options = (o = {}) => ({ options: [{ key: "memory.enabled", value: true }, { ...rewrite, ...o }] });
+const options = (o = {}) => ({ options: [{ key: "memory.enabled", value: true }, { ...rewrite, ...o },
+  { key: "memory.resident", value: true, locked: false }, { key: "memory.idle_seconds", value: 1800, locked: false }] });
 const history = "C:\\Users\\maya\\AppData\\Local\\footnote\\skills\\agent\\.history";
 const review = (skills_pending) => ({ pending: skills_pending.length ? [
   { id: 88, kind: "preference", scope: "global", observed_at: "2026-11-21", text: "Prefers one pull request per issue, merged only after CI passes." }] : [], duplicates: [], old_sessions: [], unused: [], counts: {}, skills_pending });

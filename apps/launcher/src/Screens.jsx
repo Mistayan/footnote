@@ -9,6 +9,7 @@ import {
   GitCommitHorizontal,
   GitFork,
   Loader2,
+  MemoryStick,
   MessageSquareText,
   PlayCircle,
   ScanSearch,
@@ -18,7 +19,7 @@ import {
 import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, openReceipt, seen, shortDate } from "./data.js";
 import AddProject, { ImportGguf } from "./Folders.jsx";
 import { KindIcon } from "./Memory.jsx";
-import { PathPill, Tabs, Tip, clip, toast } from "./ui.jsx";
+import { PathPill, Select, Tabs, Tip, clip, toast } from "./ui.jsx";
 
 // The workspace screens: Projects, Models and Activity. Each reads its own engine command.
 
@@ -383,6 +384,7 @@ export function Models({ refresh }) {
           </div>
         </div>
         <div className="end">
+          {active.length > 0 && <KeepInMemory />}
           {defaultPairInstalled && !isDefaultPair && (
             <button type="button" className="btn primary" disabled={!!switching} onClick={() => useModels(["bekko-a8m", "gte-small"])}>
               {switching === "bekko-a8m+gte-small" ? "Switching…" : "Use the default pair"}
@@ -496,6 +498,52 @@ const MEASURED = {
   "e5-small": { verdict: "Did not beat the default pair when added to it.", receipt: "bench/experiments/RESULTS.md" },
   minilm: { verdict: "Did not beat the default pair when added to it.", receipt: "bench/experiments/RESULTS.md" },
 };
+
+const KEEP = [[300, "5 min"], [1800, "30 min"], [7200, "2 hours"]];
+
+/** How long the models stay in RAM after the last recall (`memory.resident`, `memory.idle_seconds`): a user's trade of RAM
+ * against a reload of about a second. Off means recall by keyword only. A company policy can lock either option. */
+function KeepInMemory() {
+  const [round, setRound] = useState(0);
+  const { data } = useRead(["options"], round);
+  const [error, setError] = useState(null);
+  const opt = (key) => data?.options.find((o) => o.key === key);
+  const resident = opt("memory.resident");
+  const idle = opt("memory.idle_seconds");
+  if (!resident || !idle) return null;
+  const value = resident.value === false ? "off" : idle.value;
+  const choices = KEEP.some(([s]) => s === idle.value) ? KEEP : [...KEEP, [idle.value, `${Math.round(idle.value / 60)} min`]];
+  const options = [
+    { value: "off", label: "Off" },
+    ...choices.sort((a, b) => a[0] - b[0]).map(([s, label]) => ({ value: s, label })),
+  ];
+  const locked = resident.locked || idle.locked;
+  if (locked) {
+    const shown = options.find((o) => o.value === value)?.label;
+    return <span className="dimmed small">Keep in memory: {shown}, set by your company</span>;
+  }
+  const set = async (v) => {
+    setError(null);
+    try {
+      if (v === "off") await footnote("config", "set", "memory.resident", "false");
+      else {
+        await footnote("config", "set", "memory.idle_seconds", String(v));
+        if (resident.value === false) await footnote("config", "set", "memory.resident", "true");
+      }
+      setRound((r) => r + 1);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+  return (
+    <>
+      <span className="dimmed small" aria-hidden="true">Keep in memory after use</span>
+      <Select value={value} options={options} onChange={set} label="Keep models in memory after use" icon={MemoryStick} />
+      {value === "off" && <span className="dimmed small">keyword recall only</span>}
+      {error && <span className="warn small" role="alert">{clip(error, 60)}</span>}
+    </>
+  );
+}
 
 /** One model's download: progress of the file being fetched, then the outcome. A cancelled or failed install leaves no model
  * behind (the engine renames each file only once it is complete and its hash checked). */
