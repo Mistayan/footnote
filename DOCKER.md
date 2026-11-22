@@ -252,6 +252,33 @@ The backup holds every memory in clear text: keep it where only you can read it.
 
 **Upgrade:** pull the repository, then `docker compose build` and `docker compose up -d`. The state volume is kept. Recreating the container ends any open MCP session (`docker exec -i … mcp`), so reconnect or restart each running agent afterwards.
 
+**Restore (lost volume or failed upgrade):** before upgrading, tag the working image (`docker tag footnote:local footnote:previous`) so you can return to it with `FOOTNOTE_IMAGE=footnote:previous`. An older image refuses a database migrated to a newer schema (`user_version`), so the pre-upgrade backup is the way back.
+
+1. Stop the daemon:
+   ```powershell
+   docker compose stop
+   ```
+2. Replace `/state/memory.db` and clear its sidecars and derived index (PowerShell; Linux / macOS: replace `` ` `` with `\` and ensure the backup is readable by UID `10001`):
+   ```powershell
+   docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m `
+     --cap-drop=ALL --security-opt=no-new-privileges:true `
+     -v footnote-state:/state -v "${PWD}:/backups:ro" --entrypoint sh footnote:local `
+     -c "rm -rf /state/memory.db /state/memory.db-journal /state/memory.db-wal /state/memory.db-shm /state/memory.db.tantivy && cp /backups/memory-backup.db /state/memory.db && chmod 0600 /state/memory.db"
+   ```
+3. Sibling files in `/state`:
+   - `memory.db-journal` (and `-wal`, `-shm`) and `memory.db.tantivy`: **delete** (done in step 2) — a leftover rollback journal is replayed into the restored DB on open, and a stale lexical index hides changes (Footnote rebuilds it automatically).
+   - `audit.jsonl` and `audit.key`: **keep both** on an in-place restore so `footnote audit verify --file /state/audit.jsonl` stays valid (never delete only one; a fresh volume creates a new pair).
+   - `memory.json` and `/state/models`: **keep** on an in-place restore; on a new volume, re-run `models install` and `models use` (Section 3.1) before step 4 for hybrid recall.
+4. Start the daemon (set `FOOTNOTE_IMAGE=footnote:previous` first when rolling back):
+   ```powershell
+   docker compose up -d
+   ```
+5. Check the restored memories and recall (then reconnect or restart open agents):
+   ```powershell
+   docker exec footnote footnote status
+   docker exec footnote footnote --db /state/memory.db search "<word from a memory>"
+   ```
+
 **A volume written by an image that ran as root** (the first Dockerfile, #415) needs its owner changed once, or the non-root image fails with `attempt to write a readonly database`:
 
 ```bash
