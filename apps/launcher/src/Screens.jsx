@@ -10,6 +10,7 @@ import {
   MessageSquareText,
   PlayCircle,
   ScanSearch,
+  Send,
   Sparkle,
 } from "lucide-react";
 import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, seen, shortDate } from "./data.js";
@@ -40,21 +41,29 @@ const Failed = ({ error }) => (
 
 const NAME_MAX = 24;
 
-/** The request the commit pictogram copies for the agent working in that folder. */
-const commitAsk = (p) =>
-  `In ${p.path}: review the ${p.git.uncommitted} uncommitted change${p.git.uncommitted === 1 ? "" : "s"}, commit them in ` +
-  "logical commits with clear messages, then push the branch. Ask me before anything destructive.";
-
 /** One project as a glass card: name, folder (drive squircle + last folder, opens the folder), then pictograms for its
- * memories, code graph and uncommitted changes. Each pictogram explains itself on hover. */
-export function ProjectCard({ p, busy, onIndex }) {
+ * memories, code graph and uncommitted changes. Each pictogram explains itself on hover. The commit pictogram sends the
+ * engine's commit-and-push request to the next agent turn in the project (`footnote agent-ask`); while it waits, a click
+ * withdraws it. */
+export function ProjectCard({ p, busy, onIndex, refresh }) {
+  const [asking, setAsking] = useState(false);
   const open = () => openProjectFolder(p.path).catch((e) => toast(String(e), "warn"));
-  const copyAsk = async () => {
+  const waiting = p.ask?.kind === "commit";
+  const ask = async () => {
+    setAsking(true);
     try {
-      await navigator.clipboard.writeText(commitAsk(p));
-      toast(`Copied a commit-and-push request for ${p.name}. Paste it to your agent.`);
-    } catch {
-      toast("The clipboard is not available here.", "warn");
+      if (waiting) {
+        await footnote("agent-ask", p.name, "--cancel");
+        toast(`Withdrew the commit request for ${p.name}.`);
+      } else {
+        await footnote("agent-ask", p.name);
+        toast(`Sent to the agent in ${p.name}: it commits and pushes at its next turn.`);
+      }
+      await refresh?.();
+    } catch (e) {
+      toast(String(e), "warn");
+    } finally {
+      setAsking(false);
     }
   };
   const name = clip(p.name, NAME_MAX);
@@ -90,9 +99,17 @@ export function ProjectCard({ p, busy, onIndex }) {
             </button>
           </Tip>
         ) : null}
-        {p.git && (dirty > 0 ? (
-          <Tip tip={`${num(dirty)} uncommitted change${dirty === 1 ? "" : "s"}. Click to copy a commit-and-push request for your agent.`}>
-            <button type="button" className="stat bad" onClick={copyAsk} aria-label={`${num(dirty)} uncommitted changes in ${p.name}: copy a commit request`}>
+        {p.git && (dirty > 0 && waiting ? (
+          <Tip tip={`Sent: the next agent turn in ${p.name} commits and pushes. Click to withdraw.`}>
+            <button type="button" className="stat sent" onClick={ask} disabled={asking}
+              aria-label={`Commit request waiting for the agent in ${p.name}: withdraw it`}>
+              <span className="stat-ic"><Send size={12} strokeWidth={2.2} /></span>{num(dirty)}
+            </button>
+          </Tip>
+        ) : dirty > 0 ? (
+          <Tip tip={`${num(dirty)} uncommitted change${dirty === 1 ? "" : "s"}. Click to have the agent in this project commit and push.`}>
+            <button type="button" className="stat bad" onClick={ask} disabled={asking}
+              aria-label={`${num(dirty)} uncommitted changes in ${p.name}: ask the agent to commit and push`}>
               <span className="stat-ic"><GitCommitHorizontal size={13} strokeWidth={2.2} /></span>{num(dirty)}
             </button>
           </Tip>
@@ -161,7 +178,7 @@ export function Projects({ projects, refresh }) {
         <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>
       ) : (
         <div className="proj-grid">
-          {list.map((p) => <ProjectCard key={p.path} p={p} busy={busy} onIndex={(path) => index([path])} />)}
+          {list.map((p) => <ProjectCard key={p.path} p={p} busy={busy} onIndex={(path) => index([path])} refresh={refresh} />)}
         </div>
       )}
     </div>

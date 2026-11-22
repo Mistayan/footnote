@@ -105,6 +105,9 @@ fn allowed(args: &[String]) -> bool {
             project,
         ] => plain(name) && plain(project),
         ["code-map", "--root", _, "--depth", d] => d.parse::<u8>().is_ok(),
+        // The commit button (22 Nov 2026): queue or withdraw the engine's fixed commit-and-push request for the next agent
+        // turn in a project. The window names the project only; the text is the engine's.
+        ["agent-ask", project] | ["agent-ask", project, "--cancel"] => plain(project),
         _ => false,
     }
 }
@@ -441,6 +444,8 @@ mod tests {
         assert!(!ok("jobs --bad"));
         assert!(!ok("install --memory") && !ok("models remove jina-v5-nano"));
         assert!(ok("forget 12") && !ok("forget abc"));
+        assert!(ok("agent-ask footnote") && ok("agent-ask footnote --cancel"));
+        assert!(!ok("agent-ask --cancel") && !ok("agent-ask a b") && !ok("agent-ask footnote --text hi"));
         assert!(
             ok("memory-restore 12")
                 && !ok("memory-restore 1;x")

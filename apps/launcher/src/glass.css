@@ -417,3 +417,11 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
   .tabs, .rail, .kpi, .stat, .agent, .days-list button, .nav .item, .tip, .count, .locked { corner-shape: squircle; border-radius: 18px; }
   .menu, .lic-pop, .toast { corner-shape: squircle; border-radius: 22px; }
 }
+
+/* A commit request on its way to the agent: accent, and the send mark drifts until a turn takes it. */
+.stat.sent { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 55%, transparent); }
+.stat.sent .stat-ic { color: var(--acc-ink); background: var(--acc); }
+.stat.sent .stat-ic svg { animation: sent-drift 1.6s var(--ease) infinite; }
+button.stat.sent:hover:not(:disabled) { color: var(--text); }
+button.stat.sent:hover:not(:disabled) .stat-ic { color: var(--acc-ink); }
+@keyframes sent-drift { 0%, 100% { translate: 0 0; } 50% { translate: 1.5px -1.5px; } }

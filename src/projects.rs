@@ -85,8 +85,93 @@ pub fn list(state: &Path) -> Result<Value> {
         if p["exists"] == true {
             p["git"] = git_state(&root);
         }
+        if let Some(ask) = waiting(state, &name) {
+            p["ask"] = json!({"kind": ask["kind"], "asked_at": ask["asked_at"]});
+        }
     }
     Ok(json!({"projects": projects}))
+}
+
+/// How long a request from the window waits for an agent turn in its project before it is dropped.
+const ASK_TTL_SECS: i64 = 24 * 3600;
+
+const COMMIT_ASK: &str = "Footnote: the user asks, from the Footnote window, that you commit and push the uncommitted work in \
+the folder {path} ({n} changed file(s) when they asked). Run `git status` and read the diff there, group the changes into \
+logical commits with clear messages that follow the repository's conventions, then push the current branch. Never \
+force-push; ask the user first if a change looks unintended, a file looks secret, or anything would be destructive. Then tell \
+the user in one line what you committed and pushed.";
+
+fn ask_path(state: &Path, project: &str) -> std::path::PathBuf {
+    state
+        .join("agent-asks")
+        .join(format!("{}.json", file_name(project)))
+}
+
+fn now() -> i64 {
+    time::OffsetDateTime::now_utc().unix_timestamp()
+}
+
+/// The request waiting for `project`, if any and not expired (an expired one is removed).
+fn waiting(state: &Path, project: &str) -> Option<Value> {
+    let path = ask_path(state, project);
+    let ask: Value = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+    if now() - ask["asked_at"].as_i64().unwrap_or(0) > ASK_TTL_SECS {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+    Some(ask)
+}
+
+/// `footnote agent-ask <project>`: queue a commit-and-push request for the next agent turn in that project (a session
+/// start, a prompt, or the end of a turn, which then continues with it). The text is fixed here; the window only names the
+/// project. `--cancel` withdraws it.
+pub fn ask(state: &Path, project: &str, cancel: bool) -> Result<Value> {
+    let path = ask_path(state, project);
+    if cancel {
+        let had = fs::remove_file(&path).is_ok();
+        return Ok(json!({"project": project, "cancelled": had}));
+    }
+    let known: Value = fs::read(
+        state
+            .join("projects")
+            .join(format!("{}.json", file_name(project))),
+    )
+    .ok()
+    .and_then(|b| serde_json::from_slice(&b).ok())
+    .ok_or_else(|| anyhow::anyhow!("no project named {project}: `footnote projects` lists them"))?;
+    let root = known["path"].as_str().unwrap_or_default().to_string();
+    anyhow::ensure!(
+        Path::new(&root).is_dir(),
+        "the folder of {project} no longer exists: {root}"
+    );
+    let n = git_state(&root)["uncommitted"].as_u64().unwrap_or(0);
+    anyhow::ensure!(n > 0, "nothing to commit in {root}");
+    footnote_core::state::ensure_private_dir(&state.join("agent-asks"))?;
+    let ask = json!({"kind": "commit", "project": project, "path": root, "uncommitted": n, "asked_at": now()});
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, ask.to_string())?;
+    fs::rename(&tmp, &path)?;
+    Ok(
+        json!({"queued": true, "project": project, "path": root, "uncommitted": n,
+        "note": "the next agent turn in this project receives it: a new prompt or session, or the end of a turn, which then continues with it"}),
+    )
+}
+
+/// Claim the waiting request for `project`, once: the rename succeeds for one session only. The text to give the agent.
+pub fn take(state: &Path, project: &str) -> Option<String> {
+    let path = ask_path(state, project);
+    if !path.exists() {
+        return None;
+    }
+    let ask = waiting(state, project)?;
+    let claimed = path.with_extension(format!("taken-{}", std::process::id()));
+    fs::rename(&path, &claimed).ok()?;
+    let _ = fs::remove_file(&claimed);
+    (ask["kind"] == "commit").then(|| {
+        COMMIT_ASK
+            .replace("{path}", ask["path"].as_str().unwrap_or_default())
+            .replace("{n}", &ask["uncommitted"].to_string())
+    })
 }
 
 /// Files changed but not committed, and commits not pushed (null without an upstream branch); null outside a repository.
@@ -117,6 +202,36 @@ fn memories_by_project(state: &Path) -> Result<std::collections::HashMap<String,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_request_is_taken_once_and_names_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path();
+        let root = state.join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        // Queued by hand: `ask` needs a git repository with changes, which the integration test covers.
+        std::fs::create_dir_all(state.join("agent-asks")).unwrap();
+        let path = super::ask_path(state, "repo");
+        let ask = serde_json::json!({"kind": "commit", "project": "repo", "path": root.to_string_lossy(), "uncommitted": 3,
+            "asked_at": super::now()});
+        std::fs::write(&path, ask.to_string()).unwrap();
+        assert!(super::waiting(state, "repo").is_some());
+        let text = super::take(state, "repo").expect("the first turn takes it");
+        assert!(
+            text.contains(&*root.to_string_lossy()) && text.contains("3 changed file(s)"),
+            "{text}"
+        );
+        assert!(super::take(state, "repo").is_none(), "only once");
+        // An expired request is dropped, not delivered.
+        let old = serde_json::json!({"kind": "commit", "path": "x", "uncommitted": 1, "asked_at": super::now() - 2 * super::ASK_TTL_SECS});
+        std::fs::write(&path, old.to_string()).unwrap();
+        assert!(super::take(state, "repo").is_none());
+        assert!(!path.exists());
+        // Cancelling removes it.
+        std::fs::write(&path, ask.to_string()).unwrap();
+        assert_eq!(super::ask(state, "repo", true).unwrap()["cancelled"], true);
+        assert!(super::take(state, "repo").is_none());
+    }
+
     #[test]
     fn project_names_become_safe_file_names() {
         assert_eq!(super::file_name("footnote"), "footnote");

@@ -37,8 +37,8 @@ const iso = (back) => {
 const projects = {
   projects: [
     { name: "atlas-api", path: "D:/work/atlas-api", exists: true, first_seen: iso(20), last_seen: iso(0), memories: 96, code_graph: true, git: { uncommitted: 0, unpushed: 0 } },
-    { name: "harbor-web", path: "D:/work/harbor-web", exists: true, first_seen: iso(12), last_seen: iso(1), memories: 31, code_graph: false, git: { uncommitted: 12, unpushed: 3 } },
-    { name: "ledger-sync", path: "D:/work/ledger-sync", exists: true, first_seen: iso(9), last_seen: iso(3), memories: 18, code_graph: true, git: { uncommitted: 0, unpushed: 5 } },
+    { name: "harbor-web", path: "D:/work/harbor-web", exists: true, first_seen: iso(12), last_seen: iso(1), memories: 31, code_graph: false, git: { uncommitted: 12, unpushed: 3 }, ask: { kind: "commit", asked_at: 1763800000 } },
+    { name: "ledger-sync", path: "D:/work/ledger-sync", exists: true, first_seen: iso(9), last_seen: iso(3), memories: 18, code_graph: true, git: { uncommitted: 4, unpushed: 5 } },
     { name: "old-prototype", path: "D:/archive/old-prototype", exists: false, first_seen: iso(30), last_seen: iso(14), memories: 4, code_graph: false, git: null },
   ],
 };
@@ -233,7 +233,7 @@ const diff2 = {
 
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
-    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
+    options: options(), "agent-ask": { queued: true }, "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
     corpora: { corpora: [
       { path: "D:/docs/atlas.db", exists: true },
       { path: "C:/Users/sample/AppData/Local/footnote/docs/rust-perf-book/latest.db", exists: true },

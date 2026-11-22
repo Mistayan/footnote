@@ -331,7 +331,7 @@ function Overview({ status, projects, refresh, go }) {
         <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>
       ) : (
         <div className="mini-projects">
-          {recent.map((x) => <ProjectCard key={x.path} p={x} />)}
+          {recent.map((x) => <ProjectCard key={x.path} p={x} refresh={refresh} />)}
         </div>
       )}
       <h2 className="section">Agents</h2>

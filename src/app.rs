@@ -366,6 +366,16 @@ enum Action {
     /// unpushed git work.
     #[cfg(feature = "memory")]
     Projects,
+    /// Ask the next agent turn in a project to commit and push its uncommitted work (the launcher's commit button). The
+    /// request waits up to a day; the agent receives it once, at a new prompt or session or at the end of a turn.
+    #[cfg(feature = "memory")]
+    AgentAsk {
+        /// The project's name, as `footnote projects` lists it.
+        project: String,
+        /// Withdraw the waiting request instead.
+        #[arg(long)]
+        cancel: bool,
+    },
     /// What memory did, day by day: memories saved, sessions and prompts given memories, the memories used most.
     #[cfg(feature = "memory")]
     Activity {
@@ -1087,6 +1097,10 @@ fn execute(cli: Cli) -> Result<Value> {
         #[cfg(feature = "memory")]
         Action::Projects => return crate::projects::list(&crate::state::state_dir()?),
         #[cfg(feature = "memory")]
+        Action::AgentAsk { project, cancel } => {
+            return crate::projects::ask(&crate::state::state_dir()?, project, *cancel);
+        }
+        #[cfg(feature = "memory")]
         Action::Activity { days } => return crate::activity::activity(*days),
         #[cfg(feature = "memory")]
         Action::MemoryReview { limit } => return crate::review::review(usize::from(*limit)),
@@ -1563,6 +1577,8 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         #[cfg(feature = "memory")]
         Action::Projects => unreachable!("dispatched before the database is opened"),
+        #[cfg(feature = "memory")]
+        Action::AgentAsk { .. } => unreachable!("dispatched before the database is opened"),
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
         Action::Install { .. }
         | Action::Uninstall { .. }
@@ -1743,6 +1759,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Jobs => "jobs",
         #[cfg(feature = "memory")]
         Action::Projects => "projects",
+        #[cfg(feature = "memory")]
+        Action::AgentAsk { .. } => "agent-ask",
         #[cfg(feature = "memory")]
         Action::Activity { .. } => "activity",
         Action::Usage { .. } => "usage",
