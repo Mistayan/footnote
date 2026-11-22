@@ -53,10 +53,10 @@ const activity = {
     sessions: [0, 2, 4, 0, 6, 5, 7][i],
   })),
   recent: [
-    { t: Date.UTC(2026, 10, 17, 9, 12), event: "recall", project: "atlas-api", memories: [
+    { t: Date.parse(`${iso(0)}T09:12:00Z`), event: "recall", project: "atlas-api", memories: [
       { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident." },
       { id: 42, kind: "preference", scope: "global", observed_at: "2026-11-10", text: "Prefers small pull requests, one per piece of work, with tests run locally before review." }] },
-    { t: Date.UTC(2026, 10, 17, 8, 40), event: "pack", project: "harbor-web", memories: [
+    { t: Date.parse(`${iso(0)}T08:40:00Z`), event: "pack", project: "harbor-web", memories: [
       { id: 88, kind: "fact", scope: "harbor-web", observed_at: "2026-11-09", text: "harbor-web deploys from the release branch only; main is for review builds." },
       { id: 9, gone: true }] },
   ],
@@ -234,10 +234,18 @@ const diff2 = {
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
     options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "memory-restore": {}, forget: {},
-    corpora: { corpora: [{ path: "D:/docs/atlas.db", exists: true }] },
-    "memory-list": { total: 2, scopes: [{ scope: "atlas-api", memories: 2 }], memories: [
-      { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", tags: [] },
-      { id: 42, kind: "preference", scope: "atlas-api", observed_at: "2026-11-10", text: "Prefers small pull requests with tests run locally before review.", tags: ["review"] }] },
+    corpora: { corpora: [
+      { path: "D:/docs/atlas.db", exists: true },
+      { path: "C:/Users/sample/AppData/Local/footnote/docs/rust-perf-book/latest.db", exists: true },
+      { path: "C:/Users/sample/AppData/Local/footnote/docs/jiff-guide/1.0.db", exists: true },
+      { path: "E:/old/handbook.db", exists: false }] },
+    "memory-list": { total: 6, scopes: [{ scope: "atlas-api", memories: 3 }, { scope: "global", memories: 2 }, { scope: "harbor-web", memories: 1 }], memories: [
+      { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident. Pages hold 50 items; the cursor is opaque and signed.", tags: [] },
+      { id: 42, kind: "preference", scope: "global", observed_at: "2026-11-10", text: "Prefers small pull requests with tests run locally before review.", tags: ["review"] },
+      { id: 51, kind: "fix", scope: "atlas-api", observed_at: "2026-11-15", text: "Migrations ran twice under two replicas; an advisory lock now guards them. Run them from the release job only.", tags: ["db"], origin: "claude-code" },
+      { id: 63, kind: "session", scope: "harbor-web", observed_at: "2026-11-18", text: "Session: moved the checkout form to server actions, kept the old route behind a flag until Friday.", tags: [] },
+      { id: 70, kind: "preference", scope: "global", observed_at: "2026-11-19", text: "Wants dates written as 22 Nov 2026 in every user-facing text, never 11/22.", tags: [] },
+      { id: 74, kind: "fact", scope: "atlas-api", observed_at: "2026-11-21", text: "The staging database is reset every Monday at 06:00 UTC.", tags: ["ops"] }] },
     "docs list": { docs: [
       { site: "react.dev", version: "19", state: "ready", pages: 412, bytes: 38_400_000, modified_unix: 1763337600 },
       { site: "docs.pydantic.dev", version: "2.12", state: "embedding 140/388", pages: 388, bytes: 21_000_000, modified_unix: 1763683200 }] }, "skills diff release-checklist": diff2, "skills diff": diff,

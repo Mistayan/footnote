@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Activity as ActivityIcon,
@@ -6,6 +6,7 @@ import {
   BookOpen,
   Brain,
   Building2,
+  Check,
   Copy,
   Cpu,
   FolderGit2,
@@ -13,10 +14,13 @@ import {
   LayoutDashboard,
   Minimize2,
   Minus,
+  Palette,
+  Plug,
   RefreshCw,
   Search as SearchIcon,
   Sparkles,
   Square,
+  Webhook,
   X,
 } from "lucide-react";
 import Code from "./Code.jsx";
@@ -26,8 +30,9 @@ import Search from "./Search.jsx";
 import Skills from "./Skills.jsx";
 import Usage from "./Usage.jsx";
 import { switchTo } from "./Mini.jsx";
-import { Activity as ActivityScreen, Models, Projects as ProjectsScreen } from "./Screens.jsx";
-import { AGENTS, footnote, inApp, load, mb, num, openSupport, seen, shortDate } from "./data.js";
+import { Activity as ActivityScreen, Models, ProjectCard, Projects as ProjectsScreen } from "./Screens.jsx";
+import { AGENTS, footnote, inApp, load, mb, num, openSupport, shortDate } from "./data.js";
+import { PALETTES, Scroll, Switch, Tip, Toasts, usePalette, useSpotlight } from "./ui.jsx";
 
 const SCREENS = {
   overview: { title: "Overview", note: "this week" },
@@ -117,6 +122,7 @@ export default function App() {
 
   const [status, projects, activity] = state.data ?? [];
   const meta = SCREENS[screen];
+  useSpotlight();
 
   return (
     <div className={screen === "overview" ? "app" : "app no-feed"}>
@@ -126,17 +132,21 @@ export default function App() {
           <h1>{meta.title}</h1>
           {meta.note && <span className="top-note">· {meta.note}</span>}
           <div className="end">
-            <button className="btn icon-btn" onClick={() => switchTo("mini")} title="Switch to compact mini window">
-              <Minimize2 size={13} strokeWidth={1.75} />
-              Mini
-            </button>
-            <button className="btn icon-btn" onClick={refresh} disabled={state.loading} title="Refresh data">
-              <RefreshCw size={13} strokeWidth={1.75} className={state.loading ? "spin" : ""} />
-              {state.loading ? "Reading…" : "Refresh"}
-            </button>
+            <Appearance />
+            <Tip tip="Mini window" side="bottom">
+              <button type="button" className="ic-btn" onClick={() => switchTo("mini")} aria-label="Switch to the mini window">
+                <Minimize2 size={15} strokeWidth={1.75} />
+              </button>
+            </Tip>
+            <Tip tip={state.loading ? "Reading…" : "Refresh"} side="bottom">
+              <button type="button" className="ic-btn" onClick={refresh} disabled={state.loading} aria-label="Refresh data">
+                <RefreshCw size={15} strokeWidth={1.75} className={state.loading ? "spin" : ""} />
+              </button>
+            </Tip>
             <WindowControls maximized={maximized} />
           </div>
         </header>
+        <Scroll label={meta.title} key={screen}>
         {screen === "enterprise" ? (
           <Enterprise />
         ) : state.error ? (
@@ -160,11 +170,52 @@ export default function App() {
         ) : screen === "code" ? (
           <Code projects={projects} view={["symbol", "layers"].includes(view) ? view : "map"} go={(v) => go(`code/${v}`)} />
         ) : (
-          <Overview status={status} projects={projects} refresh={refresh} />
+          <Overview status={status} projects={projects} refresh={refresh} go={go} />
         )}
+        </Scroll>
       </main>
       {screen === "overview" && !state.error && <Activity activity={activity} />}
+      <Toasts />
     </div>
+  );
+}
+
+/** The palette menu (T3 Code's theme picker): five palettes, the choice kept in this window's storage. */
+function Appearance() {
+  const [palette, choose] = usePalette();
+  const menu = useRef(null);
+  const onKey = (e) => {
+    const list = [...(menu.current?.querySelectorAll("[role='menuitemradio']") ?? [])];
+    const at = list.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      list[(at + (e.key === "ArrowDown" ? 1 : list.length - 1)) % list.length]?.focus();
+    }
+  };
+  return (
+    <>
+      <Tip tip="Appearance" side="bottom">
+        <button type="button" className="ic-btn anchor-self" popoverTarget="appearance" aria-label="Appearance"
+          aria-haspopup="menu" style={{ "--anchor": "--appearance" }}>
+          <Palette size={15} strokeWidth={1.75} />
+        </button>
+      </Tip>
+      <div ref={menu} id="appearance" popover="auto" role="menu" aria-label="Palette" className="menu right lglass"
+        style={{ "--anchor": "--appearance" }} onKeyDown={onKey}
+        onToggle={(e) => e.newState === "open" && requestAnimationFrame(() => menu.current?.querySelector("[aria-checked='true']")?.focus())}>
+        <div className="menu-title">Palette</div>
+        <div className="palettes">
+          {PALETTES.map((p) => (
+            <button key={p.id} type="button" role="menuitemradio" aria-checked={palette === p.id} className="pal"
+              onClick={() => choose(p.id)}>
+              <i style={{ background: `linear-gradient(135deg, ${p.sw[0]} 52%, ${p.sw[1]} 52%)` }} />
+              <span>{p.name}</span>
+              <Check size={14} strokeWidth={2} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -252,11 +303,12 @@ const live = (p) => p !== undefined && p.built !== false && p.enabled !== false;
 
 const graphs = (n) => (n === undefined ? "" : n === 1 ? "1 graph" : `${num(n)} graphs`);
 
-function Overview({ status, projects, refresh }) {
+function Overview({ status, projects, refresh, go }) {
   const p = status?.products;
   const memory = p?.memory;
   const code = p?.code;
   const sw = (key, title) => ({ product: key, title, built: p?.[key]?.built, enabled: p?.[key]?.enabled !== false, refresh });
+  const recent = (projects?.projects ?? []).filter((x) => x.exists).slice(0, 6);
   return (
     <div className="body">
       <div className="row">
@@ -267,8 +319,21 @@ function Overview({ status, projects, refresh }) {
         <Card {...sw("code", "Code")} big={code && (code.built ? num(code.graphs) : "–")}
           sub={code && (!code.built ? "" : `project ${code.graphs === 1 ? "graph" : "graphs"}${code.rust_indexer ? " · rust-analyzer found" : ""}`)} />
       </div>
-      <h2 className="section">Projects agents worked in</h2>
-      <Projects list={projects?.projects} />
+      <div className="bar">
+        <h2 className="section">Projects agents worked in</h2>
+        {projects?.projects?.length > recent.length && (
+          <button type="button" className="help-link" style={{ marginLeft: "auto" }} onClick={() => go("projects")}>
+            All {num(projects.projects.length)} projects
+          </button>
+        )}
+      </div>
+      {!projects ? <span className="skel" /> : recent.length === 0 ? (
+        <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>
+      ) : (
+        <div className="mini-projects">
+          {recent.map((x) => <ProjectCard key={x.path} p={x} />)}
+        </div>
+      )}
       <h2 className="section">Agents</h2>
       <Agents list={memory?.agents} loading={!status} />
     </div>
@@ -294,61 +359,26 @@ function Card({ product, title, built, enabled, refresh, big, sub }) {
     }
   };
   return (
-    <section className={known && (!built || !enabled) ? "card muted" : "card"}>
+    <section className={`card sq lit${known && (!built || !enabled) ? " muted" : ""}`}>
       <h2>
         <span className={known && built && enabled ? "dot" : "dot off"} />
         {title}
         {known && (built ? (
-          <button type="button" role="switch" aria-checked={enabled} aria-label={`${title} on`} className="switch"
-            onClick={flip} disabled={busy}>
-            <span aria-hidden="true" />
-          </button>
+          <Switch checked={enabled} label={`${title} on`} onChange={flip} disabled={busy} />
         ) : (
           <span className="state">Not in this build</span>
         ))}
       </h2>
       {big === undefined ? <span className="skel big" /> : <div className="big">{big}</div>}
       {sub === undefined ? <span className="skel" /> : (
-        <div className="sub">{known && built && !enabled ? "Off: agents don't get its tools. Nothing is deleted." : sub}</div>
+        <div className="sub">{known && built && !enabled ? "Off: agents get none of its tools. Nothing is deleted." : sub}</div>
       )}
       {error && <div className="sub warn" role="alert">{error}</div>}
     </section>
   );
 }
 
-function Projects({ list }) {
-  if (!list) return <span className="skel" />;
-  if (list.length === 0)
-    return <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>;
-  const warn = (n) => (n > 0 ? "num warn" : "num");
-  return (
-    <table className="tbl">
-      <thead>
-        <tr>
-          <th scope="col">Project</th>
-          <th scope="col">Last seen</th>
-          <th scope="col" className="num">Memories</th>
-          <th scope="col">Code graph</th>
-          <th scope="col" className="num">Uncommitted</th>
-          <th scope="col" className="num">Unpushed</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.map((p) => (
-          <tr key={p.path}>
-            <td title={p.path}>{p.name}</td>
-            <td>{p.exists ? seen(p.last_seen) : <span className="warn">folder missing</span>}</td>
-            <td className="num">{num(p.memories)}</td>
-            <td className={p.code_graph ? "ok" : ""}>{p.code_graph ? "built" : "–"}</td>
-            <td className={warn(p.git?.uncommitted)}>{p.git ? num(p.git.uncommitted) : "–"}</td>
-            <td className={warn(p.git?.unpushed)}>{p.git ? num(p.git.unpushed) : "–"}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
+/** Each connected agent as a glass chip: its name, then two pictograms (Memory hooks, MCP server), lit when on. */
 function Agents({ list, loading }) {
   if (loading) return <span className="skel" />;
   if (!list?.length)
@@ -357,26 +387,23 @@ function Agents({ list, loading }) {
         No agent connected. Run <code>footnote install --memory</code> to connect Claude Code, Codex and others.
       </p>
     );
-  const onOff = (v) => <td className={v ? "ok" : "warn"}>{v ? "on" : "off"}</td>;
+  const pict = (on, Icon, what) => (
+    <Tip tip={`${what}: ${on ? "on" : "off"}`}>
+      <span className={`stat idle${on ? " on" : " warn"}`} role="img" aria-label={`${what} ${on ? "on" : "off"}`} tabIndex={0}>
+        <span className="stat-ic"><Icon size={13} strokeWidth={1.9} /></span>
+      </span>
+    </Tip>
+  );
   return (
-    <table className="tbl">
-      <thead>
-        <tr>
-          <th scope="col">Agent</th>
-          <th scope="col">Memory hooks</th>
-          <th scope="col">MCP server</th>
-        </tr>
-      </thead>
-      <tbody>
-        {list.map((a) => (
-          <tr key={a.agent}>
-            <td>{AGENTS[a.agent] ?? a.agent}</td>
-            {onOff(a.hooks)}
-            {onOff(a.mcp_server)}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="agents">
+      {list.map((a) => (
+        <div key={a.agent} className="agent surface sq lit">
+          <b>{AGENTS[a.agent] ?? a.agent}</b>
+          {pict(a.hooks, Webhook, "Memory hooks")}
+          {pict(a.mcp_server, Plug, "MCP server")}
+        </div>
+      ))}
+    </div>
   );
 }
 

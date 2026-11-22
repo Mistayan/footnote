@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { BookOpen, Globe } from "lucide-react";
 import { footnote, mb, num, shortDate } from "./data.js";
+import { PathPill, Tip, Trash, clip } from "./ui.jsx";
 
 function corpusName(path) {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -38,85 +39,80 @@ export default function Library({ refresh }) {
   };
 
   const corpora = state.data?.corpora ?? [];
+  const docs = state.docs ?? [];
+  const ready = corpora.filter((c) => c.exists).length;
+  const pages = docs.reduce((n, d) => n + (d.pages ?? 0), 0);
 
   return (
     <div className="body">
-      <p className="dimmed">
-        Document corpora searched by Footnote Library and Search. Removing a corpus unregisters it without deleting the database file on disk.
-      </p>
       {state.error ? (
         <p className="empty warn" role="alert">{state.error}</p>
       ) : state.loading && !state.data ? (
-        <span className="skel" />
-      ) : corpora.length === 0 ? (
-        <p className="empty">
-          No Library corpus yet. Index a folder with <code>footnote index</code> or crawl docs with <code>footnote crawl</code>.
-        </p>
+        <span className="skel big" />
       ) : (
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th scope="col">Corpus</th>
-              <th scope="col">Database path</th>
-              <th scope="col">State</th>
-              <th scope="col" className="num">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {corpora.map((c) => (
-              <tr key={c.path}>
-                <td>{corpusName(c.path)}</td>
-                <td className="mono dimmed" title={c.path} style={{ maxWidth: 480, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {c.path}
-                </td>
-                <td className={c.exists ? "ok" : "warn"}>{c.exists ? "ready" : "file missing"}</td>
-                <td className="num">
-                  <button
-                    type="button"
-                    className="btn icon-btn"
-                    disabled={busyPath === c.path}
-                    onClick={() => remove(c.path)}
-                    title="Unregister from Library (keeps file on disk)"
-                  >
-                    <Trash2 size={13} strokeWidth={1.75} />
-                    {busyPath === c.path ? "Removing…" : "Remove"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+        <>
+          <section className="hero lglass sq">
+            <div>
+              <div className="kicker">Library</div>
+              <div className="big">{num(corpora.length)} <span className="dimmed" style={{ fontSize: 18, fontWeight: 600 }}>{corpora.length === 1 ? "corpus" : "corpora"}</span></div>
+              <div className="sub">Searched by Library and Search. Removing one unregisters it; the file stays on disk.</div>
+            </div>
+            <div className="kpis">
+              <div className="kpi"><span><BookOpen size={12} strokeWidth={1.9} /> Ready</span><b className={ready === corpora.length ? "ok" : "warn"}>{num(ready)}</b></div>
+              <div className="kpi"><span><Globe size={12} strokeWidth={1.9} /> Doc sites</span><b>{num(docs.length)}</b></div>
+              <div className="kpi"><span>Pages cached</span><b>{num(pages)}</b></div>
+            </div>
+          </section>
 
-      {state.docs?.length > 0 && (
-        <section className="group sub" aria-labelledby="docs-title">
-          <h2 id="docs-title" className="heading">Shared docs cache<span className="count">{state.docs.length}</span></h2>
-          <p className="dimmed small">Sites indexed once per machine with <code>footnote docs add</code> and reused by every project.</p>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th scope="col">Site</th>
-                <th scope="col">Version</th>
-                <th scope="col">State</th>
-                <th scope="col" className="num">Pages</th>
-                <th scope="col" className="num">Size</th>
-                <th scope="col" className="num">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {state.docs.map((d) => (
-                <tr key={`${d.site}@${d.version}`}>
-                  <td>{d.site}</td>
-                  <td className="mono dimmed">{d.version}</td>
-                  <td className={d.state === "ready" ? "ok" : "dimmed"}>{d.state}</td>
-                  <td className="num mono">{d.pages != null ? num(d.pages) : "—"}</td>
-                  <td className="num mono">{d.bytes != null ? mb(d.bytes) : "—"}</td>
-                  <td className="num mono dimmed">{d.modified_unix ? shortDate(new Date(d.modified_unix * 1000).toISOString().slice(0, 10)) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+          {corpora.length === 0 ? (
+            <p className="empty">
+              No Library corpus yet. Index a folder with <code>footnote index</code> or crawl docs with <code>footnote crawl</code>.
+            </p>
+          ) : (
+            <div className="corpora">
+              <div className="row-head" aria-hidden="true"><span>Corpus</span><span>Database</span><span>State</span><span /></div>
+              <ul className="rows" aria-label="Corpora">
+                {corpora.map((c) => {
+                  const name = corpusName(c.path);
+                  return (
+                    <li key={c.path} className="line-row surface sq lit">
+                      <Tip tip={name.length > 32 ? name : null}><span className="cell-name">{clip(name, 32)}</span></Tip>
+                      <span><PathPill path={c.path} keep={2} missing={!c.exists} /></span>
+                      <span className={`state-dot${c.exists ? "" : " warn"}`}>{c.exists ? "Ready" : "Missing"}</span>
+                      <Trash what={name} busy={busyPath === c.path} onConfirm={() => remove(c.path)} />
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {docs.length > 0 && (
+            <section className="group sub" aria-labelledby="docs-title" style={{ marginTop: 6 }}>
+              <h2 id="docs-title" className="heading">Shared docs cache<span className="count">{docs.length}</span></h2>
+              <p className="dimmed small">Sites indexed once per machine with <code>footnote docs add</code> and reused by every project.</p>
+              <div className="docs">
+                <div className="row-head" aria-hidden="true">
+                  <span>Site</span><span>Version</span><span>State</span><span className="num-r">Pages</span><span className="num-r">Size</span><span className="num-r">Updated</span>
+                </div>
+                <ul className="rows" aria-label="Doc sites">
+                  {docs.map((d) => (
+                    <li key={`${d.site}@${d.version}`} className="line-row surface sq lit">
+                      <span className="cell-name">{d.site}</span>
+                      <span className="cell-dim mono">{d.version}</span>
+                      <span className={`state-dot${d.state === "ready" ? "" : " idle"}`}>{d.state === "ready" ? "Ready" : clip(d.state, 18)}</span>
+                      <span className="num-r mono small">{d.pages != null ? num(d.pages) : "–"}</span>
+                      <span className="num-r mono small">{d.bytes != null ? mb(d.bytes) : "–"}</span>
+                      <span className="num-r mono small dimmed">
+                        {d.modified_unix ? shortDate(new Date(d.modified_unix * 1000).toISOString().slice(0, 10)) : "–"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );

@@ -1,4 +1,5 @@
-/* Tokens: DESIGN.md section 11 (launcher, locked 16 Nov 2026). Dark only. */
+/* Tokens: DESIGN.md section 11 (launcher; palettes and glass added 22 Nov 2026). Afterglow is the family palette and the
+   default; the other four are the viewer's choice (Appearance menu), kept in this window's storage. */
 :root {
   --bg: #09120b;
   --side: #0d1810;
@@ -11,10 +12,21 @@
   --mute: #a2afa5;
   --dim: #8a978d;
   --acc: #5fd3c3;
+  --acc2: #7fd39a;
+  --acc-ink: #04201b;
   --ok: #7fd39a;
   --warn: #f2b84b;
-  --r-card: 12px;
-  --r-ctl: 8px;
+  --bad: #ff6b6b;
+  --c1: #5fd3c3;
+  --c2: #8b9cf6;
+  --c3: #7fd39a;
+  --c4: #f2b84b;
+  --hi: rgb(255 255 255 / 0.07);
+  --hi2: rgb(255 255 255 / 0.14);
+  --shade: rgb(0 0 0 / 0.45);
+  --glass-a: 72%;
+  --r-card: 16px;
+  --r-ctl: 10px;
   --f-title: "Plus Jakarta Sans", system-ui, sans-serif;
   --f-ui: "Hanken Grotesk", system-ui, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -25,8 +37,32 @@
   --t-brand: 15px;
   --t-big: 28px;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --spring: linear(0, 0.25 7%, 0.7 15%, 1.06 25%, 1.12 32%, 1.04 45%, 0.98 58%, 1.01 75%, 1);
   --fast: 160ms;
   color-scheme: dark;
+}
+:root[data-palette="graphite"] {
+  --bg: #0b0b0e; --side: #111115; --panel: #18181d; --raise: #23232a; --line: #2c2c34; --line2: #3b3b45; --rule: #1d1d23;
+  --text: #f2f2f6; --mute: #aeaeb8; --dim: #8e8e99; --acc: #4ea1ff; --acc2: #bf5af2; --acc-ink: #001a38;
+  --ok: #32d74b; --warn: #ffd60a; --bad: #ff453a; --c1: #4ea1ff; --c2: #bf5af2; --c3: #32d74b; --c4: #ff9f0a;
+}
+:root[data-palette="midnight"] {
+  --bg: #0f0d1a; --side: #141126; --panel: #1b1830; --raise: #262143; --line: #2f2a4c; --line2: #3d3762; --rule: #1e1b35;
+  --text: #eeedf8; --mute: #b1adcd; --dim: #928eb3; --acc: #a78bfa; --acc2: #5fd3e8; --acc-ink: #1a0f3d;
+  --ok: #7ee0a5; --warn: #f5c35b; --bad: #ff6b81; --c1: #a78bfa; --c2: #5fd3e8; --c3: #7ee0a5; --c4: #f5c35b;
+}
+:root[data-palette="ember"] {
+  --bg: #140d0a; --side: #1a110d; --panel: #221713; --raise: #2e2019; --line: #3b2b23; --line2: #4c382e; --rule: #24180f;
+  --text: #f7eee9; --mute: #c6b0a5; --dim: #a48f84; --acc: #ff9f5a; --acc2: #ff6b8b; --acc-ink: #2b1200;
+  --ok: #a3d97f; --warn: #ffd166; --bad: #ff5d5d; --c1: #ff9f5a; --c2: #ff6b8b; --c3: #a3d97f; --c4: #ffd166;
+}
+:root[data-palette="daylight"] {
+  --bg: #eceff3; --side: #f5f6f8; --panel: #ffffff; --raise: #e6eaf0; --line: #d5dbe3; --line2: #bfc8d3; --rule: #e3e7ec;
+  --text: #0d1117; --mute: #444e5a; --dim: #59636f; --acc: #0a66d6; --acc2: #8250df; --acc-ink: #ffffff;
+  --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --c1: #0a66d6; --c2: #8250df; --c3: #1a7f37; --c4: #bc4c00;
+  --hi: rgb(255 255 255 / 0.7); --hi2: rgb(255 255 255 / 0.95); --shade: rgb(31 41 55 / 0.14); --glass-a: 78%;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; margin: 0; }
@@ -103,7 +139,7 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .warn-btn:hover { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); border-color: var(--warn); }
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.body { padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 14px; min-height: 0;
+.body { padding: 16px 40px 24px 20px; display: flex; flex-direction: column; gap: 14px; min-height: 100%;
   animation: enter var(--fast) var(--ease); }
 @keyframes enter { from { opacity: 0; } }
 
@@ -114,20 +150,6 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .card .sub { color: var(--mute); font-size: var(--t-s); }
 .card.muted .big { color: var(--mute); }
 .card h2 .state { margin-left: auto; color: var(--dim); font-weight: 400; font-size: var(--t-s); }
-/* The product switch: the knob's side and the track's fill both say on or off, not colour alone. */
-/* 40 x 24 px target; the off track's edge is --mute (7:1 on the card), so the control reads without its fill (WCAG 1.4.11). */
-.switch { margin-left: auto; width: 40px; height: 24px; border-radius: 12px; border: 1px solid var(--mute); background: var(--panel);
-  position: relative; padding: 0; cursor: pointer; flex: none; transition: border-color var(--fast) var(--ease); }
-.switch span { position: absolute; top: 4px; left: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--mute);
-  transition: transform 120ms ease, background 120ms ease; }
-.switch[aria-checked="true"] { background: color-mix(in srgb, var(--ok) 25%, var(--panel)); border-color: var(--ok); }
-.switch[aria-checked="true"] span { transform: translateX(16px); background: var(--ok); }
-.switch:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
-.switch:disabled { opacity: .6; cursor: progress; }
-.switch:hover:not(:disabled) { border-color: var(--text); }
-.switch:hover:not(:disabled) span { background: var(--text); }
-.switch:active:not(:disabled) { background: var(--raise); }
-@media (prefers-reduced-motion: reduce) { .switch, .switch span { transition: none; } }
 .section { font: 500 var(--t-s) var(--f-ui); color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
 
 .tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -158,10 +180,6 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .bar { display: flex; align-items: center; gap: 12px; }
 .bar.wrap { flex-wrap: wrap; }
 .bar b { font-weight: 500; }
-.tabs { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--side); }
-.tab { padding: 3px 12px; border-radius: 6px; color: var(--mute); font-size: var(--t-s); }
-.tab[aria-selected="true"] { background: var(--raise); color: var(--text); }
-select.btn { background: var(--panel); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; flex: none; align-items: start; }
 .map, .ego { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: 14px;
   display: flex; flex-direction: column; gap: 10px; min-width: 0; }

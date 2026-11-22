@@ -1,9 +1,26 @@
 import { useCallback, useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronRight as Chev, FolderTree, Heart, Layers, Lightbulb, MessagesSquare, Search, Wrench } from "lucide-react";
 import { footnote, num } from "./data.js";
+import { Select, Tip, Trash, clip } from "./ui.jsx";
 
 const KINDS = ["", "preference", "fact", "fix", "session"];
 const PAGE = 50;
+const KIND_ICON = { preference: Heart, fact: Lightbulb, fix: Wrench, session: MessagesSquare };
+
+/** A memory's kind as a pictogram in its own colour; the word is in the tooltip and for screen readers. */
+export function KindIcon({ kind, small }) {
+  const Icon = KIND_ICON[kind] ?? Layers;
+  return (
+    <Tip tip={kind}>
+      <span className={`kind-ic ${kind}`} role="img" aria-label={kind} style={small ? { width: 20, height: 20 } : undefined}>
+        <Icon size={small ? 11 : 13} strokeWidth={2} />
+      </span>
+    </Tip>
+  );
+}
+
+/** A memory has no title: its first sentence, cut to one line, stands for it. */
+const nameOf = (text) => clip(String(text).split(/(?<=[.!?])\s|\n/)[0], 140);
 
 export default function Memory({ refresh }) {
   const [project, setProject] = useState("");
@@ -12,8 +29,8 @@ export default function Memory({ refresh }) {
   const [offset, setOffset] = useState(0);
   const [round, setRound] = useState(0);
   const [state, setState] = useState({ loading: true });
-  const [confirmId, setConfirmId] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [open, setOpen] = useState(() => new Set());
 
   const loadList = useCallback(() => {
     const args = ["memory-list"];
@@ -43,7 +60,6 @@ export default function Memory({ refresh }) {
     setBusyId(id);
     try {
       await footnote(cmd, String(id));
-      setConfirmId(null);
       setRound((r) => r + 1);
       refresh?.();
     } catch (e) {
@@ -52,6 +68,11 @@ export default function Memory({ refresh }) {
       setBusyId(null);
     }
   };
+  const flip = (id) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
 
   const data = state.data;
   const q = filter.trim().toLowerCase();
@@ -59,68 +80,49 @@ export default function Memory({ refresh }) {
     (m) => !q || m.text.toLowerCase().includes(q) || (m.scope ?? "").toLowerCase().includes(q) || (m.tags ?? []).some((t) => t.toLowerCase().includes(q)),
   );
   const total = data?.total ?? 0;
+  const scopes = [{ value: "", label: "All scopes", hint: num(total) }, ...(data?.scopes ?? []).map((s) => ({ value: s.scope, label: s.scope, hint: num(s.memories) }))];
+  const kinds = KINDS.map((k) => ({ value: k, label: k || "All kinds" }));
 
   return (
     <div className="body">
-      <div className="bar wrap">
-        <input
-          className="input"
-          style={{ maxWidth: 300 }}
-          placeholder="Filter visible memories…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          aria-label="Filter memories"
-        />
-        <select
-          className="btn"
-          value={project}
-          onChange={(e) => { setProject(e.target.value); setOffset(0); }}
-          aria-label="Filter by scope"
-        >
-          <option value="">All scopes ({num(total)})</option>
-          {(data?.scopes ?? []).map((s) => (
-            <option key={s.scope} value={s.scope}>{s.scope} ({num(s.memories)})</option>
-          ))}
-        </select>
-        <select
-          className="btn"
-          value={kind}
-          onChange={(e) => { setKind(e.target.value); setOffset(0); }}
-          aria-label="Filter by kind"
-        >
-          {KINDS.map((k) => (
-            <option key={k || "all"} value={k}>{k ? k : "All kinds"}</option>
-          ))}
-        </select>
-        <span className="dimmed small" style={{ marginLeft: "auto" }}>
-          {data ? `Showing ${memories.length} of ${num(total)}` : ""}
-        </span>
+      <div className="toolbar">
+        <label className="search-box">
+          <Search size={14} strokeWidth={1.9} aria-hidden="true" />
+          <input className="input" placeholder="Filter this page" value={filter} onChange={(e) => setFilter(e.target.value)}
+            aria-label="Filter the memories on this page" />
+        </label>
+        <Select value={project} options={scopes} onChange={(v) => { setProject(v); setOffset(0); }} label="Scope" icon={FolderTree} />
+        <Select value={kind} options={kinds} onChange={(v) => { setKind(v); setOffset(0); }} label="Kind" icon={Layers} />
+        <span className="count">{data ? `${num(memories.length)} of ${num(total)}` : ""}</span>
+        {total > PAGE && (
+          <span className="pager">
+            <Tip tip="Previous page">
+              <button type="button" className="ic-btn" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))} aria-label="Previous page">
+                <ChevronLeft size={15} strokeWidth={1.9} />
+              </button>
+            </Tip>
+            <span className="dimmed small mono">{offset + 1}–{Math.min(offset + PAGE, total)}</span>
+            <Tip tip="Next page">
+              <button type="button" className="ic-btn" disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)} aria-label="Next page">
+                <ChevronRight size={15} strokeWidth={1.9} />
+              </button>
+            </Tip>
+          </span>
+        )}
       </div>
 
       {pending.length > 0 && (
-        <section className="group sub" aria-labelledby="review-title">
+        <section className="group sub" aria-labelledby="review-title" style={{ marginTop: 0 }}>
           <h2 id="review-title" className="heading">
             Waiting for your review<span className="count">{pending.length}</span>
           </h2>
           <p className="dimmed small">Global preferences an agent saved. None is used until you approve it.</p>
-          <ul className="hits mem-list review-list">
+          <ul className="memos">
             {pending.map((m) => (
-              <li key={m.id} className="mem-row">
-                <div className="mem-head">
-                  <span className="mono id">#{m.id}</span>
-                  <span className="chip">{m.kind}</span>
-                  <span className="dimmed mono small">{m.observed_at}</span>
-                  <div className="mem-actions">
-                    <button type="button" className="btn primary" disabled={busyId === m.id} onClick={() => forget(m.id, "memory-restore")}>
-                      Approve
-                    </button>
-                    <button type="button" className="btn" disabled={busyId === m.id} onClick={() => forget(m.id)}>
-                      Reject
-                    </button>
-                  </div>
-                </div>
-                <p className="mem-text">{m.text}</p>
-              </li>
+              <Row key={m.id} m={m} open={open.has(m.id)} flip={() => flip(m.id)} review>
+                <button type="button" className="btn primary" disabled={busyId === m.id} onClick={() => forget(m.id, "memory-restore")}>Approve</button>
+                <button type="button" className="btn" disabled={busyId === m.id} onClick={() => forget(m.id)}>Reject</button>
+              </Row>
             ))}
           </ul>
         </section>
@@ -133,65 +135,45 @@ export default function Memory({ refresh }) {
       ) : memories.length === 0 ? (
         <p className="empty">No memories match this filter.</p>
       ) : (
-        <ul className="hits mem-list">
+        <ul className="memos" aria-label="Memories">
           {memories.map((m) => (
-            <li key={m.id} className="mem-row">
-              <div className="mem-head">
-                <span className="mono id">#{m.id}</span>
-                <span className="chip">{m.kind}</span>
-                <span className="chip">{m.scope}</span>
-                <span className="dimmed mono small">{m.observed_at}</span>
-                {m.origin && <span className="dimmed small">· {m.origin}</span>}
-                <div className="mem-actions">
-                  {confirmId === m.id ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn warn-btn"
-                        disabled={busyId === m.id}
-                        onClick={() => forget(m.id)}
-                      >
-                        {busyId === m.id ? "Forgetting…" : "Confirm forget"}
-                      </button>
-                      <button type="button" className="btn" onClick={() => setConfirmId(null)}>Cancel</button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn icon-btn"
-                      title="Forget this memory"
-                      onClick={() => setConfirmId(m.id)}
-                    >
-                      <Trash2 size={13} strokeWidth={1.75} />
-                      Forget
-                    </button>
-                  )}
-                </div>
-              </div>
-              <p className="mem-text">{m.text}</p>
-              {m.tags?.length > 0 && (
-                <div className="mem-tags">
-                  {m.tags.map((t) => <span key={t} className="dimmed mono small">#{t}</span>)}
-                </div>
-              )}
-            </li>
+            <Row key={m.id} m={m} open={open.has(m.id)} flip={() => flip(m.id)}
+              trash={<Trash what={`memory #${m.id}`} busy={busyId === m.id} onConfirm={() => forget(m.id)} />} />
           ))}
         </ul>
       )}
-
-      {total > PAGE && (
-        <div className="bar">
-          <button type="button" className="btn" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
-            Previous
-          </button>
-          <span className="dimmed small">
-            {offset + 1}–{Math.min(offset + PAGE, total)} of {num(total)}
-          </span>
-          <button type="button" className="btn" disabled={offset + PAGE >= total} onClick={() => setOffset(offset + PAGE)}>
-            Next
-          </button>
-        </div>
-      )}
     </div>
+  );
+}
+
+/** One memory: chevron, id, kind, its name, scope, date and the trash; a click opens the full text below. */
+function Row({ m, open, flip, review, trash, children }) {
+  const body = `memo-${m.id}`;
+  return (
+    <li className={`memo surface sq lit${review ? " review" : ""}`} data-open={open}>
+      <div className="memo-head" onClick={flip}>
+        <Chev size={14} strokeWidth={2} className="memo-chev" aria-hidden="true" />
+        <span className="memo-id">#{m.id}</span>
+        <KindIcon kind={m.kind} />
+        <button type="button" className="memo-name" aria-expanded={open} aria-controls={body}
+          onClick={(e) => { e.stopPropagation(); flip(); }}>
+          {nameOf(m.text)}
+        </button>
+        <Tip tip={m.scope.length > 22 ? m.scope : null}><span className="chip memo-scope">{clip(m.scope, 22)}</span></Tip>
+        <span className="memo-date">{m.observed_at}</span>
+        <span className="memo-actions" onClick={(e) => e.stopPropagation()}>{review ? children : trash}</span>
+      </div>
+      <div className="memo-body" id={body} role="region" aria-label={`Memory #${m.id}`} inert={!open}>
+        <div>
+          <p className="memo-text">{m.text}</p>
+          <div className="memo-meta">
+            <span>{m.kind}</span>
+            <span>{m.scope}</span>
+            {m.origin && <span>from {m.origin}</span>}
+            {m.tags?.map((t) => <span key={t} className="mono">#{t}</span>)}
+          </div>
+        </div>
+      </div>
+    </li>
   );
 }

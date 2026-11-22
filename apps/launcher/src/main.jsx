@@ -6,11 +6,15 @@ import "@fontsource/hanken-grotesk/600.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles.css";
+import "./glass.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import { inApp } from "./data.js";
 import Mini from "./Mini.jsx";
+import { applySavedPalette } from "./ui.jsx";
+
+applySavedPalette();
 
 // One page, two windows: the `mini` window (tauri.conf.json) shows mini mode; in a browser, the `#/mini` route does.
 const mini = inApp ? getCurrentWindow().label === "mini" : location.hash.startsWith("#/mini");

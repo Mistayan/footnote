@@ -99,7 +99,8 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   few numbers. A switch moves between mini mode and the full window.
 - **Tokens:** the site's palette (section 3), Plus Jakarta Sans for titles and big numbers, Hanken Grotesk 14 px for UI text,
   JetBrains Mono for paths, ids and timings. App radius 12 px for cards, 8 px for controls, full round for lenses and pills (the
-  site's 21 px stays for marketing blocks). Functional text never below 11 px. Dark only.
+  site's 21 px stays for marketing blocks). Functional text never below 11 px. Afterglow (dark) is the default palette; four
+  more are the viewer's choice since 22 Nov 2026 (see the glass rework below).
 - **Motion:** full window subtle (160 ms, transform and opacity only); mini mode lively (the lenses and data flow); nothing moves
   under reduced motion.
 - **Code views, by zoom level:** architecture map (blocks with import counts and outside services as dashed nodes: the inputs and
@@ -124,9 +125,35 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   - Below the card, under the title "Changes waiting for you" with their count, is the list of agents' pending skill changes. Each item has the name, scope, revision, the date it was proposed, the reason and changed files, then "Show the changes" (the line diff from `footnote skills diff`, with old and new line numbers, removed lines on a `--warn` tint, added on an `--ok` tint, unchanged runs folded into a row that unfolds them in place and moves focus to the first revealed line, or opens the folder for a run over 500 lines; no font ligatures in diffs), "Open folder" (the engine names the folder; the window only names the skill), and Approve / Reject on the right. Approve is a `--acc`-bordered button.
   - All prose is 14 px on a 20 px line, capped at 60ch (at most about 75 characters of Hanken Grotesk); the cost text is at full `--text` strength, and its measurement report opens on the project's site. Spacing is on the 4 px grid. The loading state draws the card and one change as skeletons of the same size.
 
+- **Glass rework (22 Nov 2026, maintainer request; no QLoop pass yet):** Apple-derived chrome on the D1 structure. The
+  tokens live in `apps/launcher/src/styles.css`, the components in `src/ui.jsx`, the materials in `src/glass.css`; each control
+  follows a design-bank recipe (`design-bank/protos/css.html`, `protos/hover.html`).
+  - **Palettes:** Afterglow (family, default), Graphite, Midnight, Ember and Daylight (the only light one), picked from the
+    Appearance menu in the top bar and kept in the window's local storage. Every colour in the window reads a token; chart
+    series use `--c1` to `--c4`, destructive actions `--bad`.
+  - **Materials:** `.lglass` (blur 22 px, saturate 1.5) for the sidebar, top bar, heroes, menus and tooltips; `.surface` (the
+    same tint without blur) for list rows, so a page of 50 rows never stacks 50 blurred layers. Under
+    `prefers-reduced-transparency` both are solid `--panel`. Faint pools of `--acc` and `--acc2` sit behind the glass.
+  - **Shape:** cards 16 px radius, drawn as a squircle (`corner-shape: squircle`) where the engine supports it. Lit border: a
+    240 px halo follows the pointer across neighbouring `.lit` cards; off for touch and reduced motion.
+  - **Controls:** popover menus replace native selects (entry and exit with `@starting-style`, arrow keys, Escape); tabs carry a
+    sliding pill anchored to the selected tab; the on/off switch is 44 x 26 with a `linear()` spring; tooltips are anchored
+    manual popovers in the top layer and replace `title`; delete is a small trash whose lid lifts on hover, and a first click
+    arms it (danger fill, one shake) for a second click to confirm.
+  - **Scrolling:** no native scrollbar in the main area. A tick rail on the right edge has more ticks the more content is off
+    screen (about 9 per screen, 10 to 64) and lights the ticks in view; clicking or dragging it scrolls.
+  - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
+    are one card each: name (24 characters, full name in the tooltip), last seen, a drive squircle plus the last folder (opens
+    the folder; the shell checks the engine's project list first), then pictograms for memories, code graph (or a build
+    button) and uncommitted changes (red; a click copies a commit-and-push request for the agent). Unpushed counts are
+    dropped. Models: the hero names the active model(s); each licence chip opens what the licence allows and links its text.
+    Memory rows show only id, kind pictogram, first sentence, scope and date; the text opens below with
+    `interpolate-size`. Activity shows only days with activity; a day (bar or list) opens its recalls in a fixed-width table.
+
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
+| 2026-11-22 | Launcher glass rework: five palettes, glass chrome and heroes, squircle cards, lit borders, tick scroll rail, popover selects, sliding tabs, spring switch, anchored tooltips, armed trash; Projects as cards; Activity only on active days | Maintainer review of the launcher (22 Nov): native controls looked dated, tables were dense and noisy, zero rows and unpushed counts said nothing | Keep dark-only Afterglow with native selects and scrollbars; glass on every row (cost: many blurred layers) |
 | 2026-11-21 | Product heroes get their own canvas scene (magnifier, memory web, call graph) behind an unblurred lens | Each product page should feel alive like the home page but show what that product does | The home swarm settling into each product mark (read as the same animation with a different logo) |
 | 2026-11-21 | Home: four product cards (Lean added) in a 2 × 2 staggered grid, each with a static example snippet of its own output instead of the big glyph lens; 21 px card-title size; 320 ms motion cap | Cards looked identical; Lean shipped in v0.1.0-alpha.2; critics flagged ad-hoc title sizes and 0.5 to 1 s transitions | Lean inside the engine section; glyph lens on every card |
 | 2026-11-16 | Launcher: D1 structure (full window) + D2 lenses (mini mode), family palette and fonts | D2 is clean aesthetically but sparse in data; D1 surfaces all operational telemetry; shared palette unifies both modes | D3 Ledger (light paper, serif), D4 Palette (command box first) |

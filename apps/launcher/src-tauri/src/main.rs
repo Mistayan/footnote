@@ -230,6 +230,10 @@ fn open_support(to: String) -> Result<(), String> {
         "install" => "https://github.com/bobcat88/footnote/releases/latest",
         "email" => "mailto:johan.velocity.lab@pm.me?subject=Footnote",
         "litellm" => "https://models.litellm.ai",
+        // The licence texts the Models screen explains (22 Nov 2026).
+        "license:mit" => "https://opensource.org/license/mit",
+        "license:apache-2.0" => "https://www.apache.org/licenses/LICENSE-2.0",
+        "license:cc-by-nc-4.0" => "https://creativecommons.org/licenses/by-nc/4.0/",
         _ => return Err("unknown support address".into()),
     };
     open_outside(url.as_ref())
@@ -269,6 +273,24 @@ fn open_skill_folder(name: String, project: Option<String>) -> Result<(), String
             .as_str()
             .ok_or("the engine named no folder")?,
     );
+    if !folder.is_dir() {
+        return Err(format!("{} is not a folder", folder.display()));
+    }
+    open_outside(folder.as_os_str())
+}
+
+/// Open a project's folder in the file manager (the Projects screen, 22 Nov 2026). Only a folder the engine's own project
+/// list names opens, so the page cannot open an arbitrary path.
+#[tauri::command(async)]
+fn open_project_folder(path: String) -> Result<(), String> {
+    let projects = footnote(vec!["projects".into()])?;
+    let known = projects["projects"]
+        .as_array()
+        .is_some_and(|list| list.iter().any(|p| p["path"].as_str() == Some(path.as_str())));
+    if !known {
+        return Err("not a Footnote project".into());
+    }
+    let folder = PathBuf::from(&path);
     if !folder.is_dir() {
         return Err(format!("{} is not a folder", folder.display()));
     }
@@ -318,7 +340,8 @@ fn main() {
             cancel_install,
             open_support,
             open_skill_folder,
-            open_receipt
+            open_receipt,
+            open_project_folder
         ])
         // The tray (decided 15 Nov: a compact tray panel plus the full window): a left click opens the mini panel, the menu
         // opens either window or quits. Quitting is only ever from this menu, so closing a window never loses the app.

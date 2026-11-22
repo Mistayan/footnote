@@ -1,19 +1,20 @@
 import { useEffect, useState } from "react";
 import { RefreshCw, ExternalLink } from "lucide-react";
 import { footnote, mb, num, openSupport, shortDate } from "./data.js";
+import { Tabs, Tip } from "./ui.jsx";
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const tokens = (n) =>
   n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : num(n);
 
 const AGENT_META = {
-  "claude-code": { label: "Claude Code", color: "#5fd3c3" },
-  antigravity: { label: "Antigravity", color: "#8b9cf6" },
-  codex: { label: "Codex", color: "#7fd39a" },
-  "deepseek-harness": { label: "DeepSeek Harness", color: "#f2b84b" },
+  "claude-code": { label: "Claude Code", color: "var(--c1)" },
+  antigravity: { label: "Antigravity", color: "var(--c2)" },
+  codex: { label: "Codex", color: "var(--c3)" },
+  "deepseek-harness": { label: "DeepSeek Harness", color: "var(--c4)" },
 };
 const resetsIn = (m) => (m >= 1440 ? `${Math.round(m / 1440)} d` : m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
-const agentInfo = (id) => AGENT_META[id] ?? { label: id, color: "#a2afa5" };
+const agentInfo = (id) => AGENT_META[id] ?? { label: id, color: "var(--mute)" };
 const totalTokens = (t) => (t.input ?? 0) + (t.output ?? 0) + (t.cache_read ?? 0) + (t.cache_write_5m ?? 0) + (t.cache_write_1h ?? 0);
 
 function smoothPath(pts) {
@@ -58,7 +59,7 @@ function DailyChart({ byDay, byDayAgent, agents, metric }) {
             return hit ? val(hit) : 0;
           }),
         }))
-      : [{ id: "all", color: "#5fd3c3", values: byDay.map(val) }];
+      : [{ id: "all", color: "var(--c1)", values: byDay.map(val) }];
 
   const maxV = Math.max(1e-6, ...series.flatMap((s) => s.values));
   const y = (v) => padT + ch - (v / maxV) * ch;
@@ -90,8 +91,8 @@ function DailyChart({ byDay, byDayAgent, agents, metric }) {
         <defs>
           {series.map((s) => (
             <linearGradient key={s.id} id={`ug-${s.id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={s.color} stopOpacity="0.22" />
-              <stop offset="100%" stopColor={s.color} stopOpacity="0.01" />
+              <stop offset="0%" style={{ stopColor: s.color, stopOpacity: 0.22 }} />
+              <stop offset="100%" style={{ stopColor: s.color, stopOpacity: 0.01 }} />
             </linearGradient>
           ))}
         </defs>
@@ -111,9 +112,9 @@ function DailyChart({ byDay, byDayAgent, agents, metric }) {
           return (
             <g key={s.id}>
               {pts.length > 1 && <path d={area} fill={`url(#ug-${s.id})`} />}
-              <path d={line} fill="none" stroke={s.color} strokeWidth="1.8" />
+              <path d={line} fill="none" style={{ stroke: s.color }} strokeWidth="1.8" />
               {pts.map(([px, py], i) => (
-                <circle key={dates[i]} cx={px} cy={py} r={i === hi ? 4 : 2.5} fill={s.color} opacity={i === hi ? 1 : pts.length <= 14 ? 0.85 : 0} />
+                <circle key={dates[i]} cx={px} cy={py} r={i === hi ? 4 : 2.5} style={{ fill: s.color }} opacity={i === hi ? 1 : pts.length <= 14 ? 0.85 : 0} />
               ))}
             </g>
           );
@@ -194,10 +195,10 @@ export default function Usage() {
   const cacheWrite = t ? t.cache_write_5m + t.cache_write_1h : 0;
   const segs = t && allTok > 0
     ? [
-        { k: "Cache read", n: t.cache_read, cost: t.cost_cache_read, color: "#5fd3c3" },
-        { k: "Uncached input", n: t.input, cost: t.cost_input, color: "#7fd39a" },
-        { k: "Cache write", n: cacheWrite, cost: t.cost_cache_write, color: "#8b9cf6" },
-        { k: "Output", n: t.output, cost: t.cost_output, color: "#f2b84b" },
+        { k: "Cache read", n: t.cache_read, cost: t.cost_cache_read, color: "var(--c1)" },
+        { k: "Uncached input", n: t.input, cost: t.cost_input, color: "var(--c3)" },
+        { k: "Cache write", n: cacheWrite, cost: t.cost_cache_write, color: "var(--c2)" },
+        { k: "Output", n: t.output, cost: t.cost_output, color: "var(--c4)" },
       ]
     : [];
   // Measured savings never reached the model, so they sit beside the processed tokens, not inside them.
@@ -212,24 +213,15 @@ export default function Usage() {
   return (
     <div className="body usage-page">
       <div className="bar wrap">
-        <div className="tabs" role="tablist" aria-label="Period">
-          {[1, 7, 30, 90].map((d) => (
-            <button key={d} role="tab" aria-selected={days === d} className="tab" onClick={() => setDays(d)}>
-              {d === 1 ? "Past 24h" : `${d} days`}
+        <Tabs value={days} options={[[1, "Past 24h"], [7, "7 days"], [30, "30 days"], [90, "90 days"]]} onChange={setDays} label="Period" />
+        <Tabs value={metric} options={[["cost", "Cost"], ["tokens", "Tokens"]]} onChange={setMetric} label="Metric" />
+        <span style={{ marginLeft: "auto" }}>
+          <Tip tip={syncing ? "Syncing prices…" : "Sync the latest model prices from LiteLLM"} side="left">
+            <button type="button" className="ic-btn" disabled={syncing} onClick={() => loadUsage(true)} aria-label="Sync prices">
+              <RefreshCw size={15} strokeWidth={1.75} className={syncing ? "spin" : ""} />
             </button>
-          ))}
-        </div>
-        <div className="tabs" role="tablist" aria-label="Metric">
-          {[["cost", "Cost"], ["tokens", "Tokens"]].map(([k, label]) => (
-            <button key={k} role="tab" aria-selected={metric === k} className="tab" onClick={() => setMetric(k)}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <button type="button" className="btn icon-btn" style={{ marginLeft: "auto" }} disabled={syncing} onClick={() => loadUsage(true)} title="Sync latest model prices from LiteLLM">
-          <RefreshCw size={13} strokeWidth={1.75} className={syncing ? "spin" : ""} />
-          {syncing ? "Syncing prices…" : "Sync prices"}
-        </button>
+          </Tip>
+        </span>
       </div>
 
       {state.error ? (
@@ -238,7 +230,7 @@ export default function Usage() {
         <span className="skel" />
       ) : (
         <>
-          <section className="usage-hero">
+          <section className="usage-hero sq">
             <div className="usage-hero-left">
               <div className="usage-big">{metric === "cost" ? usd.format(t.api_price_usd) : tokens(allTok)}</div>
               <div className="dimmed small">
@@ -270,7 +262,7 @@ export default function Usage() {
 
           <section className="usage-totals">
             <h2 className="section">Totals</h2>
-            <div className="totals-strip">
+            <div className="totals-strip sq">
               <div><span className="dimmed small">Processed tokens</span><b className="mono">{tokens(allTok)}</b></div>
               <div><span className="dimmed small">Cached input</span><b className="mono">{tokens(t.cache_read)}</b></div>
               <div><span className="dimmed small">Uncached input</span><b className="mono">{tokens(t.input)}</b></div>
@@ -340,13 +332,8 @@ export default function Usage() {
           <section className="usage-breakdown">
             <div className="bar">
               <h2 className="section">Breakdown</h2>
-              <div className="tabs" role="tablist" aria-label="Breakdown view" style={{ marginLeft: "auto" }}>
-                {[["model", "Model"], ["day", "Day"]].map(([k, label]) => (
-                  <button key={k} role="tab" aria-selected={breakdown === k} className="tab" onClick={() => setBreakdown(k)}>
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Tabs value={breakdown} options={[["model", "Model"], ["day", "Day"]]} onChange={setBreakdown} label="Breakdown view"
+                className="push" />
             </div>
             {breakdown === "model" ? (
               <table className="tbl usage-tbl">
