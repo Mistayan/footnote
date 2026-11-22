@@ -789,3 +789,249 @@ fn an_agent_edit_that_fails_more_is_rolled_back_after_its_trial() {
             .contains("rolled back revision 2")
     );
 }
+
+/// The listed schemas no longer carry bounds or `additionalProperties: false` (#532), so the server must refuse each
+/// out-of-range or unknown argument itself: every case here is a tool error that names the argument.
+#[test]
+fn the_server_enforces_every_bound_the_schemas_dropped() {
+    let t = tmp();
+    let corpus = fixture(&t);
+    let memory = t.path().join("memory.db");
+    let saved = call(
+        &memory,
+        "footnote_remember",
+        json!({"memories": [{"text": "Bounds fixture.", "kind": "fact", "scope": "bounds", "observed_at": "2026-11-22"}]}),
+    );
+    assert_ne!(saved["isError"], true, "{saved}");
+    let long = |n: usize| "a".repeat(n);
+    let many = |n: usize| json!((0..n).map(|i| format!("t{i}")).collect::<Vec<_>>());
+    let memory_item = |extra: Value| {
+        let mut m =
+            json!({"text": "x", "kind": "fact", "scope": "bounds", "observed_at": "2026-11-22"});
+        for (k, v) in extra.as_object().unwrap() {
+            m[k] = v.clone();
+        }
+        json!({"memories": [m]})
+    };
+    let cases: Vec<(&Path, &str, Value, &str)> = vec![
+        (&corpus, "footnote_recall", json!({"query": ""}), "query"),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": long(513)}),
+            "query",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "limit": 0}),
+            "limit",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "limit": 21}),
+            "limit",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "technology": long(201)}),
+            "technology",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "project": long(201)}),
+            "project",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "tested_version": long(201)}),
+            "tested_version",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "per_source": 0}),
+            "per_source",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "per_source": 21}),
+            "per_source",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "model": ""}),
+            "model",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "model": long(201)}),
+            "model",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "model": many(4)}),
+            "model",
+        ),
+        (
+            &corpus,
+            "footnote_recall",
+            json!({"query": "a", "limt": 3}),
+            "limt",
+        ),
+        (
+            &memory,
+            "footnote_recall",
+            json!({"query": "a", "tags": many(11)}),
+            "tags",
+        ),
+        (
+            &corpus,
+            "footnote_get",
+            json!({"id": (1..=21).collect::<Vec<_>>()}),
+            "id",
+        ),
+        (
+            &corpus,
+            "footnote_get",
+            json!({"id": 1, "kinds": "record"}),
+            "kinds",
+        ),
+        (&corpus, "footnote_info", json!({"ops": "stats"}), "ops"),
+        (&corpus, "footnote_wake_up", json!({"limit": 21}), "limit"),
+        (
+            &corpus,
+            "footnote_wake_up",
+            json!({"project": long(201)}),
+            "project",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            json!({"memories": []}),
+            "memories",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            json!({"memories": vec![json!({}); 51]}),
+            "memories",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"text": long(2001)})),
+            "text",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"scope": long(201)})),
+            "scope",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"session": long(201)})),
+            "session",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"tags": many(11)})),
+            "tags",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"tags": ["Not A Tag"]})),
+            "tag",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"code": many(21)})),
+            "code",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"code": [long(301)]})),
+            "code",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            memory_item(json!({"txt": "x"})),
+            "memories[0].txt",
+        ),
+        (
+            &memory,
+            "footnote_remember",
+            json!({"memories": [], "scope": "x"}),
+            "scope",
+        ),
+        (
+            &memory,
+            "footnote_tag",
+            json!({"id": 1, "add": many(11)}),
+            "tags",
+        ),
+        (
+            &memory,
+            "footnote_tag",
+            json!({"id": 1, "add": [long(33)]}),
+            "tag",
+        ),
+        (
+            &memory,
+            "footnote_forget",
+            json!({"id": 1, "why": "x"}),
+            "why",
+        ),
+    ];
+    for (db, tool, args, names) in cases {
+        let r = call(db, tool, args.clone());
+        assert_eq!(r["isError"], true, "{tool} {args} was accepted: {r}");
+        assert!(text(&r).contains(names), "{tool} {args}: {}", text(&r));
+    }
+}
+
+#[test]
+fn initialize_says_once_that_results_are_untrusted() {
+    let t = tmp();
+    let db = fixture(&t);
+    let out = session(
+        &db,
+        &[
+            json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}),
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
+        ],
+    );
+    let rs = responses(&out);
+    assert!(
+        rs[0]["result"]["instructions"]
+            .as_str()
+            .is_some_and(|s| s.contains("untrusted")),
+        "{}",
+        rs[0]
+    );
+    for tool in rs[1]["result"]["tools"].as_array().unwrap() {
+        assert!(
+            !tool["description"].as_str().unwrap().contains("Untrusted"),
+            "{tool}"
+        );
+        assert!(
+            tool["inputSchema"].get("additionalProperties").is_none(),
+            "{tool}"
+        );
+    }
+}

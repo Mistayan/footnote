@@ -416,7 +416,7 @@ fn a_switched_off_product_leaves_the_agents_tools() {
             &memory,
             &[
                 list.clone(),
-                call("footnote_code", serde_json::json!({"name": "main"})),
+                call("footnote_code", serde_json::json!({"target": "main"})),
             ],
         );
         assert!(!names(&r[0]).iter().any(|n| n == "footnote_code"), "{r:?}");

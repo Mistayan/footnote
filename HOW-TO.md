@@ -396,7 +396,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion
   | footnote --db "$HOME/.local/state/footnote/memory.db" serve --mcp
 ```
 
-Expected: two JSON-RPC `2.0` responses, with 8 tools in `tools/list` totaling ~4.8 KB (`<= 5,000` bytes).
+Expected: two JSON-RPC `2.0` responses, with 8 tools in `tools/list` totaling ~3.8 KB (`<= 5,000` bytes).
 
 ---
 

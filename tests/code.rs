@@ -99,7 +99,7 @@ def step():
             .unwrap();
         serde_json::from_slice::<Value>(&out.stdout).unwrap()
     };
-    let mcp = |root: &str| mcp_with(serde_json::json!({"name": "helper", "root": root}));
+    let mcp = |root: &str| mcp_with(serde_json::json!({"target": "helper", "root": root}));
     // An unindexed, unregistered folder is still refused (#211).
     let stranger = dir.path().join("stranger");
     fs::create_dir_all(&stranger).unwrap();
@@ -118,7 +118,7 @@ def step():
         serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap()
     };
     let map = text_of(mcp_with(
-        serde_json::json!({"map": true, "depth": 1, "root": root}),
+        serde_json::json!({"op": "map", "depth": 1, "root": root}),
     ));
     assert!(map["blocks"].is_array(), "{map}");
     // Qualified symbol lookup (`lib::helper`) works in `footnote find` (#345).
@@ -145,14 +145,14 @@ def step():
         "{st}"
     );
     let body = text_of(mcp_with(
-        serde_json::json!({"name": "helper", "root": root, "body": true}),
+        serde_json::json!({"target": "helper", "root": root, "body": true}),
     ));
     assert_eq!(
         body["symbols"][0]["body"], "fn helper() -> u32 {\n    41\n}",
         "{body}"
     );
     let outline = text_of(mcp_with(
-        serde_json::json!({"outline": "src/lib.rs", "root": root}),
+        serde_json::json!({"op": "outline", "target": "src/lib.rs", "root": root}),
     ));
     let names: Vec<&str> = outline["symbols"]
         .as_array()
@@ -161,6 +161,32 @@ def step():
         .filter_map(|s| s["name"].as_str())
         .collect();
     assert_eq!(names, ["run", "helper"], "{outline}");
+    // The bounds the listed schema no longer states (#532) are refused by the server, naming the argument.
+    for (args, names) in [
+        (serde_json::json!({"op": "map", "depth": 6}), "depth"),
+        (
+            serde_json::json!({"op": "impact", "target": "helper", "depth": 7}),
+            "depth",
+        ),
+        (
+            serde_json::json!({"target": "helper", "limit": 101}),
+            "limit",
+        ),
+        (serde_json::json!({"op": "outline"}), "target"),
+        (
+            serde_json::json!({"op": "callers", "target": "helper"}),
+            "op",
+        ),
+        (serde_json::json!({"name": "helper"}), "name"),
+    ] {
+        let mut args = args;
+        args["root"] = root.into();
+        let r = mcp_with(args.clone());
+        assert_eq!(r["result"]["isError"], true, "{args}: {r}");
+        assert!(r.to_string().contains(names), "{args}: {r}");
+    }
+    let impact = mcp_with(serde_json::json!({"op": "impact", "target": "helper", "root": root}));
+    assert_ne!(impact["result"]["isError"], true, "{impact}");
 
     fs::write(project.join("src/lib.rs"), format!("{lib}// edited\n")).unwrap();
     assert_eq!(

@@ -379,6 +379,9 @@ into a throwaway environment and run on scratch copies only. Scripts in `bench/e
 | `query_graph` (Cypher) | none | not used by agents here |
 | `manage_adr` | Footnote Memory (decisions as memories, anchored to code) | different, covered |
 
+Since #532 the MCP tool takes `op` and `target`: `name` above is `target` (default `op: symbol`), and `impact`, `outline`,
+`unresolved`, `map`, `stack` and `frame` are `op` values. `op: map` with a `target` keeps one block, as `code-map --block` does.
+
 Measured against the compiler graph on the same five projects, Footnote's parser is faster (0.3 to 1.7 s against about 4 s), finds
 more correct links (1.2 to 3 times) and conflicts far less (0 to 0.1% against 0 to 7.4%), and codebase-memory-mcp aborted on
 the largest project (section above). Recommendation: switch. Removing codebase-memory-mcp from the agents' MCP configuration
@@ -442,7 +445,7 @@ of old and new binaries compared). New, all opt-in or additive:
   TypeScript, +0.03 / +0.05 / +0.06 Java. Below the default's precision, so never default.
 - **Tried and removed:** a method name defined once in the project (precision 0.04 to 0.61), a bare name defined once in another
   file (0.00 to 0.65). Single-implementation interface dispatch cannot be scored against a static compiler graph.
-- **`footnote code-unresolved <file|function>` / MCP `unresolved`:** the calls the graph did not link, with the project definitions
+- **`footnote code-unresolved <file|function>` / MCP `op: unresolved`:** the calls the graph did not link, with the project definitions
   that share the callee's name to grep, or none.
 - **`FOOTNOTE_CODE_SCIP=<file>`:** read an existing SCIP index as the compiler graph. The compiler was already the top tier.
 - **Miss buckets:** a method on a value of unknown type is the largest real one (51% Python, 54% TypeScript of missed calls).
