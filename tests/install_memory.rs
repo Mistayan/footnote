@@ -537,3 +537,67 @@ fn bare_install_wires_both_memory_and_lean_by_default() {
     let t3_mcp = read(&t3_cfg.join("mcp_config.json"));
     assert_eq!(t3_mcp["mcpServers"]["footnote-memory"]["args"][2], "mcp");
 }
+
+#[test]
+fn install_replaces_and_uninstall_removes_docker_daemon_memory_hooks() {
+    let t = tempfile::tempdir().unwrap();
+    let (home, state) = (t.path().join("home"), t.path().join("state"));
+    let claude = home.join(".claude");
+    fs::create_dir_all(&claude).unwrap();
+    let path = claude.join("settings.json");
+    let docker_hook = |cmd: &str, timeout: u64| json!({"hooks": [{"type": "command", "command": cmd, "timeout": timeout}]});
+    let other = json!({"type": "command", "command": "footnote-lint", "timeout": 5});
+    let non_docker = json!({
+        "type": "command",
+        "command": "wrapper exec -i footnote footnote hook",
+        "timeout": 5
+    });
+    let win_quoted = "\"C:/Program Files/Docker/Docker/resources/bin/docker.exe\" exec -i footnote footnote hook";
+    let linux_docker = "/usr/bin/docker exec -i footnote-me footnote hook";
+    let win_plain = "C:/Users/me/AppData/Local/Programs/DockerDesktop/resources/bin/docker.exe exec -i footnote footnote hook";
+    let docker_settings = json!({"hooks": {
+        "SessionStart": [docker_hook(win_quoted, 15)],
+        "UserPromptSubmit": [docker_hook(linux_docker, 10)],
+        "Stop": [docker_hook(win_plain, 5), {"hooks": [other.clone(), non_docker.clone()]}]
+    }})
+    .to_string();
+
+    // 1. Uninstall directly removes Docker hooks without a prior native install, leaving non-Docker hooks alone.
+    fs::write(&path, &docker_settings).unwrap();
+    Command::new(assert_cmd::cargo::cargo_bin!("footnote"))
+        .args(["uninstall", "--memory"])
+        .env("USERPROFILE", &home)
+        .env("HOME", &home)
+        .env("FOOTNOTE_STATE_DIR", &state)
+        .assert()
+        .success();
+    let settings = read(&path);
+    assert_eq!(
+        settings["hooks"],
+        json!({"Stop": [{"hooks": [other.clone(), non_docker.clone()]}]}),
+        "{settings}"
+    );
+
+    // 2. Install replaces Docker hooks in place with the native hook (no double hooks), keeping other hooks.
+    fs::write(&path, &docker_settings).unwrap();
+    let python = t.path().join("python.exe");
+    let report = install(&home, &state, &python, false);
+    let settings = read(&path);
+    for event in ["SessionStart", "UserPromptSubmit", "Stop"] {
+        let commands: Vec<&str> = settings["hooks"][event]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|g| g["hooks"].as_array().unwrap())
+            .filter_map(|h| h["command"].as_str())
+            .filter(|c| !c.contains("footnote-lint") && !c.starts_with("wrapper "))
+            .collect();
+        assert_eq!(
+            commands,
+            [report["hook"].as_str().unwrap()],
+            "{event}: {settings}"
+        );
+    }
+    assert!(settings.to_string().contains("footnote-lint"), "{settings}");
+    assert!(settings.to_string().contains("wrapper exec"), "{settings}");
+}
