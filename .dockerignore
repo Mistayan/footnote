@@ -1,10 +1,28 @@
-# Allowlist: the build needs only the Cargo workspace and the rules the binary embeds.
+# Allowlist: the build context holds only what the Dockerfile copies (the Cargo workspace, the files embedded at compile
+# time — rules/ and tools/extract.py — and the licence files).
+# Nothing else from the checkout reaches the builder: local state, databases, agent or editor folders, `.env`, keys.
 *
 !Cargo.toml
 !Cargo.lock
-!src
-!crates
-!rules
+!src/
+!crates/
+!rules/
 !tools/
 tools/*
 !tools/extract.py
+!LICENSE
+!NOTICE
+!THIRD-PARTY-NOTICES.md
+
+# Never sent, not even from inside the allowed folders.
+**/target
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.footnote-backup
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/*.token
+**/.DS_Store
