@@ -9,7 +9,7 @@ pub use ts::{import_counts, imports};
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
 
@@ -75,12 +75,13 @@ fn merge_macro_calls(docs: &mut [scip::Document], parsed: &[scip::Document]) {
     let norm = |p: &str| p.replace('\\', "/");
     let mut defs: HashMap<(String, i32, String), String> = HashMap::new();
     for d in docs.iter() {
+        let file = members(d);
         for o in d
             .occurrences
             .iter()
             .filter(|o| o.roles & scip::DEFINITION != 0 && !o.symbol.starts_with("local "))
         {
-            defs.entry((norm(&d.path), o.range[0], short_name(&o.symbol)))
+            defs.entry((norm(&d.path), o.range[0], short_name(&o.symbol, &file)))
                 .or_insert_with(|| o.symbol.clone());
         }
     }
@@ -131,13 +132,19 @@ fn treesitter_target(s: &str) -> Option<(String, i32, String)> {
     Some((path.to_string(), line, name.to_string()))
 }
 
-/// Last name in a SCIP symbol, for symbols the indexer gave no display name.
-fn short_name(symbol: &str) -> String {
-    // scip-typescript names object-literal members `spawnSession0:`, the name plus a counter per object in the file (#216).
-    // shortcut: a member whose own name ends in a digit loses it, rare; split on the counter if lookups miss such names.
+/// A file's object-member symbols (`…:`): the context `short_name` reads their counters from.
+fn members(d: &scip::Document) -> HashSet<&str> {
+    d.occurrences
+        .iter()
+        .map(|o| o.symbol.as_str())
+        .filter(|s| s.ends_with(':'))
+        .collect()
+}
+
+/// Last name in a SCIP symbol, for symbols the indexer gave no display name. `file` holds the `members` of its file.
+fn short_name(symbol: &str, file: &HashSet<&str>) -> String {
     if let Some(m) = symbol.strip_suffix(':') {
-        let m = m.trim_end_matches(|c: char| c.is_ascii_digit());
-        return short_name(&format!("{m}."));
+        return short_name(&format!("{}.", member_name(m, file)), file);
     }
     let mut s = symbol.trim_end_matches(['.', '#', '/']);
     if s.ends_with(')') {
@@ -149,6 +156,25 @@ fn short_name(symbol: &str) -> String {
         .unwrap_or(s)
         .trim_matches('`')
         .to_string()
+}
+
+/// scip-typescript names an object-literal member `<name><n>:`, `n` counting the earlier members of that name in the file
+/// (#216): `base640:` is the first `base64`, `retry21:` the second `retry2`. A split is possible when the counter's lower
+/// values all appear in `file`. The longest possible counter wins: `x10:` beside `x0:`..`x9:` is the eleventh `x`, since a
+/// name used often in a file is more common than a digit-ended name beside it. Without context one digit goes.
+fn member_name<'a>(m: &'a str, file: &HashSet<&str>) -> &'a str {
+    let digits = m.len() - m.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+    for k in (1..=digits).rev() {
+        let (name, n) = m.split_at(m.len() - k);
+        if n.len() > 1 && n.starts_with('0') {
+            continue; // a counter has no leading zero
+        }
+        let Ok(n) = n.parse::<u32>() else { continue };
+        if (0..n).all(|j| file.contains(format!("{name}{j}:").as_str())) {
+            return name;
+        }
+    }
+    &m[..m.len() - digits.min(1)]
 }
 
 fn contains(outer: [i32; 4], at: [i32; 4]) -> bool {
@@ -498,6 +524,7 @@ fn write(
         )?;
         let file = tx.last_insert_rowid();
         file_ids.push(file);
+        let file_members = members(d);
         for o in d
             .occurrences
             .iter()
@@ -514,7 +541,7 @@ fn write(
             };
             let (display, signature) = names.get(o.symbol.as_str()).copied().unwrap_or(("", ""));
             let name = if display.is_empty() {
-                short_name(&o.symbol)
+                short_name(&o.symbol, &file_members)
             } else {
                 display.to_string()
             };
@@ -1090,15 +1117,75 @@ mod tests {
     use super::*;
 
     #[test]
+    fn member_names_keep_their_own_digits() {
+        // Symbols scip-typescript 0.6.2 wrote for `{ base64, retry2, spawnSession }`, `{ base64, spawnSession, x }`,
+        // `{ x, retry2 }` and `{ x }` in one file: the counter runs per name across the file.
+        let p = "scip-typescript npm app 1.0.0 src/`a.ts`/";
+        let syms: Vec<String> = [
+            "base640",
+            "base641",
+            "retry20",
+            "retry21",
+            "spawnSession0",
+            "spawnSession1",
+            "x0",
+            "x1",
+            "x2",
+        ]
+        .iter()
+        .map(|m| format!("{p}{m}:"))
+        .collect();
+        let doc = scip::Document {
+            occurrences: syms
+                .iter()
+                .map(|s| scip::Occurrence {
+                    symbol: s.clone(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let file = members(&doc);
+        let names: Vec<String> = syms.iter().map(|s| short_name(s, &file)).collect();
+        assert_eq!(
+            names,
+            [
+                "base64",
+                "base64",
+                "retry2",
+                "retry2",
+                "spawnSession",
+                "spawnSession",
+                "x",
+                "x",
+                "x"
+            ]
+        );
+        // Eleven `x` members: the eleventh is `x10:`. Alone, `x10:` is the first member named `x1`.
+        let many: Vec<String> = (0..=10).map(|n| format!("{p}x{n}:")).collect();
+        let file: HashSet<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(short_name(&many[10], &file), "x");
+        assert_eq!(member_name("x10", &HashSet::new()), "x1");
+        assert_eq!(member_name("total", &HashSet::new()), "total");
+    }
+
+    #[test]
     fn kinds_and_names_come_from_scip_descriptors() {
         let f = "rust-analyzer cargo footnote 0.1.0 app/run().";
-        assert_eq!((kind(f), short_name(f).as_str()), ("function", "run"));
+        let none = HashSet::new();
+        assert_eq!(
+            (kind(f), short_name(f, &none).as_str()),
+            ("function", "run")
+        );
         let t = "rust-analyzer cargo footnote 0.1.0 store/Filters#";
-        assert_eq!((kind(t), short_name(t).as_str()), ("type", "Filters"));
+        assert_eq!(
+            (kind(t), short_name(t, &none).as_str()),
+            ("type", "Filters")
+        );
         let m = "scip-typescript npm app HEAD src/`ipc.ts`/spawnSession0:";
-        assert_eq!(short_name(m), "spawnSession");
+        assert_eq!(short_name(m, &none), "spawnSession");
         let l = "scip-typescript npm app HEAD src/`chart.tsx`/typeLiteral10:entry_date.";
-        assert_eq!(short_name(l), "entry_date");
+        assert_eq!(short_name(l, &none), "entry_date");
         assert!(contains([1, 0, 9, 1], [4, 2, 4, 8]) && !contains([1, 0, 3, 1], [4, 2, 4, 8]));
         assert_eq!(
             package("rust-analyzer cargo serde_json 1.0.1 Value#"),
