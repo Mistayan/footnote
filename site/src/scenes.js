@@ -3,8 +3,8 @@
 //   mem   memories fly in from the conversation and join a small web in the lens; each session start recalls a few and sends them on
 //   code  a call graph: callers in, callees out, pulses through the function in the lens; focus walks to the next function.
 //         One caller stays dashed and unnamed: Code would rather show no caller than a wrong one.
-//   lean  yellow noise and green failure lines arrive mixed; the lens sinks the yellow to the bottom and drops it, and only the
-//         green goes on into a structured prompt, headed by a real benchmark case.
+//   lean  orange noise and green failure lines arrive mixed; the lens separates them cleanly — green goes into a structured
+//         prompt headed by a real benchmark case, while orange passes straight through as filtered-out noise.
 // Same rules as the home stream: draws only on screen, in a visible tab, without reduced motion (then one still frame).
 const GLOW = "95,211,195", HI = "150,236,224", TEXT = "234,240,235", OK = "127,211,154", WARN = "242,184,75";
 const MONO = '"JetBrains Mono", ui-monospace, monospace';
@@ -48,7 +48,7 @@ export function initScene(c, motion) {
 // A small pill with mono text, like the tags on the page.
 function pill(x, text, px, py, color, a, align = "left") {
   x.font = `500 11px ${MONO}`;
-  const w = x.measureText(text).width + 16, h = 20, left = align === "center" ? px - w / 2 : px;
+  const w = x.measureText(text).width + 16, h = 20, left = align === "center" ? px - w / 2 : align === "right" ? px - w : px;
   x.beginPath(); x.roundRect(left, py - h / 2, w, h, 8);
   x.fillStyle = rgba("9,18,11", .8 * a); x.fill();
   x.strokeStyle = rgba(color, .5 * a); x.lineWidth = 1; x.stroke();
@@ -180,11 +180,11 @@ const SCENES = {
     },
   },
 
-  // ---- Lean: a long shell log goes through the lens; the noise drops out, every line that says what failed comes through
+  // ---- Lean: a long shell log goes through the lens; green failure lines enter the prompt box, orange noise goes straight through as filtered out
   lean: {
     still: 2600,
     init(v, rnd) {
-      // Yellow is noise, green is what matters. Greens are evenly spaced so they reach the prompt on a steady beat.
+      // Orange is noise, green is what matters. Greens are evenly spaced so they reach the prompt on a steady beat.
       const N = 150, K = 5;
       const items = Array.from({ length: N }, (_, i) => {
         const keep = i % K === 0;
@@ -201,13 +201,15 @@ const SCENES = {
     },
     draw(x, v, s, T) {
       const { cx, cy, R, W, H } = v, inL = cx - R, outL = cx + R, band = R * .4, SP = .000032, C = 4200;
-      // the structured prompt: beside the lens when there is room, under it otherwise
+      // the structured prompt: beside the lens (upper track) when there is room, under it otherwise
       const rowH = 22, ROWS = 5, headH = 32, footH = 26, ch = headH + ROWS * rowH + footH;
       let cw = Math.min(264, W - outL - 40), side = cw >= 176 && innerWidth > 1000;   // stacked layouts keep it under the lens
       if (!side) cw = Math.min(264, W - 32);
-      const cardX = side ? outL + 26 : cx - cw / 2, cardY = side ? cy - ch / 2 : cy + R + 26;
+      const cardX = side ? outL + 26 : cx - cw / 2, cardY = side ? Math.max(12, cy - ch + 22) : cy + R + 26;
       const slotY = cardY + headH + (ROWS - 1) * rowH + rowH / 2, slotX = cardX + 12;
-      const E = side ? [outL, cy - R * .08] : [cx + R * .55, cy + R * .82];   // where the greens leave the lens
+      const E = side ? [outL, slotY] : [cx - R * .25, cy + R * .92];                  // where the greens leave the lens
+      const noiseY = side ? Math.max(cardY + ch + 38, cy + R * .44) : cy - R * .12;   // dedicated straight-through lane for orange noise
+      const noiseBand = Math.min(14, R * .12);
       const travel = side ? cardX - outL : R * .9;
       const span = W + 160, qOut = (outL + 80) / span, qSlot = (outL + travel + 80) / span;
       const spread = v.narrow ? R * 1.3 : H * .42;
@@ -216,24 +218,36 @@ const SCENES = {
       for (const it of s.items) {
         const q = (it.p + T * SP) % 1, px = q * span - 80;
         let X = px, Y, a, col = it.keep ? GLOW : WARN, w = it.len, h = 1.6;
-        if (px < inL) {                               // in: yellow and green mixed, funnelling into the lens
+        const ny = noiseY + it.y * noiseBand;
+        if (px < inL) {                               // in: orange and green mixed, funnelling into the lens
           const f = Math.max(0, px) / inL, g = ease((px - (inL - R * 1.3)) / (R * 1.3));
           Y = cy + it.y * (spread * (1 - f) + band * f); a = .06 + .5 * g;   // faint behind the hero text
-        } else if (px < outL) {                       // the lens sorts: green lines up, yellow sinks to the bottom and drops out
+        } else if (px < outL) {                       // the lens separates them: green aligns to the prompt box, orange aligns to its straight-through lane
           const f = (px - inL) / (2 * R), y0 = cy + it.y * band;
-          if (it.keep) { Y = y0 + (E[1] - y0) * ease(f / .7); X = side ? px : px + (E[0] - px) * ease((f - .5) / .5); a = .95; w = 20; h = 2.2; }
-          else {
-            const yb = cy + R * .7, fall = Math.max(0, (f - .62) / .38);
-            Y = y0 + (yb - y0) * ease((f - .2) / .4) + fall * fall * R * .7;
-            a = .6 * (1 - ease(fall)); w *= 1 - .5 * ease((f - .2) / .4);
-          }
-        } else {                                      // out: only green, into the bottom row of the prompt
-          if (!it.keep || q > qSlot) continue;
+          if (it.keep) { Y = y0 + (E[1] - y0) * ease(f / .65); X = side ? px : px + (E[0] - px) * ease((f - .4) / .6); a = .95; w = 20; h = 2.2; }
+          else { Y = y0 + (ny - y0) * ease(f / .55); a = .62; w *= .85; }
+        } else if (it.keep) {                         // out (green): into the bottom row of the prompt card
+          if (q > qSlot) continue;
           const t = ease((q - qOut) / (qSlot - qOut));
           X = E[0] + (slotX - E[0]) * t; Y = E[1] + (slotY - E[1]) * t; a = .95; w = 20 * (1 - .6 * t); h = 2.2;
+        } else {                                      // out (orange): passes straight through as filtered-out noise
+          const dOut = (px - outL) / Math.max(160, W - outL);
+          if (dOut >= 1) continue;
+          X = px; Y = ny; a = .5 * (1 - ease(dOut)); w *= .75; h = 1.4;
         }
         if (a <= 0) continue;
         x.fillStyle = rgba(col, a); x.fillRect(X, Y, w, h);
+      }
+
+      // label the straight-through orange stream as filtered-out noise
+      if (side) {
+        const nw = pill(x, "noise", cardX, noiseY + 26, WARN, .9);
+        label(x, "filtered out", cardX + nw + 8, noiseY + 26, TEXT, .65, "left", 11);
+      } else if (W - outL >= 115) {
+        pill(x, "noise", outL + 12, noiseY + 26, WARN, .9);
+        label(x, "filtered out", outL + 12, noiseY + 46, TEXT, .65, "left", 11);
+      } else {
+        pill(x, "noise · filtered", W - 12, noiseY + 28, WARN, .9, "right");
       }
 
       // the card: the case on screen now in the header, the kept lines below
