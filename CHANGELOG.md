@@ -5,6 +5,59 @@ Notable changes to Footnote, newest first. Versions follow semantic versioning, 
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
+## 0.2.0 - 2026-11-22
+
+The first release with a plain version number (#507): from here every version is `X.Y.Z`, and the commits since the last
+release decide which number moves (`docs/VERSIONING.md`). The headline is a reworked launcher that updates itself. Coming
+from 0.1.0-alpha.3, install this one with `Footnote-Setup-0.2.0-x64.exe`; later releases arrive in the app.
+
+### New
+
+- **Launcher, reworked** (#503):
+  - **Look:** five palettes (Afterglow, Graphite, Midnight, Ember, Daylight) from the Options gear; glass sidebar, top bar,
+    menus and tooltips; squircle corners; popover menus, sliding tabs, a spring switch, and a tick rail instead of the
+    scrollbar.
+  - **Projects:** one card per project. The folder opens in Explorer, and pictograms show memories, the code graph and work
+    to commit.
+  - **Send to the agent:** the red commit pictogram asks the agent working in that project to commit and push
+    (`footnote agent-ask`). Its next turn there takes the request once; a click withdraws it while it waits.
+  - **Agent repair:** each agent is green, amber or red by whether its Memory hooks and MCP server are connected; a wrench
+    reconnects them (`footnote install --memory`).
+  - **Models, Memory, Activity:** a header with the active model; memory rows that open in place; only the days something
+    happened, each opening its recalls.
+  - **Updates in the app:** the launcher checks GitHub's latest release at start and every six hours. A newer one shows what's
+    new; one click downloads it and checks its SHA-256, the next installs it with no window and reopens Footnote. Agents get
+    a note to restart, since their running MCP server is the old binary until they do (`footnote update --check`,
+    `--download`).
+  - **Mini window:** the tray's quick look is now a small widget with one number per card (memory, today's usage, work to
+    commit, agents, Library and Code) and its own minimize, open and close buttons.
+  - Earlier in this release: a frameless shell with Memory, Library and Usage screens (#478), rate limits, the cost split, the
+    review queue and the docs cache (#343), skill changes reviewed as a diff (#476), measured savings in Tokens by type, the
+    daily chart read per provider on hover, and indexing projects from the Projects screen.
+- **Memory:**
+  - Recall looks at what the prompt names first: memories anchored to the files and symbols in it come before the semantic
+    matches, and each recall, miss or skip is logged without its text (#241).
+  - Injected memory is byte-identical from run to run, so the agent's prompt cache keeps it (#242).
+  - Recall packs short pointers instead of whole memories past the first few, with two floors that keep weak matches out
+    (#356).
+  - `footnote memory-clean` retires stale project memories: exact duplicates and old session notes by rule, then the project
+    memories a model judges stale through your own Claude Code or Codex. Session start runs it every 7 days
+    (`memory.clean_days`, 0 turns it off); every retirement can be restored, and global memories are never sent (#437).
+- **Lean:**
+  - A whole-file read of a large indexed file is answered with its outline, so the agent reads only the part it needs
+    (`install --lean` now also covers Claude Code's Read) (#240).
+  - Opt-in Lean B rules at session start, with a check that durable prose stays readable (`memory.lean_rules`,
+    `memory.lean_prose`, both off by default) (#239).
+- **Code:** the code map names the symbols each link uses, classifies more outside packages (#475), and leaves dot folders
+  and `.footnoteignore` paths off the map.
+- **Library:** a docs refresh skips pages it found empty for 30 days, then tries them once more (#474).
+
+### Fixed
+
+- The code map no longer collapses to a thin strip when the graph has a cycle.
+- TypeScript member names keep their trailing digits (`base64`, `retry2`) (#473).
+- The release build downloads the tagged engine for the installer (#467).
+
 ## 0.1.0-alpha.3 - 2026-11-22
 
 Second alpha. The headline is a Windows installer that brings the desktop launcher, in the tray. Expect rough edges and
