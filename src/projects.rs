@@ -31,6 +31,9 @@ fn today() -> String {
 /// clone of one repository updates the path to the latest one used, except a linked git worktree (`.git` is a file) never
 /// overwrites an existing main checkout path, so worktree sessions do not hide the main repository's code graph.
 pub fn seen(state: &Path, project: &str, root: &str) -> Result<()> {
+    if ignored(state).contains(project) {
+        return Ok(()); // the user asked Footnote to leave this project alone
+    }
     let dir = state.join("projects");
     footnote_core::state::ensure_private_dir(&dir)?;
     let path = dir.join(format!("{}.json", file_name(project)));
@@ -60,36 +63,118 @@ pub fn seen(state: &Path, project: &str, root: &str) -> Result<()> {
     Ok(())
 }
 
-/// Every recorded project, most recently used first.
-pub fn list(state: &Path) -> Result<Value> {
+/// Every recorded project, most recently used first, and the names the user chose to ignore. `quick` gives names and folders
+/// only (what the launcher checks before opening a folder): no git, memory or code-graph reads. Otherwise the git reads,
+/// two short `git` runs per project, run side by side, so many projects cost about as much as one.
+pub fn list(state: &Path, quick: bool) -> Result<Value> {
+    let skip = ignored(state);
     let mut projects: Vec<Value> = match fs::read_dir(state.join("projects")) {
         Ok(entries) => entries
             .flatten()
             .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
-            .filter_map(|e| serde_json::from_slice(&fs::read(e.path()).ok()?).ok())
+            .filter_map(|e| serde_json::from_slice::<Value>(&fs::read(e.path()).ok()?).ok())
+            .filter(|p| !p["name"].as_str().is_some_and(|n| skip.contains(n)))
             .collect(),
         Err(_) => Vec::new(),
     };
     projects.sort_by(|a, b| b["last_seen"].as_str().cmp(&a["last_seen"].as_str()));
+    let ignored: Vec<&String> = skip.iter().collect();
+    if quick {
+        return Ok(json!({"projects": projects, "ignored": ignored}));
+    }
     let memories = memories_by_project(state)?;
-    for p in &mut projects {
-        let root = p["path"].as_str().unwrap_or_default().to_string();
+    let roots: Vec<String> = projects
+        .iter()
+        .map(|p| p["path"].as_str().unwrap_or_default().to_string())
+        .collect();
+    let gits: Vec<Option<Value>> = std::thread::scope(|s| {
+        let runs: Vec<_> = roots
+            .iter()
+            .map(|root| s.spawn(move || Path::new(root).is_dir().then(|| git_state(root))))
+            .collect();
+        runs.into_iter().map(|h| h.join().ok().flatten()).collect()
+    });
+    for ((p, root), git) in projects.iter_mut().zip(&roots).zip(gits) {
         let name = p["name"].as_str().unwrap_or_default().to_string();
-        p["exists"] = json!(Path::new(&root).is_dir());
+        p["exists"] = json!(Path::new(root).is_dir());
         p["memories"] = json!(memories.get(&name).copied().unwrap_or(0));
         #[cfg(feature = "code")]
         {
             p["code_graph"] =
-                json!(crate::app::code_db(Path::new(&root)).is_ok_and(|db| db.exists()));
+                json!(crate::app::code_db(Path::new(root)).is_ok_and(|db| db.exists()));
         }
-        if p["exists"] == true {
-            p["git"] = git_state(&root);
+        if let Some(git) = git {
+            p["git"] = git;
         }
         if let Some(ask) = waiting(state, &name) {
             p["ask"] = json!({"kind": ask["kind"], "asked_at": ask["asked_at"]});
         }
     }
-    Ok(json!({"projects": projects}))
+    Ok(json!({"projects": projects, "ignored": ignored}))
+}
+
+fn ignored_path(state: &Path) -> std::path::PathBuf {
+    state.join("projects-ignored.json")
+}
+
+/// The projects the user chose to ignore (by the hook's name for them).
+fn ignored(state: &Path) -> std::collections::BTreeSet<String> {
+    fs::read(ignored_path(state))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| {
+            v["names"].as_array().map(|a| {
+                a.iter()
+                    .filter_map(|n| n.as_str().map(str::to_string))
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
+/// `footnote projects add <folder>`: list a folder before any agent session starts there (the launcher's Add project). It
+/// gets the name and top folder a session there would record: the git remote's name, else the folder's, at the repository's
+/// top. Adding an ignored project stops ignoring it.
+pub fn add(state: &Path, folder: &str) -> Result<Value> {
+    let dir = Path::new(folder);
+    anyhow::ensure!(dir.is_dir(), "{folder} is not a folder");
+    let top = crate::hook::git(folder, &["rev-parse", "--show-toplevel"]);
+    let root = if top.is_empty() {
+        folder.replace('\\', "/")
+    } else {
+        top
+    };
+    let name = crate::hook::project_of(&root);
+    anyhow::ensure!(!name.is_empty(), "{folder} has no name to list it under");
+    if ignored(state).contains(&name) {
+        ignore(state, &name, false)?;
+    }
+    seen(state, &name, &root)?;
+    Ok(json!({"added": true, "name": name, "path": root}))
+}
+
+/// `footnote projects ignore <name>` (or `unignore`): Footnote stops listing the project and stops recording it when an agent
+/// starts a session there; its memories stay. Unignored, it comes back with its next session.
+pub fn ignore(state: &Path, project: &str, on: bool) -> Result<Value> {
+    anyhow::ensure!(!project.trim().is_empty(), "name a project");
+    let mut names = ignored(state);
+    if on {
+        names.insert(project.to_string());
+        let _ = fs::remove_file(
+            state
+                .join("projects")
+                .join(format!("{}.json", file_name(project))),
+        );
+        let _ = fs::remove_file(ask_path(state, project));
+    } else {
+        names.remove(project);
+    }
+    footnote_core::state::ensure_private_dir(state)?;
+    let path = ignored_path(state);
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, json!({"names": names}).to_string())?;
+    fs::rename(&tmp, &path)?;
+    Ok(json!({"project": project, "ignored": on, "names": names}))
 }
 
 /// How long a request from the window waits for an agent turn in its project before it is dropped.
@@ -202,6 +287,50 @@ fn memories_by_project(state: &Path) -> Result<std::collections::HashMap<String,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_folder_added_by_hand_is_listed_under_its_name_and_unignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        let folder = dir.path().join("Shop-API");
+        std::fs::create_dir_all(&folder).unwrap();
+        let folder = folder.to_string_lossy().into_owned();
+        super::ignore(&state, "shop-api", true).unwrap();
+        let added = super::add(&state, &folder).unwrap();
+        assert_eq!(added["name"], "shop-api", "{added}");
+        let listed = super::list(&state, true).unwrap();
+        assert_eq!(listed["projects"][0]["name"], "shop-api", "{listed}");
+        assert_eq!(listed["ignored"], serde_json::json!([]));
+        assert!(super::add(&state, &dir.path().join("missing").to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn an_ignored_project_is_neither_listed_nor_recorded_until_unignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path();
+        let root = state.join("scratch");
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.to_string_lossy();
+        super::seen(state, "scratch", &root).unwrap();
+        super::seen(state, "kept", &root).unwrap();
+        let names = |v: serde_json::Value| -> Vec<String> {
+            v["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["name"].as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(names(super::list(state, true).unwrap()).len(), 2);
+        super::ignore(state, "scratch", true).unwrap();
+        super::seen(state, "scratch", &root).unwrap(); // a new session there records nothing
+        let listed = super::list(state, true).unwrap();
+        assert_eq!(names(listed.clone()), ["kept"]);
+        assert_eq!(listed["ignored"], serde_json::json!(["scratch"]));
+        super::ignore(state, "scratch", false).unwrap();
+        super::seen(state, "scratch", &root).unwrap();
+        assert_eq!(names(super::list(state, true).unwrap()).len(), 2);
+    }
+
     #[test]
     fn a_request_is_taken_once_and_names_the_folder() {
         let dir = tempfile::tempdir().unwrap();

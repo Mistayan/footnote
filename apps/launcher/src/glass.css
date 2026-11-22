@@ -222,6 +222,15 @@ button.stat:disabled { cursor: progress; opacity: 0.7; }
 .proj-when { margin-left: auto; color: var(--dim); font-size: var(--t-xs); white-space: nowrap; }
 .proj .path-pill { align-self: flex-start; margin-left: -2px; }
 .proj.gone { opacity: 0.72; }
+.stats-end { margin-left: auto; }
+.stat.ignore { opacity: 0.6; transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.proj:hover .stat.ignore, .stat.ignore:focus-visible { opacity: 1; }
+button.stat.ignore:hover:not(:disabled) { color: var(--warn); border-color: var(--warn); }
+button.stat.ignore:hover:not(:disabled) .stat-ic { color: var(--warn); }
+.ignored { display: grid; gap: 8px; }
+.ignored .help-link { justify-self: start; }
+.ignored-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.ignored-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 2px 2px 10px; font-size: var(--t-s); color: var(--mute); }
 
 /* Rows: one glass line per model, corpus or doc site. */
 .rows { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -524,3 +533,42 @@ html.mini-win, html.mini-win body { background: transparent; }
 /* Menus scroll with the same rail (no native scrollbar); items leave room for it. */
 .menu-scroll { max-height: 330px; }
 .menu-scroll.has-rail .menu-item { padding-right: 26px; }
+
+/* Projects hero: Index, then Add project (same size, the accent filled). */
+.hero-actions { display: grid; gap: 8px; align-self: center; }
+.hero-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 32px; }
+.btn.add-project { color: var(--acc-ink); background: var(--acc); border-color: var(--acc); font-weight: 600;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.3), 0 6px 18px -8px color-mix(in srgb, var(--acc) 70%, transparent); }
+.btn.add-project:hover { color: var(--acc-ink); filter: brightness(1.08); }
+
+/* The Add project folder browser: a modal in the app's glass, one level at a time. */
+.picker { margin: auto; width: min(620px, 92vw); padding: 0; color: var(--text); border: 1px solid var(--line2);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  opacity: 1; translate: 0 0; transition: opacity 220ms var(--ease-out), translate 220ms var(--ease-out), display 220ms allow-discrete, overlay 220ms allow-discrete; }
+.picker:not([open]) { opacity: 0; translate: 0 12px; }
+@starting-style { .picker[open] { opacity: 0; translate: 0 12px; } }
+.picker::backdrop { background: rgb(0 0 0 / 0.45); backdrop-filter: blur(3px); transition: background-color 220ms, display 220ms allow-discrete, overlay 220ms allow-discrete; }
+@starting-style { .picker[open]::backdrop { background: rgb(0 0 0 / 0); } }
+.picker-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 6px 18px; }
+.picker-head h2 { font: 600 var(--t-brand) var(--f-title); }
+.picker-drives { display: flex; gap: 6px; padding: 4px 18px 8px; flex-wrap: wrap; }
+.drive-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 9px; font-size: var(--t-s);
+  color: var(--mute); border: 1px solid var(--line2); transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.drive-btn:hover, .drive-btn.on { color: var(--text); border-color: var(--acc); }
+.picker-path { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 0 18px 8px; font: var(--t-s) var(--f-mono); color: var(--dim); }
+.picker-path span { display: inline-flex; align-items: center; gap: 2px; }
+.picker-path button { padding: 2px 6px; border-radius: 6px; color: var(--mute); }
+.picker-path button:hover { color: var(--text); background: color-mix(in srgb, var(--text) 8%, transparent); }
+.picker-path button[aria-current] { color: var(--text); }
+.picker-list { height: 320px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.picker-list ul { list-style: none; padding: 6px; display: grid; gap: 2px; }
+.picker-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 16px; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 10px; border-radius: 10px; color: var(--mute); font-size: var(--t-m); transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+.picker-row:hover, .picker-row:focus-visible { background: color-mix(in srgb, var(--acc) 12%, transparent); color: var(--text); outline: none; }
+.picker-row .git, .picker-current .git { color: var(--acc); }
+.picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-chev { color: var(--dim); }
+.picker-empty { padding: 16px 18px; }
+.picker-foot { display: flex; align-items: center; gap: 8px; padding: 12px 14px 14px 18px; }
+.picker-current { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--mute); overflow: hidden; white-space: nowrap; }
+@supports (corner-shape: squircle) { .drive-btn, .picker-row, .picker-path button { corner-shape: squircle; border-radius: 14px; } .picker { corner-shape: squircle; border-radius: 30px; } }

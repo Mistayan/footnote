@@ -42,6 +42,7 @@ const projects = {
     { name: "ledger-sync", path: "D:/work/ledger-sync", exists: true, first_seen: iso(9), last_seen: iso(3), memories: 18, code_graph: true, git: { uncommitted: 4, unpushed: 5 } },
     { name: "old-prototype", path: "D:/archive/old-prototype", exists: false, first_seen: iso(30), last_seen: iso(14), memories: 4, code_graph: false, git: null },
   ],
+  ignored: ["2026-11-21-scratch", "bare-probe"],
 };
 
 const activity = {
@@ -232,9 +233,28 @@ const diff2 = {
   ],
 };
 
+/** The Add project browser's sample tree. */
+const tree = {
+  "D:/": ["work", "archive", "docs"],
+  "D:/work": ["atlas-api", "harbor-web", "ledger-sync", "shop-api", "notes"],
+  "D:/archive": ["old-prototype"],
+  "C:/Users/sample": ["Desktop", "Documents", "Downloads", "source"],
+  "C:/Users/sample/source": ["playground", "tools"],
+};
+const repos = new Set(["atlas-api", "harbor-web", "ledger-sync", "shop-api", "playground"]);
+export function mockFolders(path) {
+  const drives = ["C:/", "D:/"];
+  if (!path) return { path: null, parent: null, drives, home: "C:/Users/sample", folders: [] };
+  const key = path.replace(/\/+$/, "") || path;
+  const names = tree[key] ?? tree[`${key}/`] ?? [];
+  const base = key.endsWith(":") ? `${key}/` : `${key}/`;
+  return { path: key, parent: key.includes("/") ? key.slice(0, key.lastIndexOf("/")) || null : null, git: repos.has(key.split("/").pop()),
+    drives, folders: names.map((name) => ({ name, path: `${base}${name}`.replace("//", "/"), git: repos.has(name) })) };
+}
+
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
-    options: options(), "agent-ask": { queued: true }, "install --memory": { installed: true },
+    options: options(), "agent-ask": { queued: true }, "projects add": { added: true, name: "shop-api", path: "D:/work/shop-api" }, "projects ignore": { ignored: true }, "projects unignore": { ignored: false }, "install --memory": { installed: true },
     "update --check": { installed: "0.1.0-alpha.3", latest: "0.1.0-alpha.4", newer: true, installer: "Footnote-Setup-0.1.0-alpha.4-x64.exe",
       published_at: new Date(Date.now() - 51 * 60000).toISOString(),
       notes: "## Release Notes\n\nSecond alpha. The headline is a Windows installer that brings the desktop launcher, in the tray. Expect rough edges and\nbreaking changes between versions.\n\n### New\n\n- **Windows installer** (`Footnote-Setup-0.1.0-alpha.3-x64.exe`, #125): the engine and the desktop launcher in one step, for\n  your user, with no administrator rights.\n  - **Always added:** a Start menu shortcut.\n  - **On by default:** Footnote starts in the tray (notification area) when you sign in, and goes on PATH. Both can be\n    unchecked.\n  - **Off by default:** a desktop shortcut, and connecting the coding agents found now (`footnote install`).\n  - It carries the Visual C++ runtime the engine needs, so it runs on a fresh Windows.\n  - **Upgrades:** safe while your agents use Footnote. The old binary is set aside, and their MCP servers keep running.\n  - **Uninstall:** takes Footnote out of your agents first, and keeps your data.\n- **Launcher:**\n  - It starts in the tray without opening a window, and runs once: opening it again shows the window that is already open.\n  - A new **Skills** screen: the skill-rewrite switch with its cost, and your review of pending skill changes (#461).\n- **Agent skill layer, opt-in** (#453, #455, #458, #459, #460):\n  - Agents can propose edits to the skills they use, through `footnote_skill_edit`. Each edit passes check gates, and you\n    review it.\n  - An edit that does worse in trials is rolled back.\n  - Skills that are never read stop being suggested.\n  - Off until you turn on `memory.skill_rewrite`.\n- **Curated skills:** 23 agent skills rewritten, each with a check script (#439).\n- **Library:** search hits carry the crawled page's URL (#438). A refresh re-indexes a page whose words were only reordered\n  (#431).\n- **Memory:** a project's handoffs retire once delivered (#436).\n- **Code:** a Rust project in a subfolder (a Tauri app's `src-tauri`, `backend/`) now gets its compiler indexer (#428).\n\n### Before you install\n\n- **Nothing is code-signed.** Windows SmartScreen asks once: **More info**, then **Run anyway**. Check the file against its\n  `.sha256` first.\n- **Windows 11 hides new tray icons.** It puts them behind the `^` arrow next to the clock. To keep Footnote visible:\n  Settings > Personalization > Taskbar > Other system tray icons > Footnote.\n- **Linux needs glibc 2.38 or newer** (Ubuntu 24.04, Debian 13, Fedora 39 or later). The launcher is Windows-only for now.\n- Encrypted memory (`--features encryption`) is experimental and not in these binaries.\n\n### Install\n\n- **Windows, with the launcher:** download `Footnote-Setup-0.1.0-alpha.3-x64.exe` below and run it.\n- **Windows, command line only:**\n  `powershell -ExecutionPolicy Bypass -c \"irm https://github.com/bobcat88/footnote/releases/download/v0.1.0-alpha.3/footnote-installer.ps1 | iex\"`\n- **Linux x64:**\n  `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bobcat88/footnote/releases/download/v0.1.0-alpha.3/footnote-installer.sh | sh`\n\nThen follow [HOW-TO.md](https:/" },

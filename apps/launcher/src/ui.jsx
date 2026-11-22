@@ -341,8 +341,8 @@ export function useSpotlight() {
 }
 
 /** A short note at the bottom of the window, from anywhere: `toast("Copied")`. `<Toasts />` shows the latest. */
-export function toast(text, tone = "ok", { sticky = false } = {}) {
-  dispatchEvent(new CustomEvent("footnote-toast", { detail: { text, tone, sticky, at: Date.now() } }));
+export function toast(text, tone = "ok", { sticky = false, action = null } = {}) {
+  dispatchEvent(new CustomEvent("footnote-toast", { detail: { text, tone, sticky, action, at: Date.now() } }));
 }
 
 export function Toasts() {
@@ -366,6 +366,9 @@ export function Toasts() {
         <div key={note.at} className={`toast lglass sq${note.tone === "warn" ? " warn" : ""}`}>
           {note.tone === "warn" ? <CircleAlert size={15} strokeWidth={1.9} /> : <Check size={15} strokeWidth={2} />}
           <span>{note.text}</span>
+          {note.action && (
+            <button type="button" className="btn" onClick={() => { setNote(null); note.action.run(); }}>{note.action.label}</button>
+          )}
           {note.sticky && (
             <button type="button" className="mw-btn" onClick={() => setNote(null)} aria-label="Dismiss"><X size={13} strokeWidth={2} /></button>
           )}
