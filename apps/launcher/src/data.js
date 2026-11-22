@@ -1,7 +1,7 @@
 // Reads from the engine. In the app, through the Tauri `footnote` command (read-only allowlist in src-tauri/src/main.rs).
 // In a plain browser, only with `?mock=1&state=ok|empty|missing|loading`: invented sample data for the QLoop screenshots.
 import { invoke } from "@tauri-apps/api/core";
-import { fixtures } from "./fixtures.js";
+import { fixtures, mockFolders } from "./fixtures.js";
 
 const params = new URLSearchParams(location.search || location.hash.split("?")[1] || "");
 export const inApp = "__TAURI_INTERNALS__" in window;
@@ -40,6 +40,12 @@ export function openReceipt(path) {
 /** Open a project's folder in the file manager. The app opens it only when the engine's project list names it. */
 export function openProjectFolder(path) {
   return inApp ? invoke("open_project_folder", { path }) : Promise.resolve();
+}
+
+/** One level of the Add project folder browser: `null` gives the drives and the user folder. */
+export function browseFolders(path) {
+  if (inApp) return invoke("browse_folders", { path });
+  return mockState ? Promise.resolve(mockFolders(path)) : Promise.reject("ENGINE_MISSING");
 }
 
 /** Open a licence's text on the web: only the licences the app knows (`mit`, `apache-2.0`, `cc-by-nc-4.0`). */

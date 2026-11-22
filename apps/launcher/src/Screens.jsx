@@ -3,6 +3,8 @@ import {
   Brain,
   Check,
   CircleAlert,
+  Eye,
+  EyeOff,
   ExternalLink,
   GitCommitHorizontal,
   GitFork,
@@ -14,6 +16,7 @@ import {
   Sparkle,
 } from "lucide-react";
 import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, seen, shortDate } from "./data.js";
+import AddProject from "./Folders.jsx";
 import { KindIcon } from "./Memory.jsx";
 import { PathPill, Tabs, Tip, clip, toast } from "./ui.jsx";
 
@@ -47,6 +50,20 @@ const NAME_MAX = 24;
  * withdraws it. */
 export function ProjectCard({ p, busy, onIndex, refresh }) {
   const [asking, setAsking] = useState(false);
+  const [ignoring, setIgnoring] = useState(false);
+  const ignore = async () => {
+    setIgnoring(true);
+    try {
+      await footnote("projects", "ignore", p.name);
+      await refresh?.();
+      toast(`Ignoring ${p.name}: it leaves the list and new sessions there are not recorded.`, "ok", {
+        action: { label: "Undo", run: () => footnote("projects", "unignore", p.name).then(() => refresh?.(), (e) => toast(String(e), "warn")) },
+      });
+    } catch (e) {
+      toast(String(e), "warn");
+      setIgnoring(false);
+    }
+  };
   const open = () => openProjectFolder(p.path).catch((e) => toast(String(e), "warn"));
   const waiting = p.ask?.kind === "commit";
   const ask = async () => {
@@ -127,6 +144,13 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
             </span>
           </Tip>
         )}
+        <span className="stats-end">
+          <Tip tip="Ignore: stop listing this project and recording new sessions in it. Its memories stay.">
+            <button type="button" className="stat idle ignore" onClick={ignore} disabled={ignoring} aria-label={`Ignore ${p.name}`}>
+              <span className="stat-ic"><EyeOff size={13} strokeWidth={1.9} /></span>
+            </button>
+          </Tip>
+        </span>
       </div>
     </article>
   );
@@ -147,41 +171,79 @@ export function Projects({ projects, refresh }) {
     refresh?.();
   };
   if (!list) return <div className="body"><span className="skel" /></div>;
-  const todo = list.filter((p) => p.exists && !p.code_graph).map((p) => p.path);
-  const graphs = list.filter((p) => p.code_graph).length;
-  const memories = list.reduce((n, p) => n + (p.memories ?? 0), 0);
-  const dirty = list.filter((p) => p.git?.uncommitted > 0);
+  // A project whose folder is gone is noise: it is not shown (its memories stay; a new session there lists it again).
+  const shown = list.filter((p) => p.exists);
+  const todo = shown.filter((p) => !p.code_graph).map((p) => p.path);
+  const graphs = shown.filter((p) => p.code_graph).length;
+  const memories = shown.reduce((n, p) => n + (p.memories ?? 0), 0);
+  const dirty = shown.filter((p) => p.git?.uncommitted > 0);
   return (
     <div className="body">
       <section className="hero lglass sq">
         <div>
           <div className="kicker">Projects</div>
-          <div className="big">{num(list.length)}</div>
+          <div className="big">{num(shown.length)}</div>
           <div className="sub">Every folder where an agent started a session with Memory on.</div>
         </div>
         <div className="kpis">
           <div className="kpi"><span><Brain size={12} strokeWidth={1.9} /> Memories</span><b>{num(memories)}</b></div>
-          <div className="kpi"><span><GitFork size={12} strokeWidth={1.9} /> Code graphs</span><b>{num(graphs)}<span className="dimmed small"> / {num(list.length)}</span></b></div>
+          <div className="kpi"><span><GitFork size={12} strokeWidth={1.9} /> Code graphs</span><b>{num(graphs)}<span className="dimmed small"> / {num(shown.length)}</span></b></div>
           <div className="kpi">
             <span><GitCommitHorizontal size={12} strokeWidth={1.9} /> To commit</span>
             <b className={dirty.length ? "bad" : "ok"}>{dirty.length ? num(dirty.length) : "None"}</b>
           </div>
-          {todo.length > 0 && (
-            <button type="button" className="btn primary" disabled={busy !== null} onClick={() => index(todo)} style={{ alignSelf: "center" }}>
-              {busy ? "Indexing…" : `Index ${todo.length} without a graph`}
-            </button>
-          )}
+          <div className="hero-actions">
+            {todo.length > 0 && (
+              <button type="button" className="btn primary" disabled={busy !== null} onClick={() => index(todo)}>
+                {busy ? "Indexing…" : `Index ${todo.length} without a graph`}
+              </button>
+            )}
+            <AddProject refresh={refresh} />
+          </div>
         </div>
       </section>
       {error && <p className="empty warn" role="alert">{error}</p>}
-      {list.length === 0 ? (
+      {shown.length === 0 ? (
         <p className="empty">No project yet. A project appears here when an agent starts a session in it.</p>
       ) : (
         <div className="proj-grid">
-          {list.map((p) => <ProjectCard key={p.path} p={p} busy={busy} onIndex={(path) => index([path])} refresh={refresh} />)}
+          {shown.map((p) => <ProjectCard key={p.path} p={p} busy={busy} onIndex={(path) => index([path])} refresh={refresh} />)}
         </div>
       )}
+      <Ignored names={projects.ignored ?? []} refresh={refresh} />
     </div>
+  );
+}
+
+/** The projects the user ignored, each with a button that lists and records it again from its next session. */
+function Ignored({ names, refresh }) {
+  const [open, setOpen] = useState(false);
+  if (names.length === 0) return null;
+  const restore = (name) =>
+    footnote("projects", "unignore", name).then(
+      () => { toast(`${name} is listed again from its next session.`); refresh?.(); },
+      (e) => toast(String(e), "warn"),
+    );
+  return (
+    <section className="ignored">
+      <button type="button" className="help-link small" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {names.length} ignored {names.length === 1 ? "project" : "projects"}
+      </button>
+      {open && (
+        <div className="ignored-list">
+          {names.map((n) => (
+            <span key={n} className="chip ignored-chip">
+              {clip(n, 32)}
+              <Tip tip={`Stop ignoring ${n}`}>
+                <button type="button" className="mw-btn" onClick={() => restore(n)} aria-label={`Stop ignoring ${n}`}>
+                  <Eye size={13} strokeWidth={1.9} />
+                </button>
+              </Tip>
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -36,6 +36,7 @@ fn allowed(args: &[String]) -> bool {
     match a.as_slice() {
         ["status"]
         | ["projects"]
+        | ["projects", "--quick"]
         | ["activity"]
         | ["jobs"]
         | ["gain"]
@@ -108,6 +109,10 @@ fn allowed(args: &[String]) -> bool {
         // The commit button (22 Nov 2026): queue or withdraw the engine's fixed commit-and-push request for the next agent
         // turn in a project. The window names the project only; the text is the engine's.
         ["agent-ask", project] | ["agent-ask", project, "--cancel"] => plain(project),
+        // The Projects screen's Ignore button and its undo: Footnote stops listing and recording a project (22 Nov 2026).
+        ["projects", "ignore" | "unignore", project] => plain(project),
+        // Add project: the folder the user picked in the window's folder browser.
+        ["projects", "add", folder] => plain(folder),
         // Options (22 Nov 2026): compare with the latest GitHub release, fetch and verify its installer (run by
         // `install_update`, never by the page), and reconnect the agents whose hooks or MCP server are missing.
         ["update", "--check"] | ["update", "--download"] => true,
@@ -290,7 +295,8 @@ fn open_skill_folder(name: String, project: Option<String>) -> Result<(), String
 /// list names opens, so the page cannot open an arbitrary path.
 #[tauri::command(async)]
 fn open_project_folder(path: String) -> Result<(), String> {
-    let projects = footnote(vec!["projects".into()])?;
+    // Names and folders only: the full list reads git in every project, which the click does not need.
+    let projects = footnote(vec!["projects".into(), "--quick".into()])?;
     let known = projects["projects"]
         .as_array()
         .is_some_and(|list| list.iter().any(|p| p["path"].as_str() == Some(path.as_str())));
@@ -358,6 +364,64 @@ fn run_installer(_: &std::path::Path) -> Result<(), String> {
     Err("in-app updates install the Windows installer; elsewhere run footnote-installer.sh".into())
 }
 
+/// One level of the Add project folder browser (22 Nov 2026): the drives, or a folder's subfolders by name with whether
+/// each is a git repository. Names only, nothing is read inside them; hidden and system folders are left out.
+#[tauri::command(async)]
+fn browse_folders(path: Option<String>) -> Result<Value, String> {
+    let drives: Vec<String> = if cfg!(windows) {
+        (b'A'..=b'Z')
+            .map(|c| format!("{}:/", c as char))
+            .filter(|d| std::path::Path::new(d).is_dir())
+            .collect()
+    } else {
+        vec!["/".into()]
+    };
+    let Some(path) = path.filter(|p| !p.trim().is_empty()) else {
+        let home = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")).ok();
+        return Ok(serde_json::json!({"path": null, "parent": null, "drives": drives, "home": home, "folders": []}));
+    };
+    let dir = PathBuf::from(&path);
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let mut folders: Vec<Value> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            !name.starts_with('.') && !name.starts_with('$') && !hidden(e)
+        })
+        .take(2000)
+        .map(|e| {
+            let p = e.path();
+            serde_json::json!({
+                "name": e.file_name().to_string_lossy(),
+                "path": p.to_string_lossy().replace('\\', "/"),
+                "git": p.join(".git").exists(),
+            })
+        })
+        .collect();
+    folders.sort_by_key(|f| f["name"].as_str().unwrap_or_default().to_lowercase());
+    Ok(serde_json::json!({
+        "path": dir.to_string_lossy().replace('\\', "/"),
+        "parent": dir.parent().map(|p| p.to_string_lossy().replace('\\', "/")),
+        "git": dir.join(".git").exists(),
+        "drives": drives,
+        "folders": folders,
+    }))
+}
+
+#[cfg(windows)]
+fn hidden(e: &std::fs::DirEntry) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const HIDDEN: u32 = 0x2;
+    const SYSTEM: u32 = 0x4;
+    e.metadata().is_ok_and(|m| m.file_attributes() & (HIDDEN | SYSTEM) != 0)
+}
+
+#[cfg(not(windows))]
+fn hidden(_: &std::fs::DirEntry) -> bool {
+    false
+}
+
 /// Stop the model download in progress, if any. Returns whether one was running.
 #[tauri::command]
 fn cancel_install() -> bool {
@@ -403,6 +467,7 @@ fn main() {
             open_skill_folder,
             open_receipt,
             open_project_folder,
+            browse_folders,
             install_update
         ])
         // The tray (decided 15 Nov: a compact tray panel plus the full window): a left click opens the mini panel, the menu
@@ -506,6 +571,9 @@ mod tests {
         assert!(ok("update --check") && ok("update --download") && !ok("update --from C:/x.exe") && !ok("rollback"));
         assert!(ok("forget 12") && !ok("forget abc"));
         assert!(ok("agent-ask footnote") && ok("agent-ask footnote --cancel"));
+        assert!(ok("projects --quick") && ok("projects ignore scratch") && ok("projects unignore scratch"));
+        assert!(ok("projects add D:/work/shop") && !ok("projects add --help") && !ok("projects add a b"));
+        assert!(!ok("projects ignore --all") && !ok("projects ignore a b") && !ok("projects forget scratch"));
         assert!(!ok("agent-ask --cancel") && !ok("agent-ask a b") && !ok("agent-ask footnote --text hi"));
         assert!(
             ok("memory-restore 12")

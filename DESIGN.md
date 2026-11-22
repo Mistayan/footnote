@@ -175,8 +175,10 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   - **Pages:** a hero opens Projects, Models, Library and Activity with the one number or state the page is about. Projects
     are one card each: name (24 characters, full name in the tooltip), last seen, a drive squircle plus the last folder (opens
     the folder; the shell checks the engine's project list first), then pictograms for memories, code graph (or a build
-    button) and uncommitted changes (red; a click copies a commit-and-push request for the agent). Unpushed counts are
-    dropped. Models: the hero names the active model(s); each licence chip opens what the licence allows and links its text.
+    button) and uncommitted changes (red; a click sends the agent a commit-and-push request). Unpushed counts are
+    dropped. At the bottom right, an eye-off button ignores the project: it leaves the list and new sessions there are not
+    recorded (memories stay); the note that confirms it has Undo, and "N ignored projects" under the grid restores any.
+    Opening a folder checks it against the quick project list (names and folders, no git), so it opens at once. Models: the hero names the active model(s); each licence chip opens what the licence allows and links its text.
     Memory rows show only id, kind pictogram, first sentence, scope and date; the text opens below with
     `interpolate-size`. Activity shows only days with activity; a day (bar or list) opens its recalls in a fixed-width table.
 

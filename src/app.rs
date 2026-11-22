@@ -372,7 +372,13 @@ enum Action {
     /// Projects agents worked in (recorded automatically at each session start): memories, code graph, uncommitted and
     /// unpushed git work.
     #[cfg(feature = "memory")]
-    Projects,
+    Projects {
+        #[command(subcommand)]
+        action: Option<ProjectsAction>,
+        /// Names and folders only: no git, memory or code-graph reads (fast; the launcher checks a folder with it).
+        #[arg(long)]
+        quick: bool,
+    },
     /// Ask the next agent turn in a project to commit and push its uncommitted work (the launcher's commit button). The
     /// request waits up to a day; the agent receives it once, at a new prompt or session or at the end of a turn.
     #[cfg(feature = "memory")]
@@ -742,6 +748,17 @@ enum DocsAction {
     },
 }
 
+#[cfg(feature = "memory")]
+#[derive(Subcommand)]
+enum ProjectsAction {
+    /// List a folder as a project now, under the name an agent session there would record.
+    Add { folder: String },
+    /// Stop listing a project and recording it when an agent starts a session there; its memories stay.
+    Ignore { project: String },
+    /// List and record an ignored project again, from its next agent session.
+    Unignore { project: String },
+}
+
 #[cfg(feature = "library")]
 #[derive(Subcommand)]
 enum SkillsAction {
@@ -1102,7 +1119,19 @@ fn execute(cli: Cli) -> Result<Value> {
         }
         Action::Jobs => return footnote_core::jobs::list(&crate::state::state_dir()?),
         #[cfg(feature = "memory")]
-        Action::Projects => return crate::projects::list(&crate::state::state_dir()?),
+        Action::Projects { action, quick } => {
+            let state = crate::state::state_dir()?;
+            return match action {
+                Some(ProjectsAction::Add { folder }) => crate::projects::add(&state, folder),
+                Some(ProjectsAction::Ignore { project }) => {
+                    crate::projects::ignore(&state, project, true)
+                }
+                Some(ProjectsAction::Unignore { project }) => {
+                    crate::projects::ignore(&state, project, false)
+                }
+                None => crate::projects::list(&state, *quick),
+            };
+        }
         #[cfg(feature = "memory")]
         Action::AgentAsk { project, cancel } => {
             return crate::projects::ask(&crate::state::state_dir()?, project, *cancel);
@@ -1590,7 +1619,7 @@ fn execute(cli: Cli) -> Result<Value> {
             unreachable!("dispatched before the database is opened")
         }
         #[cfg(feature = "memory")]
-        Action::Projects => unreachable!("dispatched before the database is opened"),
+        Action::Projects { .. } => unreachable!("dispatched before the database is opened"),
         #[cfg(feature = "memory")]
         Action::AgentAsk { .. } => unreachable!("dispatched before the database is opened"),
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
@@ -1772,7 +1801,7 @@ fn action_name(a: &Action) -> &'static str {
         Action::Crawl { .. } => "crawl",
         Action::Jobs => "jobs",
         #[cfg(feature = "memory")]
-        Action::Projects => "projects",
+        Action::Projects { .. } => "projects",
         #[cfg(feature = "memory")]
         Action::AgentAsk { .. } => "agent-ask",
         #[cfg(feature = "memory")]
