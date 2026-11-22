@@ -61,8 +61,13 @@ jobs:
       - name: Engine from the release
         run: |
           # A pull request tests the packaging, not the engine: it takes the latest release's engine.
-          $tagArg = if ($env:TAG) { @($env:TAG) } else { @() }
-          gh release download @tagArg --repo $env:GITHUB_REPOSITORY -p 'footnote-x86_64-pc-windows-msvc.zip' -D engine
+          # Two explicit calls: an `if` expression unwraps a one-item array, and splatting the tag string passes each character.
+          if ($env:TAG) {
+            gh release download $env:TAG --repo $env:GITHUB_REPOSITORY -p 'footnote-x86_64-pc-windows-msvc.zip' -D engine
+          } else {
+            gh release download --repo $env:GITHUB_REPOSITORY -p 'footnote-x86_64-pc-windows-msvc.zip' -D engine
+          }
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Expand-Archive engine\footnote-x86_64-pc-windows-msvc.zip -DestinationPath engine\x
           $exe = Get-ChildItem engine\x -Recurse -Filter footnote.exe | Select-Object -First 1
           "ENGINE=$($exe.FullName)" >> $env:GITHUB_ENV
