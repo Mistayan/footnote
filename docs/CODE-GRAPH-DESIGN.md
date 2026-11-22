@@ -232,8 +232,7 @@ packages come from the package field of each SCIP symbol, counted per package an
 class from a short hand-written list (database, network, model, standard library). On this repository it gives 8 blocks,
 `src → crates/core` (67 references) and `src → crates/search` (59) as the heaviest links, and serde_json, anyhow, rusqlite and
 tantivy as the most used outside packages. The standard library does not appear: rust-analyzer emits no `std` symbols here.
-Graphs built before this need `footnote code-index` again (the map says so). Since 22 November 2026 each link also lists the three symbol names it uses most (`symbols`, with their references) and
-how many other names it uses (`other_symbols`), so a map can say what crosses a link, not only how often. Not built: clustering by links instead of folders
+Graphs built before this need `footnote code-index` again (the map says so). Since 22 November 2026 each link also lists the three symbol names it uses most (`symbols`, with their references) and how many other names it uses (`other_symbols`), so a map can say what crosses a link, not only how often. Not built: clustering by links instead of folders
 (Emerge's Louvain idea), names for blocks, the launcher view (overnight item 6), the benchmark against the projects above.
 
 ## 12. Second pass: a parser for every language, compiler indexers only as an upgrade (17 November 2026)
