@@ -2,3 +2,5 @@
 skills/
 # Benchmarks and experiments: measurement code, not the product.
 bench/
+# Local review evidence (gitignored).
+review/

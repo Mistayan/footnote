@@ -33,3 +33,8 @@ site/dist/
 site/node_modules/
 .wrangler/
 .playwright-cli/
+
+# Local review evidence: QLoop passes, critic screenshots, mockups. Never committed.
+/review/
+# Agent worktrees
+/.claude/worktrees/
