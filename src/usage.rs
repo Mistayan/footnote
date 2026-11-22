@@ -16,8 +16,11 @@ use std::path::{Path, PathBuf};
 /// Changing a price: edit the row and `PRICES`; every file is then read again so old counts get the new prices.
 /// shortcut: batch, fast tier, US-only inference (x1.1), off-peak discounts and regional endpoints are not priced; add them when someone uses them.
 const PRICES: &str = "2026-11-21";
+const LITELLM_URL: &str =
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
+const LITELLM_SITE: &str = "https://models.litellm.ai";
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct Price {
     input: f64,
     write_5m: f64,
@@ -25,6 +28,130 @@ struct Price {
     read: f64,
     output: f64,
 }
+
+#[derive(Clone, Serialize, Deserialize, Default)]
+struct LiteLlmCache {
+    synced_at: String,
+    models: HashMap<String, Price>,
+}
+
+fn litellm_cache_path() -> Result<PathBuf> {
+    Ok(crate::state::state_dir()?
+        .join("usage")
+        .join("litellm_prices.json"))
+}
+
+fn load_litellm_cache() -> Option<LiteLlmCache> {
+    let path = litellm_cache_path().ok()?;
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+/// Download LiteLLM's public model price catalog and store a compact local cache for `footnote usage`.
+pub fn sync_prices() -> Result<Value> {
+    use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
+    let agent = ureq::Agent::config_builder()
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TlsProvider::Rustls)
+                .root_certs(RootCerts::PlatformVerifier)
+                .build(),
+        )
+        .timeout_global(Some(std::time::Duration::from_secs(20)))
+        .build()
+        .new_agent();
+    let bytes = agent
+        .get(LITELLM_URL)
+        .call()
+        .context("fetch LiteLLM model prices")?
+        .into_body()
+        .with_config()
+        .limit(32 * 1024 * 1024)
+        .read_to_vec()
+        .context("read LiteLLM model prices body")?;
+    let raw: HashMap<String, Value> =
+        serde_json::from_slice(&bytes).context("parse LiteLLM model prices JSON")?;
+    let mut models = HashMap::new();
+    for (k, v) in raw {
+        let Some(inp) = v.get("input_cost_per_token").and_then(Value::as_f64) else {
+            continue;
+        };
+        let Some(out) = v.get("output_cost_per_token").and_then(Value::as_f64) else {
+            continue;
+        };
+        if !(inp.is_finite() && out.is_finite() && inp >= 0.0 && out >= 0.0) {
+            continue;
+        }
+        let read = v
+            .get("cache_read_input_token_cost")
+            .and_then(Value::as_f64)
+            .filter(|x| x.is_finite() && *x >= 0.0)
+            .unwrap_or(inp);
+        let write_5m = v
+            .get("cache_creation_input_token_cost")
+            .and_then(Value::as_f64)
+            .filter(|x| x.is_finite() && *x >= 0.0)
+            .unwrap_or(inp);
+        let write_1h = v
+            .get("cache_creation_input_token_cost_above_1hr")
+            .and_then(Value::as_f64)
+            .filter(|x| x.is_finite() && *x >= 0.0)
+            .unwrap_or(write_5m);
+        models.insert(
+            k.to_ascii_lowercase(),
+            Price {
+                input: inp * 1e6,
+                write_5m: write_5m * 1e6,
+                write_1h: write_1h * 1e6,
+                read: read * 1e6,
+                output: out * 1e6,
+            },
+        );
+    }
+    let synced_at = time::OffsetDateTime::now_utc().date().to_string();
+    let count = models.len();
+    let cache = LiteLlmCache {
+        synced_at: synced_at.clone(),
+        models,
+    };
+    let path = litellm_cache_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, serde_json::to_vec(&cache)?)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(json!({
+        "source": "LiteLLM",
+        "url": LITELLM_SITE,
+        "synced_at": synced_at,
+        "models": count,
+    }))
+}
+
+fn litellm_price_lookup(cache: &LiteLlmCache, model: &str) -> Option<Price> {
+    let m = model.to_ascii_lowercase();
+    if let Some(&p) = cache.models.get(&m) {
+        return Some(p);
+    }
+    // Strip common provider prefixes or effort suffixes (e.g. `-high`, `-medium`).
+    let stripped = m
+        .trim_end_matches("-high")
+        .trim_end_matches("-medium")
+        .trim_end_matches("-low");
+    if let Some(&p) = cache.models.get(stripped) {
+        return Some(p);
+    }
+    // Try `provider/model` keys in LiteLLM (e.g. `anthropic/claude-...`, `gemini/gemini-...`).
+    for prefix in ["anthropic/", "openai/", "gemini/", "deepseek/"] {
+        if let Some(&p) = cache.models.get(&format!("{prefix}{stripped}")) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+static LITELLM_ACTIVE: std::sync::RwLock<Option<LiteLlmCache>> = std::sync::RwLock::new(None);
 
 const fn p(input: f64, write_5m: f64, write_1h: f64, read: f64, output: f64) -> Price {
     Price {
@@ -143,17 +270,25 @@ fn price(model: &str) -> Option<&'static Row> {
         .max_by_key(|(id, ..)| id.len())
 }
 
-/// One request, priced: the long-context price applies when the whole prompt (input, reads, writes) passes the threshold.
+/// One request, priced: our curated `TABLE` overrides take priority, then the local LiteLLM catalog if synced.
+/// The long-context price applies when the whole prompt (input, reads, writes) passes the threshold.
 fn request(model: &str, mut t: Tokens) -> Tokens {
     t.requests = 1;
-    let Some((_, base, long)) = price(model) else {
+    let prompt = t.input + t.cache_read + t.cache_write_5m + t.cache_write_1h;
+    let p = if let Some((_, base, long)) = price(model) {
+        match long {
+            Some((above, long)) if prompt > *above => *long,
+            _ => *base,
+        }
+    } else if let Some(lp) = LITELLM_ACTIVE
+        .read()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|c| litellm_price_lookup(c, model)))
+    {
+        lp
+    } else {
         t.unpriced_requests = 1;
         return t;
-    };
-    let prompt = t.input + t.cache_read + t.cache_write_5m + t.cache_write_1h;
-    let p = match long {
-        Some((above, long)) if prompt > *above => long,
-        _ => base,
     };
     t.cost_input = t.input as f64 * p.input / 1e6;
     t.cost_cache_write =
@@ -604,14 +739,23 @@ fn sources() -> Vec<(&'static str, PathBuf, Parse)> {
 
 pub fn usage(days: u16) -> Result<Value> {
     let started = std::time::Instant::now();
+    let litellm = load_litellm_cache();
+    let litellm_synced_at = litellm.as_ref().map(|c| c.synced_at.clone());
+    if let Ok(mut g) = LITELLM_ACTIVE.write() {
+        *g = litellm;
+    }
+    let price_version = match &litellm_synced_at {
+        Some(d) => format!("{PRICES}+litellm:{d}"),
+        None => PRICES.to_string(),
+    };
     let path = crate::state::state_dir()?.join("usage").join("index.json");
     let mut index: Index = std::fs::read(&path)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
-    if index.prices != PRICES || index.format != FORMAT {
+    if index.prices != price_version || index.format != FORMAT {
         index = Index {
-            prices: PRICES.into(),
+            prices: price_version,
             format: FORMAT,
             ..Default::default()
         };
@@ -660,12 +804,26 @@ pub fn usage(days: u16) -> Result<Value> {
     }
     let mut totals = Tokens::default();
     let mut by: [HashMap<String, Tokens>; 3] = Default::default();
+    let mut by_day_agent: BTreeMap<(String, String), Tokens> = BTreeMap::new();
     for ((date, agent, model), t) in &rows {
         totals.add(t);
         for (i, k) in [date, agent, model].into_iter().enumerate() {
             by[i].entry(k.clone()).or_default().add(t);
         }
+        by_day_agent
+            .entry((date.clone(), agent.clone()))
+            .or_default()
+            .add(t);
     }
+    let day_agent_list: Vec<Value> = by_day_agent
+        .into_iter()
+        .map(|((date, agent), t)| {
+            let mut o = json!(t);
+            o["date"] = json!(date);
+            o["agent"] = json!(agent);
+            o
+        })
+        .collect();
     let list = |m: &HashMap<String, Tokens>, name: &str| {
         let mut v: Vec<Value> = m
             .iter()
@@ -691,8 +849,15 @@ pub fn usage(days: u16) -> Result<Value> {
         ],
         "note": "dates in UTC; counts only, no prompt or answer text is kept; api_price_usd is what the priced requests would cost at list API prices, not what a subscription pays, and cost_cache_read, cost_cache_write, cost_input and cost_output split it by bucket; unpriced_requests are of models without a price yet",
         "prices": PRICES,
+        "price_source": {
+            "name": "LiteLLM",
+            "url": LITELLM_SITE,
+            "synced_at": litellm_synced_at,
+            "overrides_date": PRICES,
+        },
         "totals": totals,
         "by_day": list(&by[0], "date"),
+        "by_day_agent": day_agent_list,
         "by_agent": list(&by[1], "agent"),
         "by_model": list(&by[2], "model"),
         "unpriced_models": unpriced,

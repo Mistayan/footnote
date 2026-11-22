@@ -19,28 +19,68 @@ fn plain(s: &str) -> bool {
     !s.is_empty() && s.len() <= 200 && !s.starts_with('-') && !s.chars().any(char::is_control)
 }
 
+/// A valid catalogue model name: lowercase ASCII, digits, dashes.
+fn model_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && !s.starts_with('-')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
 /// The engine commands the window may run: read-only ones and a few reversible writes: a product's on/off switch, the
-/// skill-rewriting switch (a company policy still wins, enforced by the engine), and approving or refusing an agent's
-/// pending skill change.
+/// skill-rewriting switch (a company policy still wins, enforced by the engine), approving or refusing an agent's
+/// pending skill change, switching installed models, browsing/forgetting memories, and managing corpora.
 fn allowed(args: &[String]) -> bool {
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
-        ["status"] | ["projects"] | ["activity"] | ["jobs"] | ["gain"] | ["models", "list"] => true,
+        ["status"]
+        | ["projects"]
+        | ["activity"]
+        | ["jobs"]
+        | ["gain"]
+        | ["models", "list"]
+        | ["corpora"]
+        | ["memory-list"] => true,
         ["code", name, "--root", _] => !name.starts_with('-'),
         ["activity" | "usage" | "gain", "--days", d] => d.parse::<u16>().is_ok(),
+        ["usage", "--days", d, "--sync-prices"] => d.parse::<u16>().is_ok(),
         ["code-map", "--root", _] => true,
         // The impact radius before a change: a read, like `code`.
         ["code-impact", name, "--root", _] => !name.starts_with('-'),
         // The query follows `--`, so text starting with a dash is never read as an option.
         ["find", "--", q] => !q.trim().is_empty() && q.chars().count() <= 500,
         // One model by its catalogue name; the engine refuses names it does not know.
-        ["models", "install", name] => {
-            !name.is_empty()
-                && name.len() <= 64
-                && !name.starts_with('-')
-                && name
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        ["models", "install", name] => model_name(name),
+        // Switch which installed models Memory uses (1 to 3 valid catalogue names).
+        ["models", "use", m1] => model_name(m1),
+        ["models", "use", m1, m2] => model_name(m1) && model_name(m2),
+        ["models", "use", m1, m2, m3] => model_name(m1) && model_name(m2) && model_name(m3),
+        // Browse memories and forget one by numeric id from the Memory screen.
+        ["memory-list", "--limit", l, "--offset", o] => {
+            l.parse::<usize>().is_ok() && o.parse::<usize>().is_ok()
+        }
+        ["memory-list", "--project", p, "--limit", l, "--offset", o] => {
+            plain(p) && l.parse::<usize>().is_ok() && o.parse::<usize>().is_ok()
+        }
+        ["memory-list", "--kind", k, "--limit", l, "--offset", o] => {
+            plain(k) && l.parse::<usize>().is_ok() && o.parse::<usize>().is_ok()
+        }
+        [
+            "memory-list",
+            "--project",
+            p,
+            "--kind",
+            k,
+            "--limit",
+            l,
+            "--offset",
+            o,
+        ] => plain(p) && plain(k) && l.parse::<usize>().is_ok() && o.parse::<usize>().is_ok(),
+        ["forget", id] => id.parse::<i64>().is_ok(),
+        // Remove a corpus registration from Library (never deletes the database file on disk).
+        ["corpora", "remove", p] => {
+            !p.is_empty() && !p.starts_with('-') && !p.chars().any(char::is_control)
         }
         [
             "config",
@@ -185,6 +225,7 @@ fn open_support(to: String) -> Result<(), String> {
         "issues" => "https://github.com/bobcat88/footnote/issues/new",
         "install" => "https://github.com/bobcat88/footnote/releases/latest",
         "email" => "mailto:johan.velocity.lab@pm.me?subject=Footnote",
+        "litellm" => "https://models.litellm.ai",
         _ => return Err("unknown support address".into()),
     };
     open_outside(url.as_ref())
@@ -371,10 +412,12 @@ mod tests {
                 && ok("code-map --root . --depth 2")
         );
         assert!(!ok("jobs --bad"));
-        assert!(!ok("forget 12") && !ok("install --memory") && !ok("models remove jina-v5-nano"));
+        assert!(!ok("install --memory") && !ok("models remove jina-v5-nano"));
+        assert!(ok("forget 12") && !ok("forget abc"));
         assert!(!ok("code --root . --root") && !ok("code-map --root . --depth 2;rm"));
         assert!(
             ok("usage --days 30")
+                && ok("usage --days 7 --sync-prices")
                 && ok("activity --days 7")
                 && ok("gain")
                 && ok("gain --days 7")
@@ -383,11 +426,13 @@ mod tests {
         assert!(ok("config set code.enabled false") && ok("config set memory.enabled true"));
         assert!(
             ok("models install jina-v5-nano")
+                && ok("models use gte-small")
+                && ok("models use bekko-a8m gte-small")
                 && !ok("models install --all")
                 && !ok("models install a b")
                 && !ok("models install ../x")
                 && !ok("models remove gte-small")
-                && !ok("models use gte-small")
+                && !ok("models use ../x")
         );
         assert!(
             ok("find -- daemon") && ok("find -- --db") && !ok("find daemon") && !ok("find -- ")

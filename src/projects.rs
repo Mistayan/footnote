@@ -28,20 +28,32 @@ fn today() -> String {
 }
 
 /// Record that an agent session started in `root` for `project` (the hook's name for it). Same name, same project: a second
-/// clone of one repository updates the path to the latest one used.
+/// clone of one repository updates the path to the latest one used, except a linked git worktree (`.git` is a file) never
+/// overwrites an existing main checkout path, so worktree sessions do not hide the main repository's code graph.
 pub fn seen(state: &Path, project: &str, root: &str) -> Result<()> {
     let dir = state.join("projects");
     footnote_core::state::ensure_private_dir(&dir)?;
     let path = dir.join(format!("{}.json", file_name(project)));
-    let first = fs::read(&path)
+    let prev = fs::read(&path)
         .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+    let first = prev
+        .as_ref()
         .and_then(|v| v["first_seen"].as_str().map(str::to_string))
         .unwrap_or_else(today);
+    let kept_root = prev
+        .as_ref()
+        .and_then(|v| v["path"].as_str())
+        .filter(|old| {
+            let old_p = Path::new(old);
+            let new_p = Path::new(root);
+            old_p.is_dir() && new_p.join(".git").is_file() && !old_p.join(".git").is_file()
+        })
+        .unwrap_or(root);
     let tmp = path.with_extension("json.tmp");
     fs::write(
         &tmp,
-        json!({"name": project, "path": root, "first_seen": first, "last_seen": today()})
+        json!({"name": project, "path": kept_root, "first_seen": first, "last_seen": today()})
             .to_string(),
     )?;
     fs::rename(&tmp, &path)?;
