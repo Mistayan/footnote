@@ -1790,3 +1790,37 @@ fn lean_b_rules_are_opt_in_and_cache_stable_at_session_start() {
     .unwrap();
     assert_eq!(hook(state, event_in("lb4", "SessionStart", "")), "");
 }
+
+/// A GGUF model on a build without llama.cpp: recall falls back to keywords, and that must be said, not silent (#515).
+#[test]
+fn a_model_this_build_cannot_load_is_reported_at_session_start_and_in_status() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let model = state.join("gguf-model");
+    fs::create_dir(&model).unwrap();
+    fs::write(model.join("model.gguf"), b"").unwrap();
+    fs::write(
+        state.join("memory.json"),
+        json!({"models": [model], "resident": false}).to_string(),
+    )
+    .unwrap();
+    seed(state, &[]);
+    let start = hook(state, event("SessionStart", ""));
+    let status: Value = serde_json::from_slice(
+        &command(state)
+            .arg("status")
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    let recall = status["products"]["memory"]["recall"].as_str().unwrap();
+    if cfg!(feature = "llama") {
+        assert!(!start.contains("keyword only"), "{start}");
+        assert_eq!(recall, "by meaning");
+    } else {
+        assert!(start.contains("recall is keyword only"), "{start}");
+        assert!(recall.starts_with("keyword only: model"), "{recall}");
+    }
+}

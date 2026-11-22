@@ -89,6 +89,16 @@ fn memory(state: &Path) -> Result<Value> {
         "agents": crate::install::memory_registrations()?,
         "daemon_running": db.exists() && crate::daemon::connect(&db).is_ok(),
     });
+    let models: Vec<std::path::PathBuf> =
+        serde_json::from_value(settings["models"].clone()).unwrap_or_default();
+    out["recall"] = match crate::hook::unloadable_model(&models) {
+        Some(m) => json!(format!(
+            "keyword only: model {} needs a build with llama",
+            m.display()
+        )),
+        None if models.is_empty() => json!("keyword only: no model configured"),
+        None => json!("by meaning"),
+    };
     if db.exists() {
         let c = crate::app::open(&db, false)?;
         let live = "FROM memories m JOIN sources s ON s.id=m.source_id WHERE s.status='indexed'";

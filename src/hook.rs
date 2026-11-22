@@ -27,6 +27,19 @@ const SKILL_EDIT: &str = r#"Footnote: you read the skill "{name}" ({path}) and i
 #[cfg(feature = "library")]
 const SKILLS_REVIEW: &str = "Footnote: {n} change(s) an agent made to skill scripts are waiting for the user's review and are not used until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote skills approve <name>` serves one, `footnote skills reject <name>` refuses it).";
 const REVIEW: &str = "Footnote: {n} global preferences that agents saved are waiting for the user's review, and no agent sees them until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote memory-restore <id>` approves one, `footnote forget <id>` rejects it).";
+const KEYWORD_ONLY: &str = "Footnote: recall is keyword only, because the configured model {model} needs a Footnote build with llama.cpp (`--features llama`), and new memories get no vectors. Tell the user in one line, and that reinstalling a release build (or a local build with `--features llama`) then `footnote rebuild-embeddings` fixes it.";
+
+/// The first configured model this build cannot load (#515): a GGUF model needs the `llama` feature. Without it recall
+/// silently ranks by keyword and new memories get no vectors, so the hook and `footnote status` say so.
+pub(crate) fn unloadable_model(models: &[PathBuf]) -> Option<&Path> {
+    if cfg!(feature = "llama") {
+        return None;
+    }
+    models
+        .iter()
+        .find(|m| m.join("model.gguf").exists())
+        .map(PathBuf::as_path)
+}
 const VISIBLE: &str = "Footnote memory: when one of these memories, or one recalled later in this session, shapes your answer, say so in a few words (for example \"from memory: ...\"). Do not mention memories that played no part.";
 const HANDOFF: &str = r#"Footnote: this session's context is {tokens} tokens, and every call re-reads all of it. Before you stop, save one handoff memory with the footnote_remember tool (MCP server footnote-memory): kind "session", scope "{project}", observed_at "{today}", tags ["handoff"], one self-contained paragraph with the task, the decisions made, what is done and left, the next step, and the files and issues involved. Then tell the user in one short line that you saved the handoff (its id); the next compaction or /clear picks it up, as Footnote brings it back first. Then stop."#;
 const IDLE_HANDOFF: &str = r#"Footnote: this session was idle for {idle_min} min (1h prompt cache expired) with {tokens} tokens in context; continuing pays repeated cold cache writes. Before you stop, save one handoff memory with the footnote_remember tool (MCP server footnote-memory): kind "session", scope "{project}", observed_at "{today}", tags ["handoff"], one self-contained paragraph with the task, the decisions made, what is done and left, the next step, and the files and issues involved. Then tell the user in one short line that you saved the handoff (its id) so they can /clear cleanly. Then stop."#;
@@ -1444,6 +1457,14 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                         }
                     }
                 }
+            }
+            if let Some(model) = unloadable_model(&s.models) {
+                let line = KEYWORD_ONLY.replace("{model}", &model.display().to_string());
+                text = if text.is_empty() {
+                    line
+                } else {
+                    format!("{text}\n\n{line}")
+                };
             }
             if !binding && s.lean_rules {
                 let rules = render_lean_rules(&s.lean_prose);
