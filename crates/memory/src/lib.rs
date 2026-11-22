@@ -89,6 +89,70 @@ pub fn anchored(c: &Connection, anchors: &[String], limit: usize) -> Result<Vec<
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Live memories anchored to any of `anchors`, scoped to `global` plus `project` (or every scope when `None`),
+/// preferring `fix` memories first ("last time this broke, the cause was...") and ordered deterministically (#241).
+pub fn anchored_in_scope(
+    c: &Connection,
+    anchors: &[String],
+    project: Option<&str>,
+    limit: usize,
+) -> Result<Vec<Value>> {
+    let exists: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='memory_anchors')",
+        [],
+        |r| r.get(0),
+    )?;
+    if !exists || anchors.is_empty() || limit == 0 {
+        return Ok(vec![]);
+    }
+    let mut normalized: Vec<String> = anchors.iter().filter_map(|a| anchor(a)).collect();
+    normalized.sort_unstable();
+    normalized.dedup();
+    if normalized.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut s = c.prepare(
+        "SELECT DISTINCT ch.id, m.kind, m.scope, m.observed_at, ch.text
+         FROM memory_anchors a
+         JOIN sources s ON s.id=a.source_id
+         JOIN memories m ON m.source_id=s.id
+         JOIN chunks ch ON ch.source_id=s.id
+         WHERE s.status='indexed'
+           AND (?1 IS NULL OR m.scope='global' OR m.scope=?1)
+           AND a.anchor IN (SELECT value FROM json_each(?2))
+         ORDER BY CASE WHEN m.kind='fix' THEN 0 ELSE 1 END, m.observed_at DESC, ch.id DESC
+         LIMIT ?3",
+    )?;
+    let rows = s
+        .query_map(
+            params![project, serde_json::to_string(&normalized)?, limit as i64],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            },
+        )?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, kind, sc, date, text) in rows {
+        out.push(json!({
+            "id": id,
+            "kind": kind,
+            "scope": sc,
+            "observed_at": date,
+            "tags": tags_of(c, id)?,
+            "origin": origin_of(c, id),
+            "text": text,
+            "match": "anchor",
+        }));
+    }
+    Ok(out)
+}
+
 /// Live memories anchored to a file under folder `under` (or to `under` itself): their count and the newest `limit`, for
 /// the architecture map's memory pills. `.` (the project root) matches every file anchor without a folder.
 pub fn anchored_under(c: &Connection, under: &str, limit: usize) -> Result<(i64, Vec<Value>)> {

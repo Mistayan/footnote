@@ -1300,3 +1300,192 @@ fn two_runs_on_the_same_input_inject_byte_identical_context() {
     assert!(first.contains("relative % gaps"), "{first}");
     assert_eq!(first, recall("d"));
 }
+
+/// #241: memory-first recall surfaces code-anchored fixes before rediscovery, packs error lines from long prompts,
+/// and logs hits, misses and skips per session without leaking prompt text.
+#[test]
+fn memory_first_recall_surfaces_anchored_fixes_and_logs_hits_misses_skips() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let repo = env!("CARGO_MANIFEST_DIR");
+    let remote = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    let project = String::from_utf8(remote.stdout)
+        .unwrap()
+        .trim()
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap()
+        .trim_end_matches(".git")
+        .to_lowercase();
+
+    // Empty/slash prompts before any DB exists log `recall_skip` (no_db) and inject nothing.
+    assert_eq!(
+        hook(state, event_in("s-nodb", "UserPromptSubmit", "hello")),
+        ""
+    );
+
+    // Seed an anchored fix whose text does NOT mention the file path, a fact on another project, and an error fix.
+    command(state)
+        .arg("--db")
+        .arg(state.join("memory.db"))
+        .arg("remember")
+        .write_stdin(
+            json!([
+                {
+                    "text": "Lock the log file and re-read the tail line before appending.",
+                    "kind": "fix",
+                    "scope": project,
+                    "observed_at": "2026-11-18",
+                    "code": ["src/audit.rs", "verify_chain"]
+                },
+                {
+                    "text": "Unrelated project note on the same filename.",
+                    "kind": "fix",
+                    "scope": "other-project",
+                    "observed_at": "2026-11-20",
+                    "code": ["src/audit.rs"]
+                },
+                {
+                    "text": "Rebuild the tokenizer cache after upgrading tokenizers crate.",
+                    "kind": "fix",
+                    "scope": project,
+                    "observed_at": "2026-11-19"
+                }
+            ])
+            .to_string(),
+        )
+        .assert()
+        .success();
+
+    // 1. Prompt referencing src/audit.rs:42 surfaces the anchored fix with id/footnote_get instructions, ignoring other-project.
+    let hit_out = hook(
+        state,
+        event_in(
+            "s-anchor",
+            "UserPromptSubmit",
+            "Investigate src/audit.rs:42 SUPERSECRET_PROMPT_MARKER",
+        ),
+    );
+    assert!(
+        hit_out.contains("Lock the log file") && hit_out.contains("footnote_get <id>"),
+        "{hit_out}"
+    );
+    assert!(!hit_out.contains("Unrelated project note"), "{hit_out}");
+
+    // 2. Repeating the same prompt in the same session logs `recall_skip` (already_shown) and injects nothing.
+    assert_eq!(
+        hook(
+            state,
+            event_in(
+                "s-anchor",
+                "UserPromptSubmit",
+                "Investigate src/audit.rs:42"
+            ),
+        ),
+        ""
+    );
+
+    // 3. Long (> 700 byte) prompt with the error only at the tail still matches the error fix.
+    let long_prompt = format!(
+        "Background narrative {} \nerror: rebuild tokenizer cache after upgrading tokenizers",
+        "filler ".repeat(110)
+    );
+    assert!(long_prompt.len() > 700);
+    let long_out = hook(state, event_in("s-long", "UserPromptSubmit", &long_prompt));
+    assert!(
+        long_out.contains("Rebuild the tokenizer cache"),
+        "{long_out}"
+    );
+
+    // 4. Unmatched prompt logs `recall_miss` (no_match) and injects nothing.
+    assert_eq!(
+        hook(
+            state,
+            event_in("s-miss", "UserPromptSubmit", "zzzzqxjklmn unmatched phrase"),
+        ),
+        ""
+    );
+
+    // 5. Empty and slash prompts log `recall_skip`.
+    assert_eq!(
+        hook(state, event_in("s-skip", "UserPromptSubmit", "   ")),
+        ""
+    );
+    assert_eq!(
+        hook(state, event_in("s-skip", "UserPromptSubmit", "/help")),
+        ""
+    );
+
+    // Verify activity.jsonl outcomes and secret hygiene.
+    let act_raw = fs::read_to_string(state.join("memory-hook/activity.jsonl")).unwrap();
+    for secret in [
+        "SUPERSECRET_PROMPT_MARKER",
+        "src/audit.rs",
+        "zzzzqxjklmn",
+        "Lock the log file",
+    ] {
+        assert!(!act_raw.contains(secret), "{secret} leaked in {act_raw}");
+    }
+    let rows: Vec<Value> = act_raw
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let anchor_hit = rows
+        .iter()
+        .find(|r| r["session"] == "s-anchor" && r["event"] == "recall")
+        .expect("anchor recall hit");
+    assert_eq!(anchor_hit["anchor_hits"], 1);
+    assert!(
+        rows.iter().any(|r| r["session"] == "s-anchor"
+            && r["event"] == "recall_skip"
+            && r["reason"] == "already_shown"),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r["session"] == "s-miss"
+            && r["event"] == "recall_miss"
+            && r["reason"] == "no_match"),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r["session"] == "s-skip"
+            && r["event"] == "recall_skip"
+            && r["reason"] == "slash_command"),
+        "{rows:?}"
+    );
+
+    // Verify `footnote activity` and `footnote status` separate hits from misses and skips.
+    let act_json: Value = serde_json::from_slice(
+        &command(state)
+            .args(["activity", "--days", "3"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(
+        act_json["recall"],
+        json!({"hits": 2, "misses": 1, "skips": 4}),
+        "{act_json}"
+    );
+
+    let status_json: Value = serde_json::from_slice(
+        &command(state)
+            .arg("status")
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(
+        status_json["products"]["memory"]["recalls_last_7_days"], 2,
+        "{status_json}"
+    );
+}

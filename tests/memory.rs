@@ -579,6 +579,56 @@ fn memories_anchored_to_code_are_found_by_symbol_or_file() {
     assert!(fails(&db, &["remember"], json!([bad])).contains("`code` must be an array"));
 }
 
+#[cfg(feature = "memory")]
+#[test]
+fn anchored_in_scope_respects_project_boundaries_and_prefers_fixes() {
+    let t = tempfile::tempdir().unwrap();
+    let db = t.path().join("memory.db");
+    let mut fact_fn = mem(
+        "Fact about main entrypoint.",
+        "fact",
+        "footnote",
+        "2026-11-18",
+    );
+    fact_fn["code"] = json!(["src/main.rs"]);
+    let mut fix_fn = mem(
+        "Fix: moved 8MB stack thread to main.",
+        "fix",
+        "footnote",
+        "2026-11-17",
+    );
+    fix_fn["code"] = json!(["src/main.rs"]);
+    let mut global_fix = mem(
+        "Global fix on shared helper.",
+        "fix",
+        "global",
+        "2026-11-16",
+    );
+    global_fix["code"] = json!(["src/main.rs"]);
+    let mut other_fix = mem(
+        "Other project crash in main.",
+        "fix",
+        "other-repo",
+        "2026-11-20",
+    );
+    other_fix["code"] = json!(["src/main.rs"]);
+    run(
+        &db,
+        &["remember"],
+        Some(json!([fact_fn, fix_fn, global_fix, other_fix])),
+    );
+    let c = rusqlite::Connection::open(&db).unwrap();
+    let hits =
+        footnote_memory::anchored_in_scope(&c, &["./src\\main.rs".into()], Some("footnote"), 10)
+            .unwrap();
+    assert_eq!(hits.len(), 3, "{hits:?}");
+    assert!(hits.iter().all(|h| h["scope"] != "other-repo"), "{hits:?}");
+    assert_eq!(hits[0]["kind"], "fix", "{hits:?}");
+    assert_eq!(hits[1]["kind"], "fix", "{hits:?}");
+    assert_eq!(hits[2]["kind"], "fact", "{hits:?}");
+    assert_eq!(hits[0]["match"], "anchor", "{hits:?}");
+}
+
 #[test]
 fn an_mcp_client_cannot_load_a_model_folder_of_its_choosing() {
     let t = tempfile::tempdir().unwrap();

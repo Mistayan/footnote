@@ -22,7 +22,14 @@ pub fn activity(days: u16) -> Result<Value> {
         let date = (first + time::Duration::days(i64::from(d))).to_string();
         by_day.insert(
             date.clone(),
-            json!({"date": date, "saved": 0, "sessions": 0, "prompts_given_memories": 0}),
+            json!({
+                "date": date,
+                "saved": 0,
+                "sessions": 0,
+                "prompts_given_memories": 0,
+                "recall_misses": 0,
+                "recall_skips": 0,
+            }),
         );
     }
 
@@ -48,6 +55,7 @@ pub fn activity(days: u16) -> Result<Value> {
     let since_ms = (first.midnight().assume_utc().unix_timestamp() * 1000).max(0) as u64;
     let mut used: HashMap<i64, u64> = HashMap::new();
     let mut recent: Vec<Value> = Vec::new();
+    let (mut total_hits, mut total_misses, mut total_skips) = (0u64, 0u64, 0u64);
     let log = std::fs::read_to_string(state.join("memory-hook/activity.jsonl")).unwrap_or_default();
     for v in log
         .lines()
@@ -62,13 +70,33 @@ pub fn activity(days: u16) -> Result<Value> {
         let Some(day) = by_day.get_mut(&date) else {
             continue;
         };
-        recent.push(json!({"t": t, "event": v["event"], "project": v["project"], "ids": v["ids"]}));
-        let field = if v["event"] == "pack" {
-            "sessions"
-        } else {
-            "prompts_given_memories"
-        };
-        day[field] = json!(day[field].as_u64().unwrap_or(0) + 1);
+        match v["event"].as_str() {
+            Some("pack") => {
+                recent.push(
+                    json!({"t": t, "event": v["event"], "project": v["project"], "ids": v["ids"]}),
+                );
+                day["sessions"] = json!(day["sessions"].as_u64().unwrap_or(0) + 1);
+            }
+            Some("recall") => {
+                recent.push(
+                    json!({"t": t, "event": v["event"], "project": v["project"], "ids": v["ids"]}),
+                );
+                day["prompts_given_memories"] =
+                    json!(day["prompts_given_memories"].as_u64().unwrap_or(0) + 1);
+                total_hits += 1;
+            }
+            Some("recall_miss") => {
+                day["recall_misses"] = json!(day["recall_misses"].as_u64().unwrap_or(0) + 1);
+                total_misses += 1;
+                continue;
+            }
+            Some("recall_skip") => {
+                day["recall_skips"] = json!(day["recall_skips"].as_u64().unwrap_or(0) + 1);
+                total_skips += 1;
+                continue;
+            }
+            _ => continue,
+        }
         for id in v["ids"]
             .as_array()
             .into_iter()
@@ -122,6 +150,7 @@ pub fn activity(days: u16) -> Result<Value> {
         "days": by_day.into_values().collect::<Vec<_>>(),
         "most_used": most_used,
         "recent": recent,
+        "recall": {"hits": total_hits, "misses": total_misses, "skips": total_skips},
         "activity_log": settings["activity"].as_bool().unwrap_or(true),
         "note": "dates in UTC; saves by the date the agent observed; prompt text is never recorded",
     }))

@@ -140,7 +140,7 @@ Always preview first with `--dry-run`, then apply without `--dry-run`.
 
 ### A. Footnote Memory (Persistent Cross-Session Agent Memory)
 
-Registers `footnote-memory` MCP server, session/prompt hooks (`footnote hook`), and `/remember` across detected agents (Claude Code, Codex CLI, Gemini CLI, Antigravity `agy`, Grok, DeepSeek Harness):
+Registers `footnote-memory` MCP server, session/prompt hooks (`footnote hook`), and `/remember` across detected agents (Claude Code, Codex CLI, Gemini CLI, Antigravity `agy`, Grok, DeepSeek Harness). On each prompt, recall also checks code-anchored memories for any file paths or symbols named in the prompt (prioritizing past `fix` records), and logs recall hits, misses, and skips in `memory-hook/activity.jsonl` (ids and reasons only, never prompt text) while `memory.activity` is on.
 
 ```bash
 footnote install --memory --dry-run

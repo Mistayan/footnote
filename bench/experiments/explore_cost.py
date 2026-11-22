@@ -3,13 +3,32 @@ results added (bytes/4, as session_costs.py) and the model turns before the firs
 
 python -I bench/experiments/explore_cost.py SESSION.jsonl
 """
-import json, re, sys
+import json, os, re, sys
 
 EDIT = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 READ = {"Read", "Grep", "Glob", "LSP", "footnote_code"}
-# shortcut: shell edits (sed -i, redirects) do not end the window, shell reads are matched by their first word only;
-# refine if a paired arm edits through the shell.
 SHELL_READ = re.compile(r"\s*(cat|head|tail|less|sed -n|grep|rg|find|ls|tree|wc|git (grep|show|log|diff)|Get-Content|Select-String|Get-ChildItem)\b")
+_SHELL_WRITE_CMD = re.compile(
+    r"(?:\b(?:tee|patch|Set-Content|Add-Content|Out-File)\b"
+    r"|\b(?:sed|perl)\s+-i\b"
+    r"|\bgit\s+apply\b"
+    r"|(?:\.write_text|\.write_bytes|WriteAllText|writeFileSync)\s*\("
+    r"|\bopen\s*\([^)]*,\s*['\"][wax][+tb]*['\"]"
+    r"|(?:^|[;&|]\s*)(?:cat|echo|printf)\b[^>]*>>?\s*(?!/dev/null\b|&\d+\b)\S+)"
+)
+_SHELL_REDIRECT = re.compile(
+    r"(?:^|\s)\d*>>?\s*(?!/dev/null\b|&\d+\b)"
+    r"(?:[\w./\\-]+[/\\][\w./\\-]+|[\w.-]+\.(?:py|rs|ts|tsx|js|jsx|txt|md|json|toml|yaml|yml|sh|ps1|c|cpp|h|go|java))\b"
+)
+
+
+def is_shell_edit(cmd):
+    if not cmd:
+        return False
+    if _SHELL_WRITE_CMD.search(cmd):
+        return True
+    unquoted = re.sub(r"'[^']*'|\"[^\"]*\"", " ", cmd)
+    return bool(_SHELL_REDIRECT.search(unquoted))
 
 
 def explore(path):
@@ -36,10 +55,11 @@ def explore(path):
                 if b.get("type") != "tool_use":
                     continue
                 name = b.get("name", "").split("__")[-1]
-                if name in EDIT:
+                cmd = (b.get("input") or {}).get("command", "") if name in ("Bash", "PowerShell") else ""
+                if name in EDIT or is_shell_edit(cmd):
                     out.update(turns_before_edit=turns - 1, edited=True)
                     return out
-                if name in READ or (name in ("Bash", "PowerShell") and SHELL_READ.match((b.get("input") or {}).get("command", ""))):
+                if name in READ or (name in ("Bash", "PowerShell") and SHELL_READ.match(cmd)):
                     reads.add(b.get("id"))
                     out["read_calls"] += 1
         elif v.get("type") == "user":
@@ -47,6 +67,29 @@ def explore(path):
                 if b.get("type") == "tool_result" and b.get("tool_use_id") in reads:
                     out["read_tokens"] += len(json.dumps(b.get("content", ""), ensure_ascii=False)) // 4
     out["turns_before_edit"] = turns
+    return out
+
+
+def recall_stats(activity_path, session_id=None):
+    """{recall_hits, recall_misses, recall_skips, recall_anchor_hits} from memory-hook/activity.jsonl (#241)."""
+    out = {"recall_hits": 0, "recall_misses": 0, "recall_skips": 0, "recall_anchor_hits": 0}
+    if not activity_path or not os.path.exists(activity_path):
+        return out
+    for line in open(activity_path, encoding="utf-8", errors="replace"):
+        try:
+            v = json.loads(line)
+        except ValueError:
+            continue
+        if session_id is not None and v.get("session") != session_id:
+            continue
+        ev = v.get("event")
+        if ev == "recall":
+            out["recall_hits"] += 1
+            out["recall_anchor_hits"] += int(v.get("anchor_hits", 0) or 0)
+        elif ev == "recall_miss":
+            out["recall_misses"] += 1
+        elif ev == "recall_skip":
+            out["recall_skips"] += 1
     return out
 
 

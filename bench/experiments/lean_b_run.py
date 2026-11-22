@@ -5,7 +5,7 @@ sys.path.insert(0, os.getcwd())
 os.environ.setdefault("FOOTNOTE_BIN", os.path.expanduser("~/AppData/Local/Programs/footnote/footnote.exe"))
 from evaluation import luna_pilot, dependency_pilot
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
-from explore_cost import explore
+from explore_cost import explore, recall_stats
 FN = os.environ["FOOTNOTE_BIN"]
 # A/B arms (memory 448): full CLAUDE_CONFIG_DIR copies built by ab/setup_arms.py, T3's prompt and tool names appended to both
 AB = {"base-dev": "codebase-memory-mcp", "footnote": "footnote-memory"}
@@ -58,9 +58,10 @@ def run_one(arm, task, n, model, effort, tmp):
     f = next((AB_ROOT / arm if arm in AB else pathlib.Path.home() / ".claude").glob(f"projects/*/{sid}.jsonl"), None)
     u = json.loads(subprocess.run([FN, "usage", "--file", str(f)], capture_output=True, text=True).stdout)["totals"]
     chk = subprocess.run([sys.executable, *[a.replace("{w}", str(work)) for a in TASKS[task][1]]], capture_output=True, text=True)
+    act = AB_ROOT / "footnote-state/memory-hook/activity.jsonl" if arm == "footnote" else None
     return {"arm": arm, "task": task, "run": n, "accepted": chk.returncode == 0 and active, "turns": res.get("num_turns"),
             "uncached_in": u["input"], "cache_write": u["cache_write_5m"] + u["cache_write_1h"], "cache_read": u["cache_read"],
-            "output": u["output"], "seconds": sec, "usd": u.get("api_price_usd"), "plugins": plug, "mcp": mcp, "tools": len(init.get("tools", [])), "skills": len(init.get("skills", [])), "active": active, **explore(f)}
+            "output": u["output"], "seconds": sec, "usd": u.get("api_price_usd"), "plugins": plug, "mcp": mcp, "tools": len(init.get("tools", [])), "skills": len(init.get("skills", [])), "active": active, **explore(f), **recall_stats(act, sid)}
 
 if __name__ == "__main__":
     out, model, effort, runs = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])

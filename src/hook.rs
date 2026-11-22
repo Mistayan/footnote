@@ -495,9 +495,8 @@ pub(crate) fn git(cwd: &str, args: &[&str]) -> String {
     .unwrap_or_default()
 }
 
-fn session_path(dir: &Path, id: &str) -> PathBuf {
-    let safe: String = id
-        .chars()
+fn safe_session_id(id: &str) -> String {
+    id.chars()
         .take(100)
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
@@ -506,8 +505,376 @@ fn session_path(dir: &Path, id: &str) -> PathBuf {
                 '_'
             }
         })
-        .collect();
-    dir.join(format!("{safe}.json"))
+        .collect()
+}
+
+fn session_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{}.json", safe_session_id(id)))
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TaskSignals {
+    anchors: Vec<String>,
+    error_lines: Vec<String>,
+}
+
+const KNOWN_EXTS: &[&str] = &[
+    "rs", "py", "ts", "tsx", "js", "jsx", "mjs", "cjs", "go", "java", "c", "cc", "cpp", "h", "hpp",
+    "cs", "rb", "php", "swift", "kt", "sql", "toml", "yaml", "yml", "json", "md", "sh", "ps1",
+    "css", "html", "svelte", "vue",
+];
+
+const CALL_KEYWORDS: &[&str] = &[
+    "if",
+    "for",
+    "while",
+    "match",
+    "loop",
+    "return",
+    "yield",
+    "await",
+    "fn",
+    "def",
+    "function",
+    "class",
+    "struct",
+    "enum",
+    "impl",
+    "trait",
+    "let",
+    "const",
+    "var",
+    "print",
+    "println",
+    "eprintln",
+    "format",
+    "assert",
+    "assert_eq",
+    "assert_ne",
+    "debug_assert",
+    "sizeof",
+    "typeof",
+    "catch",
+    "switch",
+    "case",
+    "throw",
+    "new",
+    "len",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "range",
+    "type",
+    "super",
+    "Some",
+    "None",
+    "Ok",
+    "Err",
+    "vec",
+    "json",
+    "params",
+];
+
+const ERROR_MARKERS: &[&str] = &[
+    "error:",
+    "error[",
+    "exception",
+    "traceback",
+    "panicked at",
+    "panic:",
+    "failed",
+    "assertion",
+    "errno",
+    "exit code",
+    "cannot find",
+    "type mismatch",
+    "syntax error",
+    "undefined",
+    "not found",
+];
+
+fn is_ident(s: &str) -> bool {
+    let mut bytes = s.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    (first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        && s.bytes().any(|b| b != b'_')
+}
+
+fn has_known_ext(s: &str) -> bool {
+    let Some((_, ext)) = s.rsplit_once('.') else {
+        return false;
+    };
+    let low = ext.to_ascii_lowercase();
+    KNOWN_EXTS.contains(&low.as_str())
+}
+
+fn strip_cwd_prefix(norm: &str, cwd_norm: &str) -> String {
+    if cwd_norm.is_empty() || cwd_norm == "." {
+        return norm.to_string();
+    }
+    let prefix = format!("{cwd_norm}/");
+    let windows_like = cfg!(windows) || cwd_norm.as_bytes().get(1) == Some(&b':');
+    let matched = if windows_like {
+        norm.get(..prefix.len())
+            .is_some_and(|p| p.eq_ignore_ascii_case(&prefix))
+    } else {
+        norm.starts_with(&prefix)
+    };
+    if matched {
+        norm[prefix.len()..].to_string()
+    } else {
+        norm.to_string()
+    }
+}
+
+fn strip_path_loc(s: &str) -> &str {
+    let mut s = s;
+    if let Some((before, after)) = s.rsplit_once("#L")
+        && !before.is_empty()
+        && after.chars().next().is_some_and(|c| c.is_ascii_digit())
+    {
+        s = before;
+    }
+    if let Some(base) = s.strip_suffix(')')
+        && let Some((before, inner)) = base.rsplit_once('(')
+        && !before.is_empty()
+        && !inner.is_empty()
+        && inner.bytes().all(|b| b.is_ascii_digit() || b == b',')
+        && (before.contains('/') || before.contains('\\') || has_known_ext(before))
+    {
+        s = before;
+    }
+    for _ in 0..2 {
+        if let Some((before, digits)) = s.rsplit_once(':')
+            && !before.is_empty()
+            && !digits.is_empty()
+            && digits.len() <= 6
+            && digits.bytes().all(|b| b.is_ascii_digit())
+        {
+            s = before;
+        } else {
+            break;
+        }
+    }
+    s.trim_end_matches(':')
+}
+
+fn clean_path_candidate(raw: &str, cwd_norm: &str) -> Option<String> {
+    let mut s = raw.trim_matches(|c| {
+        matches!(
+            c,
+            '\'' | '"'
+                | '`'
+                | ','
+                | ';'
+                | '!'
+                | '?'
+                | '<'
+                | '>'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+        )
+    });
+    s = s.trim_end_matches('.');
+    if s.is_empty() || s.starts_with("http://") || s.starts_with("https://") {
+        return None;
+    }
+    s = strip_path_loc(s);
+    if !(s.contains('/') || s.contains('\\') || has_known_ext(s)) {
+        return None;
+    }
+    let norm = s.replace('\\', "/");
+    if norm.contains("://") || !norm.chars().any(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let rel = strip_cwd_prefix(&norm, cwd_norm);
+    let anchor = footnote_memory::anchor(&rel)?;
+    if anchor.ends_with('/') {
+        return None;
+    }
+    Some(anchor)
+}
+
+fn is_distinct_ident(s: &str) -> bool {
+    s.len() >= 3
+        && is_ident(s)
+        && !CALL_KEYWORDS.contains(&s)
+        && (s.contains('_')
+            || (s.chars().skip(1).any(|c| c.is_ascii_uppercase())
+                && s.chars().any(|c| c.is_ascii_lowercase())))
+}
+
+fn push_symbol_with_tail(s: &str, out: &mut std::collections::BTreeSet<String>) {
+    let s = s.strip_suffix("()").unwrap_or(s);
+    if s.len() < 3 || s.len() > 120 {
+        return;
+    }
+    let sep = if s.contains("::") {
+        Some("::")
+    } else if s.contains('.') && !has_known_ext(s) {
+        Some(".")
+    } else {
+        None
+    };
+    if let Some(sep) = sep {
+        let parts: Vec<&str> = s.split(sep).collect();
+        if parts.len() >= 2 && parts.iter().all(|p| is_ident(p)) {
+            if let Some(a) = footnote_memory::anchor(s) {
+                out.insert(a);
+            }
+            for (i, part) in parts.iter().enumerate() {
+                if ((i + 1 == parts.len() && part.len() >= 3 && !CALL_KEYWORDS.contains(part))
+                    || is_distinct_ident(part))
+                    && let Some(a) = footnote_memory::anchor(part)
+                {
+                    out.insert(a);
+                }
+            }
+        }
+        return;
+    }
+    if is_ident(s)
+        && !CALL_KEYWORDS.contains(&s)
+        && let Some(a) = footnote_memory::anchor(s)
+    {
+        out.insert(a);
+    }
+}
+
+/// Extract normalized file/symbol anchors and error lines from a prompt for memory-first recall (#241).
+fn extract_task_signals(prompt: &str, cwd: &str) -> TaskSignals {
+    use std::collections::BTreeSet;
+    let head = &prompt[..prompt.floor_char_boundary(65_536.min(prompt.len()))];
+    let cwd_norm = cwd.trim().replace('\\', "/");
+    let cwd_norm = cwd_norm.trim_end_matches('/');
+
+    let mut path_anchors = BTreeSet::new();
+    let mut symbol_anchors = BTreeSet::new();
+
+    // 1. Backticked spans on single lines: paths or symbol identifiers.
+    for line in head.lines() {
+        let mut rest = line;
+        while let Some(start) = rest.find('`') {
+            let after = &rest[start + 1..];
+            let Some(end) = after.find('`') else {
+                break;
+            };
+            let inner = after[..end].trim();
+            if !inner.is_empty() && !inner.contains(char::is_whitespace) {
+                if let Some(p) = clean_path_candidate(inner, cwd_norm) {
+                    path_anchors.insert(p);
+                } else {
+                    push_symbol_with_tail(inner, &mut symbol_anchors);
+                }
+            }
+            rest = &after[end + 1..];
+        }
+    }
+
+    // 2. Call expressions `ident(` or `ns::ident(`.
+    for (idx, _) in head.match_indices('(') {
+        let before = &head[..idx];
+        let start = before
+            .char_indices()
+            .rev()
+            .take_while(|&(_, c)| c.is_ascii_alphanumeric() || c == '_' || c == ':')
+            .last()
+            .map_or(before.len(), |(i, _)| i);
+        let ident = &before[start..];
+        if !ident.is_empty() && !ident.starts_with(':') && !ident.ends_with(':') {
+            push_symbol_with_tail(ident, &mut symbol_anchors);
+        }
+    }
+
+    // 3. Whitespace tokens: file paths and unmistakable snake_case / camelCase / `::` identifiers.
+    for raw in head.split_whitespace() {
+        if let Some(p) = clean_path_candidate(raw, cwd_norm) {
+            path_anchors.insert(p);
+            continue;
+        }
+        let tok = raw.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != ':');
+        let tok = tok.trim_matches(':');
+        if tok.len() < 3 || tok.len() > 120 {
+            continue;
+        }
+        if tok.contains("::") {
+            push_symbol_with_tail(tok, &mut symbol_anchors);
+        } else if is_distinct_ident(tok)
+            && let Some(a) = footnote_memory::anchor(tok)
+        {
+            symbol_anchors.insert(a);
+        }
+    }
+
+    let mut anchors: Vec<String> = path_anchors.into_iter().collect();
+    for sym in symbol_anchors {
+        if !anchors.contains(&sym) {
+            anchors.push(sym);
+        }
+    }
+    anchors.truncate(32);
+
+    // 4. Error/failure lines for long-prompt query construction.
+    let mut error_lines = Vec::new();
+    for line in head.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let low = trimmed.to_ascii_lowercase();
+        if ERROR_MARKERS.iter().any(|m| low.contains(m)) {
+            let cut = trimmed
+                .char_indices()
+                .nth(120)
+                .map_or(trimmed.len(), |(i, _)| i);
+            let snippet = trimmed[..cut].to_string();
+            if !error_lines.contains(&snippet) {
+                error_lines.push(snippet);
+                if error_lines.len() >= 4 {
+                    break;
+                }
+            }
+        }
+    }
+
+    TaskSignals {
+        anchors,
+        error_lines,
+    }
+}
+
+/// Keep short prompts verbatim; for long prompts (> 500 bytes), pack the opening context plus extracted error lines
+/// and symbols/paths inside the 500-byte search budget (#241).
+fn build_recall_query(prompt: &str, signals: &TaskSignals) -> String {
+    if prompt.len() <= 500 {
+        return prompt.to_string();
+    }
+    let mut q = prompt[..prompt.floor_char_boundary(240.min(prompt.len()))].to_string();
+    let low_head = q.to_ascii_lowercase();
+    for extra in signals.error_lines.iter().chain(signals.anchors.iter()) {
+        if q.len() >= 500 {
+            break;
+        }
+        if !low_head.contains(&extra.to_ascii_lowercase()) {
+            q.push(' ');
+            q.push_str(extra);
+        }
+    }
+    let end = q.floor_char_boundary(500.min(q.len()));
+    q.truncate(end);
+    q
 }
 
 /// Returns true when a recalled memory meets optional dual relevance floors (`cos_floor` on mean raw dense cosine,
@@ -813,16 +1180,10 @@ fn timed<T>(
     result
 }
 
-/// The Activity screen's source: which memories reached the agent, when, for which project. Ids only, never the prompt.
-/// Best effort, capped: past 512 KB the older half is dropped.
-fn note(s: &Settings, dir: &Path, event: &str, project: &str, v: &Value) {
-    let ids: Vec<&Value> = v["memories"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|m| &m["id"])
-        .collect();
-    if !s.activity || ids.is_empty() {
+/// The Activity screen's source: which memories reached the agent, when, for which project, plus recall skips/misses (#241).
+/// Ids and static reasons only, never prompt or memory text. Best effort, capped: past 512 KB the older half is dropped.
+fn write_activity_row(s: &Settings, dir: &Path, row: &Value) {
+    if !s.activity {
         return;
     }
     let path = dir.join("activity.jsonl");
@@ -832,13 +1193,60 @@ fn note(s: &Settings, dir: &Path, event: &str, project: &str, v: &Value) {
         let lines: Vec<&str> = text.lines().collect();
         let _ = fs::write(&path, lines[lines.len() / 2..].join("\n") + "\n");
     }
-    let t = std::time::SystemTime::now()
+    let _ = crate::state::append_line(&path, &row.to_string());
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    let _ = crate::state::append_line(
-        &path,
-        &json!({"t": t, "event": event, "project": project, "ids": ids}).to_string(),
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+fn note(s: &Settings, dir: &Path, event: &str, project: &str, session: &str, v: &Value) {
+    let ids: Vec<&Value> = v["memories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| &m["id"])
+        .collect();
+    if !s.activity || ids.is_empty() {
+        return;
+    }
+    write_activity_row(
+        s,
+        dir,
+        &json!({"t": now_unix_ms(), "event": event, "project": project, "session": session, "ids": ids}),
     );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn note_recall_outcome(
+    s: &Settings,
+    dir: &Path,
+    event: &str,
+    project: &str,
+    session: &str,
+    ids: &[Value],
+    reason: Option<&str>,
+    anchor_hits: usize,
+) {
+    if !s.activity {
+        return;
+    }
+    let mut row = json!({
+        "t": now_unix_ms(),
+        "event": event,
+        "project": project,
+        "session": session,
+        "ids": ids,
+    });
+    if let Some(r) = reason {
+        row["reason"] = json!(r);
+    }
+    if anchor_hits > 0 {
+        row["anchor_hits"] = json!(anchor_hits);
+    }
+    write_activity_row(s, dir, &row);
 }
 
 fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
@@ -850,6 +1258,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
     let dir = state.join("memory-hook");
     crate::state::ensure_private_dir(&dir)?;
     let path = session_path(&dir, &e.session);
+    let session_id = safe_session_id(&e.session);
     let mut st: Session = if path.exists() {
         serde_json::from_slice(&fs::read(&path)?)?
     } else {
@@ -914,7 +1323,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                         }
                     }
                 }
-                note(s, &dir, "pack", &project, &memories);
+                note(s, &dir, "pack", &project, &session_id, &memories);
                 st.shown = ids(&memories).collect();
                 let pack = if binding {
                     render(&memories, "Binding rules for this user and project", true)
@@ -989,39 +1398,151 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                     );
                 }
                 let mut recalled = String::new();
-                if db.exists() && !e.prompt.trim().is_empty() && !e.prompt.starts_with('/') {
-                    // Search accepts at most 512 bytes, not characters. Never cut a UTF-8 code point.
-                    let query = &e.prompt[..e.prompt.floor_char_boundary(500.min(e.prompt.len()))];
+                let trimmed_prompt = e.prompt.trim();
+                if !db.exists() {
+                    note_recall_outcome(
+                        s,
+                        &dir,
+                        "recall_skip",
+                        &project,
+                        &session_id,
+                        &[],
+                        Some("no_db"),
+                        0,
+                    );
+                } else if trimmed_prompt.is_empty() {
+                    note_recall_outcome(
+                        s,
+                        &dir,
+                        "recall_skip",
+                        &project,
+                        &session_id,
+                        &[],
+                        Some("empty_prompt"),
+                        0,
+                    );
+                } else if trimmed_prompt.starts_with('/') {
+                    note_recall_outcome(
+                        s,
+                        &dir,
+                        "recall_skip",
+                        &project,
+                        &session_id,
+                        &[],
+                        Some("slash_command"),
+                        0,
+                    );
+                } else {
+                    let signals = extract_task_signals(&e.prompt, &e.cwd);
+                    let query = build_recall_query(&e.prompt, &signals);
                     // Twice the limit, so memories already shown in this session do not leave the prompt short.
                     let mut hits = timed(state, s.metrics, "hook.recall", SpanStart::Skip, || {
-                        recall(s, &db, &project, query, (s.recall_limit * 2).min(20))
+                        let mut v = recall(s, &db, &project, &query, (s.recall_limit * 2).min(20))?;
+                        if !signals.anchors.is_empty() {
+                            let c = crate::app::open(&db, false)?;
+                            let anchored = crate::memory::anchored_in_scope(
+                                &c,
+                                &signals.anchors,
+                                Some(&project),
+                                (s.recall_limit * 2).min(20),
+                            )?;
+                            if !anchored.is_empty()
+                                && let Some(list) = v["memories"].as_array_mut()
+                            {
+                                let mut merged = anchored;
+                                for m in std::mem::take(list) {
+                                    if !merged.iter().any(|a| a["id"] == m["id"]) {
+                                        merged.push(m);
+                                    }
+                                }
+                                *list = merged;
+                            }
+                        }
+                        Ok(v)
                     })?;
+                    let (mut raw_total, mut after_floors) = (0usize, 0usize);
                     if let Some(list) = hits["memories"].as_array_mut() {
-                        list.retain(|m| {
-                            m["id"].as_i64().is_none_or(|id| !st.shown.contains(&id))
-                                && passes_floors(m, s.cos_floor, s.inject_floor)
-                        });
+                        raw_total = list.len();
+                        list.retain(|m| passes_floors(m, s.cos_floor, s.inject_floor));
+                        after_floors = list.len();
+                        list.retain(|m| m["id"].as_i64().is_none_or(|id| !st.shown.contains(&id)));
                         list.truncate(s.recall_limit);
                     }
-                    st.shown.extend(ids(&hits));
-                    note(s, &dir, "recall", &project, &hits);
-                    recalled = if s.pointer_packing {
-                        render_packed(
-                            &hits,
-                            "Possibly relevant memories (… marks a cut text: footnote_get <id> gives all of it)",
-                            s.recall_full_top_k,
-                            s.recall_max_chars,
-                        )
+                    let hit_ids: Vec<Value> = hits["memories"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|m| m["id"].clone())
+                        .collect();
+                    if !hit_ids.is_empty() {
+                        let anchor_hits = hits["memories"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter(|m| m["match"] == "anchor")
+                            .count();
+                        st.shown.extend(ids(&hits));
+                        note_recall_outcome(
+                            s,
+                            &dir,
+                            "recall",
+                            &project,
+                            &session_id,
+                            &hit_ids,
+                            None,
+                            anchor_hits,
+                        );
+                        recalled = if s.pointer_packing {
+                            render_packed(
+                                &hits,
+                                "Possibly relevant memories (… marks a cut text: footnote_get <id> gives all of it)",
+                                s.recall_full_top_k,
+                                s.recall_max_chars,
+                            )
+                        } else {
+                            render(
+                                &hits,
+                                "Possibly relevant memories (… marks a cut text: footnote_get <id> gives all of it)",
+                                true,
+                            )
+                        };
+                    } else if raw_total == 0 {
+                        note_recall_outcome(
+                            s,
+                            &dir,
+                            "recall_miss",
+                            &project,
+                            &session_id,
+                            &[],
+                            Some("no_match"),
+                            0,
+                        );
+                    } else if after_floors == 0 {
+                        note_recall_outcome(
+                            s,
+                            &dir,
+                            "recall_miss",
+                            &project,
+                            &session_id,
+                            &[],
+                            Some("below_floor"),
+                            0,
+                        );
                     } else {
-                        render(
-                            &hits,
-                            "Possibly relevant memories (… marks a cut text: footnote_get <id> gives all of it)",
-                            true,
-                        )
-                    };
+                        note_recall_outcome(
+                            s,
+                            &dir,
+                            "recall_skip",
+                            &project,
+                            &session_id,
+                            &[],
+                            Some("already_shown"),
+                            0,
+                        );
+                    }
                 }
                 #[cfg(feature = "library")]
-                if s.skills && !e.prompt.trim().is_empty() && !e.prompt.starts_with('/') {
+                if s.skills && !trimmed_prompt.is_empty() && !trimmed_prompt.starts_with('/') {
                     let query = &e.prompt[..e.prompt.floor_char_boundary(500.min(e.prompt.len()))];
                     let picked = crate::skills::suggest(state, query, &project, &st.skills_shown);
                     st.skills_shown.extend(
@@ -1496,5 +2017,45 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn task_signal_extraction_normalizes_paths_symbols_and_errors() {
+        let prompt = "Check `src/audit.rs:42` and C:\\repo\\crates\\memory\\src\\lib.rs(12,4).\n\
+                      Ignore https://example.com/foo/bar.rs and verify `crate::audit::verify_chain()`.\n\
+                      Call TaskSignals::default() or parse_line(raw) and handle error: lock poisoned";
+        let sig = extract_task_signals(prompt, "C:\\repo");
+        assert!(sig.anchors.contains(&"src/audit.rs".to_string()), "{sig:?}");
+        assert!(
+            sig.anchors
+                .contains(&"crates/memory/src/lib.rs".to_string()),
+            "{sig:?}"
+        );
+        assert!(sig.anchors.contains(&"verify_chain".to_string()), "{sig:?}");
+        assert!(sig.anchors.contains(&"TaskSignals".to_string()), "{sig:?}");
+        assert!(sig.anchors.contains(&"parse_line".to_string()), "{sig:?}");
+        assert!(
+            !sig.anchors.iter().any(|a| a.contains("example.com")),
+            "{sig:?}"
+        );
+        assert_eq!(sig.error_lines.len(), 1, "{sig:?}");
+        assert!(
+            sig.error_lines[0].contains("error: lock poisoned"),
+            "{sig:?}"
+        );
+
+        // Short prompt stays verbatim; long prompt packs head + error lines + anchors <= 500 bytes.
+        assert_eq!(build_recall_query("short prompt", &sig), "short prompt");
+        let long_prompt = format!(
+            "Investigate failure in `src/audit.rs:42`. {}\nerror: audit chain forked at seq 32",
+            "word ".repeat(140)
+        );
+        let long_sig = extract_task_signals(&long_prompt, "");
+        let built = build_recall_query(&long_prompt, &long_sig);
+        assert!(built.len() <= 500, "len {}", built.len());
+        assert!(
+            built.contains("error: audit chain forked at seq 32"),
+            "{built}"
+        );
     }
 }
