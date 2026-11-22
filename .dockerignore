@@ -5,3 +5,6 @@
 !src
 !crates
 !rules
+!tools/
+tools/*
+!tools/extract.py

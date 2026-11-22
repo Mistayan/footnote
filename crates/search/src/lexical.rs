@@ -221,6 +221,15 @@ pub fn sync(c: &Connection) -> Result<Option<i64>> {
 }
 /// Chunk ids and BM25 scores matching any of the query's words, best first. `Ok(None)`: no derived index here, use FTS5.
 pub fn top_hits(c: &Connection, query: &str, n: usize) -> Result<Option<Vec<(i64, f32)>>> {
+    filtered_hits(c, query, n, None)
+}
+
+pub(crate) fn filtered_hits(
+    c: &Connection,
+    query: &str,
+    n: usize,
+    only: Option<&std::collections::HashSet<i64>>,
+) -> Result<Option<Vec<(i64, f32)>>> {
     let seq = sequence(c)?;
     let Some(dir) = dir_of(c) else {
         return Ok(None);
@@ -265,10 +274,22 @@ pub fn top_hits(c: &Connection, query: &str, n: usize) -> Result<Option<Vec<(i64
         })
         .collect();
     let searcher = o.reader.searcher();
-    let hits = searcher.search(
-        &BooleanQuery::new(clauses),
-        &TopDocs::with_limit(n.max(1)).order_by_score(),
-    )?;
+    let query = BooleanQuery::new(clauses);
+    let top = TopDocs::with_limit(n.max(1)).order_by_score();
+    let hits = if let Some(ids) = only {
+        // FilterCollector clones its predicate per segment; share the eligible set.
+        let ids = std::sync::Arc::new(ids.clone());
+        searcher.search(
+            &query,
+            &tantivy::collector::FilterCollector::new(
+                "id".to_owned(),
+                move |id: u64| ids.contains(&(id as i64)),
+                top,
+            ),
+        )?
+    } else {
+        searcher.search(&query, &top)?
+    };
     let mut ids = Vec::with_capacity(hits.len());
     for (score, addr) in hits {
         let d: TantivyDocument = searcher.doc(addr)?;

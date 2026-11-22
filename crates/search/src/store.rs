@@ -371,11 +371,24 @@ fn freshness(path: &str, sha: &str, status: &str) -> &'static str {
     }
 }
 pub fn hit(r: &rusqlite::Row<'_>, full: bool) -> rusqlite::Result<Value> {
+    cached_hit(r, full, &mut HashMap::new())
+}
+
+pub(crate) type FreshnessCache = HashMap<String, &'static str>;
+
+pub(crate) fn cached_hit(
+    r: &rusqlite::Row<'_>,
+    full: bool,
+    cache: &mut FreshnessCache,
+) -> rusqlite::Result<Value> {
     let path: String = r.get(1)?;
     let sha: String = r.get(2)?;
     let status: String = r.get(4)?;
     let text: String = r.get(9)?;
-    let mut v = json!({"id":r.get::<_,i64>(0)?,"path":path,"sha256":sha,"revision":r.get::<_,i64>(3)?,"status":status,"extractor":r.get::<_,String>(5)?,"heading":r.get::<_,String>(6)?,"page":r.get::<_,Option<i64>>(7)?,"line":r.get::<_,i64>(8)?,"text":text.chars().take(if full {2000} else {500}).collect::<String>(),"freshness":freshness(&path,&sha,&status),"trust":"untrusted_source_data"});
+    let fresh = *cache
+        .entry(path.clone())
+        .or_insert_with(|| freshness(&path, &sha, &status));
+    let mut v = json!({"id":r.get::<_,i64>(0)?,"path":path,"sha256":sha,"revision":r.get::<_,i64>(3)?,"status":status,"extractor":r.get::<_,String>(5)?,"heading":r.get::<_,String>(6)?,"page":r.get::<_,Option<i64>>(7)?,"line":r.get::<_,i64>(8)?,"text":text.chars().take(if full {2000} else {500}).collect::<String>(),"freshness":fresh,"trust":"untrusted_source_data"});
     // Search hits get their URL in `lean`, which reads each folder's urls.json once per result list.
     if full && let Some(u) = source_url(&path, &mut Urls::new()) {
         v["url"] = u.into();
@@ -482,11 +495,20 @@ impl PerSource {
 /// Chunk ids with BM25 scores (higher is better) for any-word matching: Tantivy when its derived index is available, else FTS5.
 /// Fails closed if an existing derived Tantivy index is corrupt or unreadable (#354).
 pub fn lexical_chunks(c: &Connection, q: &str, n: usize) -> Result<Vec<(i64, f64)>> {
-    if let Some(hits) = crate::lexical::top_hits(c, q, n)? {
+    filtered_lexical_chunks(c, q, n, None)
+}
+pub(crate) fn filtered_lexical_chunks(
+    c: &Connection,
+    q: &str,
+    n: usize,
+    only: Option<&std::collections::HashSet<i64>>,
+) -> Result<Vec<(i64, f64)>> {
+    if let Some(hits) = crate::lexical::filtered_hits(c, q, n, only)? {
         return Ok(hits.into_iter().map(|(id, s)| (id, s as f64)).collect());
     }
-    let mut s = c.prepare("SELECT rowid,-bm25(search_fts) FROM search_fts WHERE search_fts MATCH ?1 ORDER BY bm25(search_fts),rowid LIMIT ?2")?;
-    Ok(s.query_map(params![match_expr(q), n as i64], |r| {
+    let ids = only.map(serde_json::to_string).transpose()?;
+    let mut s = c.prepare("SELECT rowid,-bm25(search_fts) FROM search_fts WHERE search_fts MATCH ?1 AND (?3 IS NULL OR rowid IN (SELECT value FROM json_each(?3))) ORDER BY bm25(search_fts),rowid LIMIT ?2")?;
+    Ok(s.query_map(params![match_expr(q), n as i64, ids], |r| {
         Ok((r.get(0)?, r.get(1)?))
     })?
     .collect::<rusqlite::Result<_>>()?)
@@ -521,58 +543,53 @@ pub fn search(
     let text_limit = limit - records.len();
     // Chunk ranking comes from the derived Tantivy index when there is one (BM25, stemming); FTS5 is used for in-memory DBs.
     // Fails closed if an existing derived Tantivy index is corrupt or unreadable (#354).
+    let mut fresh = FreshnessCache::new();
+    let mut results = Vec::new();
+    let mut cap = PerSource::new(filters.per_source);
+    let mut accept = |row: &rusqlite::Row<'_>, results: &mut Vec<Value>| -> rusqlite::Result<()> {
+        if cap.allow(row.get_ref(1)?.as_str()?) {
+            results.push(cached_hit(row, false, &mut fresh)?);
+        }
+        Ok(())
+    };
     if let Some(ids) = crate::metrics::timed!(
         "search.keywords",
-        crate::lexical::top_ids(c, q, (limit * 30).max(100))
+        crate::lexical::filtered_hits(c, q, (limit * 30).max(100), filters.only.as_ref())
     )? {
         let mut s = c.prepare(&format!(
             "{HIT} WHERE c.id=?1 AND s.status='indexed' AND c.id=(SELECT min(c2.id) FROM chunks c2 JOIN sources s2 ON s2.id=c2.source_id WHERE s2.sha256=s.sha256 AND s2.status='indexed' AND c2.heading=c.heading AND c2.page IS c.page AND c2.line=c.line AND c2.text=c.text)"
         ))?;
-        let mut results = Vec::new();
-        let mut cap = PerSource::new(filters.per_source);
-        // shortcut: the pre-filter applies to the keyword shortlist (30 x limit, at least 100), enough for memory databases.
-        for id in ids
-            .into_iter()
-            .filter(|id| filters.only.as_ref().is_none_or(|o| o.contains(id)))
-        {
+        for (id, _) in ids {
             if results.len() >= text_limit {
                 break;
             }
-            if let Some(v) = s.query_row([id], |r| hit(r, false)).optional()?
-                && cap.allow(v["path"].as_str().unwrap_or(""))
-            {
-                results.push(v);
-            }
+            s.query_row([id], |row| accept(row, &mut results))
+                .optional()?;
         }
         return Ok(
             json!({"mode":"lexical_bm25","results":lean(results),"records":records,"trust":TRUST}),
         );
     }
     let sql = format!(
-        "{HIT} JOIN search_fts f ON f.rowid=c.id WHERE search_fts MATCH ?1 AND s.status='indexed' AND c.id=(SELECT min(c2.id) FROM chunks c2 JOIN sources s2 ON s2.id=c2.source_id WHERE s2.sha256=s.sha256 AND s2.status='indexed' AND c2.heading=c.heading AND c2.page IS c.page AND c2.line=c.line AND c2.text=c.text) ORDER BY bm25(search_fts),c.id LIMIT ?2"
+        "{HIT} JOIN search_fts f ON f.rowid=c.id WHERE search_fts MATCH ?1 AND (?3 IS NULL OR c.id IN (SELECT value FROM json_each(?3))) AND s.status='indexed' AND c.id=(SELECT min(c2.id) FROM chunks c2 JOIN sources s2 ON s2.id=c2.source_id WHERE s2.sha256=s.sha256 AND s2.status='indexed' AND c2.heading=c.heading AND c2.page IS c.page AND c2.line=c.line AND c2.text=c.text) ORDER BY bm25(search_fts),c.id LIMIT ?2"
     );
     let mut s = c.prepare(&sql)?;
-    let fetch = if filters.only.is_some() {
-        10_000
-    } else if filters.per_source.is_some() {
+    let ids = filters
+        .only
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let fetch = if filters.per_source.is_some() {
         text_limit * 10
     } else {
         text_limit
     };
-    let mut cap = PerSource::new(filters.per_source);
-    let results: Vec<Value> = s
-        .query_map(params![expr, fetch as i64], |r| hit(r, false))?
-        .collect::<rusqlite::Result<Vec<Value>>>()?
-        .into_iter()
-        .filter(|v| {
-            filters
-                .only
-                .as_ref()
-                .is_none_or(|o| v["id"].as_i64().is_some_and(|id| o.contains(&id)))
-        })
-        .filter(|v| cap.allow(v["path"].as_str().unwrap_or("")))
-        .take(text_limit)
-        .collect();
+    let mut rows = s.query(params![expr, fetch as i64, ids])?;
+    while results.len() < text_limit
+        && let Some(row) = rows.next()?
+    {
+        accept(row, &mut results)?;
+    }
     Ok(json!({"mode":"lexical_fts5","results":lean(results),"records":records,"trust":TRUST}))
 }
 pub fn stats(c: &Connection) -> Result<Value> {

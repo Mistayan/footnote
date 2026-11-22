@@ -31,8 +31,8 @@ With `memory.skill_rewrite` on (off by default), agents get `footnote_skill_edit
 
 ## Memory cleaning
 
-Every `memory.clean_days` (7 by default; 0 turns it off), the next session start runs `footnote memory-clean` in the background. It sends up to 400 project memories, each cut to 300 characters, to Claude Code (Haiku) or Codex through that agent's own CLI and sign-in. Footnote stores no API key, and the run uses the user's own subscription. Conversations and global memories are never sent. Memory text may carry injected instructions, so:
-- **The agent runs without tools**, in an empty folder, with Footnote's own hook off: Claude Code with `--tools ""` and `--strict-mcp-config`, Codex in its read-only sandbox.
+Every `memory.clean_days` (7 by default; 0 turns it off), the next session start runs `footnote memory-clean` in the background. It sends up to 400 project memories, each cut to 300 characters, to Claude Code (Haiku) through its own CLI and sign-in when selected. With Codex selected, all cleaning stays local. Footnote stores no API key, and the run uses the user's own subscription. Conversations and global memories are never sent. Memory text may carry injected instructions, so:
+- **The agent runs without tools**, in an empty folder, with Footnote's own hook off: Claude Code receives `--tools ""` and `--strict-mcp-config`. When Codex is selected, Footnote runs only its local deterministic rules because Codex exec has no tool-free mode.
 - **The model only names ids.** Ids outside the memories it was sent are ignored, and global memories are never sent, so it cannot retire one.
 - **A run is capped.** A run that would retire more than 15% of the live memories retires nothing and leaves a warning in `footnote status`.
 - **Every retirement can be undone.** `footnote memory-restore <id>` brings a memory back, and the run's report lists each id with its reason.

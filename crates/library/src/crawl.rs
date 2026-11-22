@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashSet, VecDeque},
     fs,
-    net::{IpAddr, ToSocketAddrs},
+    net::IpAddr,
     path::Path,
     thread,
     time::Duration,
@@ -42,7 +42,9 @@ fn agent() -> ureq::Agent {
     // System roots, not ureq's bundled Mozilla list: fastapi.tiangolo.com fails against the bundle, and companies add their own roots.
     // rustls, not the Windows TLS stack: Cloudflare answers the latter with a challenge (HTTP 429, `cf-mitigated`) on Read the Docs and
     // Pallets sites (jinja, flask), so no page could be crawled (DOCS-SPHINX-2026-11-19.md).
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
+        // A forward proxy would resolve the target itself, outside our address policy.
+        .proxy(None)
         .tls_config(
             TlsConfig::builder()
                 .provider(TLS_PROVIDER)
@@ -53,8 +55,38 @@ fn agent() -> ureq::Agent {
         .max_redirects(0)
         .user_agent(AGENT)
         .http_status_as_error(false)
-        .build()
-        .into()
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        CrawlResolver,
+    )
+}
+
+#[derive(Debug)]
+struct CrawlResolver;
+
+impl ureq::unversioned::resolver::Resolver for CrawlResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let addresses = ureq::unversioned::resolver::DefaultResolver::default()
+            .resolve(uri, config, timeout)?;
+        let local = uri.host().is_some_and(loopback_name);
+        if addresses.iter().any(|a| {
+            if local {
+                !a.ip().is_loopback()
+            } else {
+                is_private_or_special_ip(a.ip())
+            }
+        }) {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(addresses)
+    }
 }
 
 fn is_private_or_special_ip(ip: IpAddr) -> bool {
@@ -84,9 +116,10 @@ fn is_private_or_special_ip(ip: IpAddr) -> bool {
 }
 
 fn is_loopback_host(url: &Url) -> bool {
-    let Some(host) = url.host_str() else {
-        return false;
-    };
+    url.host_str().is_some_and(loopback_name)
+}
+
+fn loopback_name(host: &str) -> bool {
     let h = host.trim_matches(|c| c == '[' || c == ']');
     if h.eq_ignore_ascii_case("localhost") {
         return true;
@@ -117,18 +150,8 @@ fn validate_target(url: &Url, allow_loopback: bool) -> bool {
     if clean.eq_ignore_ascii_case("localhost") || clean.ends_with(".localhost") {
         return false;
     }
-    let port = url.port_or_known_default().unwrap_or(80);
-    let Ok(addrs) = (clean, port).to_socket_addrs() else {
-        return false;
-    };
-    let mut saw_any = false;
-    for addr in addrs {
-        saw_any = true;
-        if is_private_or_special_ip(addr.ip()) {
-            return false;
-        }
-    }
-    saw_any
+    // The transport validates and uses the same DNS answer when it connects.
+    true
 }
 
 /// Issue an HTTP GET while validating every redirect hop (max `MAX_REDIRECTS`) against SSRF rules before connecting.

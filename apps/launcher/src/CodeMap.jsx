@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import "./codemap.css";
-import ELK from "elkjs/lib/elk.bundled.js";
 import { footnote, num } from "./data.js";
 import { closure, engineLevel, filesLevel } from "./layout.js";
 
@@ -12,7 +11,7 @@ import { closure, engineLevel, filesLevel } from "./layout.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const WIDTH = { block: 248, file: 236, outside: 224, actor: 204 };
-const elk = new ELK();
+let layoutEngine;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const KIND = { block: "Block", file: "File", outside: "Calls out", actor: "Calls in" };
 const statsText = (s) => (!s ? "" : s.lines ? `${num(s.lines)} lines` : `${num(s.files)} files · ${num(s.symbols)} symbols`);
@@ -85,7 +84,8 @@ async function layout(L, engine, measure) {
       labels: engine && !e.outside ? [{ text: e.label, width: textWidth(e.label) + 14, height: 19 }] : [] });
     place[i] = c;
   });
-  const out = await elk.layout(root);
+  layoutEngine ??= import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK());
+  const out = await (await layoutEngine).layout(root);
   const at = { root: { x: 0, y: 0 } }, groups = [], boxes = {};
   for (const c of out.children) {
     if (c.children) {

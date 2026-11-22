@@ -16,11 +16,6 @@ pub mod miss;
 
 use footnote_core::metrics;
 
-/// The repository the binary was built from: the extraction helper lives in its `tools/`.
-pub(crate) fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
 fn excluded(p: &Path) -> bool {
     p.components().any(|c| {
         let name = c.as_os_str().to_string_lossy().to_lowercase();
@@ -71,7 +66,6 @@ pub fn index(
     let mut failed = 0;
     let mut failures = Vec::new();
     let mut total_bytes = 0_u64;
-    let extractor_hash = hash(&fs::read(repo().join("tools/extract.py"))?);
     let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     // Sorted: the same files get the same ids on every platform (NTFS lists by name, Linux file systems do not).
     for entry in WalkDir::new(&root)
@@ -125,14 +119,14 @@ pub fn index(
                 && (if ["md", "txt"].contains(&ext.as_str()) {
                     ex == "utf8-v2"
                 } else {
-                    ex.contains(&extractor_hash) && ex.contains("chunker-v2")
+                    ex.contains(extract::helper_hash()) && ex.contains("chunker-v2")
                 })
         }) {
             unchanged += 1;
             continue;
         }
         let extraction = if ["md", "txt"].contains(&ext.as_str()) {
-            match String::from_utf8(bytes.clone()) {
+            match String::from_utf8(bytes) {
                 Ok(text) if text.len() <= 1_000_000 => crate::extract::Extraction {
                     status: if text.trim().is_empty() {
                         "empty"

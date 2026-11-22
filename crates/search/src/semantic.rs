@@ -778,11 +778,8 @@ pub fn search(
     } else {
         crate::metrics::timed!(
             "search.keywords",
-            crate::store::lexical_chunks(c, q, SHORTLIST)
+            crate::store::filtered_lexical_chunks(c, q, SHORTLIST, f.only.as_ref())
         )?
-        .into_iter()
-        .filter(|(id, _)| allowed(id))
-        .collect()
     };
     let record_lex = crate::records::lexical_hits(c, &expr, POOL, f)?;
     let mut lex: HashMap<(u8, i64), f64> = HashMap::new();
@@ -893,6 +890,8 @@ pub fn search(
     let mut records = Vec::new();
     let mut seen = HashSet::new();
     let mut cap = crate::store::PerSource::new(f.per_source);
+    let mut fresh = crate::store::FreshnessCache::new();
+    let mut chunk = c.prepare(&format!("{} WHERE c.id=?1", crate::store::HIT))?;
     for (i, score) in &ranked {
         if results.len() + records.len() >= limit {
             break;
@@ -901,28 +900,22 @@ pub fn search(
         let mut v = if cand.kind == 1 {
             crate::records::get(c, cand.id, false)?
         } else {
-            c.query_row(
-                &format!("{} WHERE c.id=?1", crate::store::HIT),
-                [cand.id],
-                |r| crate::store::hit(r, false),
-            )?
-        };
-        if cand.kind == 0 {
-            let text: String =
-                c.query_row("SELECT text FROM chunks WHERE id=?1", [cand.id], |r| {
-                    r.get(0)
-                })?;
-            let key = format!(
-                "{}:{}:{}:{}:{}",
-                v["sha256"], v["heading"], v["page"], v["line"], text
+            let mut rows = chunk.query([cand.id])?;
+            let Some(row) = rows.next()? else {
+                continue;
+            };
+            let key: (String, String, Option<i64>, i64, String) = (
+                row.get(2)?,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+                row.get(9)?,
             );
-            if !seen.insert(key) {
+            if !seen.insert(key) || !cap.allow(row.get_ref(1)?.as_str()?) {
                 continue;
             }
-            if !cap.allow(v["path"].as_str().unwrap_or("")) {
-                continue;
-            }
-        }
+            crate::store::cached_hit(row, false, &mut fresh)?
+        };
         v["fusion_score"] = json!(score);
         if let Some(c) = cand.dense_cos
             && c.is_finite()

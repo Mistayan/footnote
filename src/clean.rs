@@ -187,14 +187,21 @@ fn clean(
     candidates.sort_by_key(|m| std::cmp::Reverse(m.id));
     candidates.truncate(MAX_CANDIDATES);
     let mut usage = Value::Null;
-    if !candidates.is_empty() {
+    let model_review = if agent == "codex" {
+        "skipped_no_tool_free_mode"
+    } else if candidates.is_empty() {
+        "no_candidates"
+    } else {
+        "completed"
+    };
+    if model_review == "completed" {
         let prompt = candidates.iter().fold(PROMPT.to_string(), |mut p, m| {
             let text: String = m.text.chars().take(TEXT_CHARS).collect();
             p += &json!({"id": m.id, "kind": m.kind, "scope": m.scope, "date": m.date, "text": text}).to_string();
             p.push('\n');
             p
         });
-        let (reply, u) = ask(state, &agent, &model, &prompt)?;
+        let (reply, u) = ask_claude(state, &model, &prompt)?;
         usage = u;
         let allowed: HashSet<i64> = candidates.iter().map(|m| m.id).collect();
         retire.extend(
@@ -221,7 +228,7 @@ fn clean(
     }
     let changed = !dry_run && !over_cap;
     Ok(json!({
-        "dry_run": dry_run, "agent": agent, "model": model, "usage": usage,
+        "dry_run": dry_run, "agent": agent, "model": model, "model_review": model_review, "usage": usage,
         "live": live.len(), "cap": cap, "over_cap": over_cap,
         "retired": if changed { list.clone() } else { vec![] },
         "would_retire": if changed { vec![] } else { list },
@@ -335,6 +342,10 @@ fn pick(agent: Option<&str>, model: Option<&str>) -> Result<(String, String)> {
             }
         }
     };
+    anyhow::ensure!(
+        matches!(agent.as_str(), "claude" | "codex"),
+        "unknown cleaning agent"
+    );
     let model = match (agent.as_str(), model) {
         (_, Some(m)) => m.to_string(),
         ("claude", None) => "haiku".to_string(),
@@ -346,53 +357,27 @@ fn pick(agent: Option<&str>, model: Option<&str>) -> Result<(String, String)> {
 
 /// One non-interactive call, with no tools, in an empty folder, with Footnote's own hook off. Returns the answer text and
 /// the token usage when the agent reports it.
-fn ask(state: &Path, agent: &str, model: &str, prompt: &str) -> Result<(String, Value)> {
+fn ask_claude(state: &Path, model: &str, prompt: &str) -> Result<(String, Value)> {
     let dir = state.join("memory-clean");
     crate::state::ensure_private_dir(&dir)?;
-    let out_file = dir.join("answer.txt");
-    let _ = std::fs::remove_file(&out_file);
-    let mut cmd = match agent {
-        "claude" => {
-            let mut c = Command::new("claude");
-            c.args([
-                "-p",
-                "--model",
-                model,
-                "--tools",
-                "",
-                "--strict-mcp-config",
-                "--no-session-persistence",
-            ])
-            .args(["--output-format", "json"]);
-            c
-        }
-        "codex" => {
-            let mut c = Command::new("codex");
-            c.args([
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--skip-git-repo-check",
-                "--ephemeral",
-                "-o",
-            ])
-            .arg(&out_file);
-            if !model.is_empty() {
-                c.args(["-m", model]);
-            }
-            c.arg("-");
-            c
-        }
-        other => bail!("unknown agent `{other}`: use claude or codex"),
-    };
+    let mut cmd = Command::new("claude");
+    cmd.args([
+        "-p",
+        "--model",
+        model,
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--no-session-persistence",
+        "--output-format",
+        "json",
+    ]);
     cmd.current_dir(&dir)
         .env("FOOTNOTE_HOOK_OFF", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("cannot start `{agent}`"))?;
+    let mut child = cmd.spawn().context("cannot start Claude Code")?;
     child
         .stdin
         .take()
@@ -409,37 +394,30 @@ fn ask(state: &Path, agent: &str, model: &str, prompt: &str) -> Result<(String, 
         let _ = child.kill();
         let _ = child.wait();
         bail!(
-            "`{agent}` timed out after {} minutes",
+            "Claude Code timed out after {} minutes",
             TIMEOUT.as_secs() / 60
         );
     };
     let stdout = reader.join().unwrap_or_default();
     if !status.success() {
-        bail!("`{agent}` failed ({status})");
+        bail!("Claude Code failed ({status})");
     }
-    if agent == "claude" {
-        let v: Value =
-            serde_json::from_str(stdout.trim()).context("`claude` did not answer JSON")?;
-        if v["is_error"] == true {
-            bail!("`claude` reported an error");
-        }
-        let input: u64 = [
-            "input_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        ]
-        .iter()
-        .filter_map(|k| v["usage"][*k].as_u64())
-        .sum();
-        return Ok((
-            v["result"].as_str().unwrap_or_default().to_string(),
-            json!({"input_tokens": input,
-                "output_tokens": v["usage"]["output_tokens"], "cost_usd": v["total_cost_usd"]}),
-        ));
+    let v: Value = serde_json::from_str(stdout.trim()).context("`claude` did not answer JSON")?;
+    if v["is_error"] == true {
+        bail!("`claude` reported an error");
     }
+    let input: u64 = [
+        "input_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ]
+    .iter()
+    .filter_map(|k| v["usage"][*k].as_u64())
+    .sum();
     Ok((
-        std::fs::read_to_string(&out_file).unwrap_or(stdout),
-        Value::Null,
+        v["result"].as_str().unwrap_or_default().to_string(),
+        json!({"input_tokens": input,
+                "output_tokens": v["usage"]["output_tokens"], "cost_usd": v["total_cost_usd"]}),
     ))
 }
 

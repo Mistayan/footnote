@@ -643,13 +643,16 @@ pub fn pack(c: &Connection, project: Option<&str>, max_chars: usize) -> Result<V
     let (mut out, mut used) = (Vec::new(), 0);
     for v in s.query_map([p], row)? {
         let mut v = v?;
-        v["origin"] = json!(origin_of(c, v["id"].as_i64().unwrap_or(0)));
         let n = v["text"].as_str().map_or(0, |t| t.chars().count());
         if used + n > max_chars {
             continue; // a shorter one further down may still fit
         }
+        v["origin"] = json!(origin_of(c, v["id"].as_i64().unwrap_or(0)));
         used += n;
         out.push(v);
+        if used == max_chars {
+            break;
+        }
     }
     Ok(
         json!({"kind": "memory_pack", "project": project, "chars": used, "memories": out,
@@ -667,13 +670,16 @@ pub fn pack_binding(c: &Connection, project: Option<&str>, max_chars: usize) -> 
     let (mut out, mut used) = (Vec::new(), 0);
     for v in s.query_map([p], row)? {
         let mut v = v?;
-        v["origin"] = json!(origin_of(c, v["id"].as_i64().unwrap_or(0)));
         let n = v["text"].as_str().map_or(0, |t| t.chars().count());
         if used + n > max_chars {
             continue;
         }
+        v["origin"] = json!(origin_of(c, v["id"].as_i64().unwrap_or(0)));
         used += n;
         out.push(v);
+        if used == max_chars {
+            break;
+        }
     }
     Ok(
         json!({"kind": "memory_pack", "mode": "binding", "project": project, "chars": used, "memories": out,
