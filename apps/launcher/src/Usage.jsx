@@ -158,6 +158,12 @@ export default function Usage() {
         { k: "Output", n: t.output, color: "#f2b84b" },
       ]
     : [];
+  // Measured savings never reached the model, so they sit beside the processed tokens, not inside them.
+  const saved = [
+    { k: "Saved by Lean (shell)", n: lean?.shell?.saved_tokens_estimate ?? 0 },
+    { k: "Saved by Footnote tools", n: lean?.footnote?.saved_tokens_estimate ?? 0 },
+  ].filter((s) => s.n > 0);
+  const barTotal = allTok + saved.reduce((a, s) => a + s.n, 0);
 
   const priceSource = data?.price_source;
 
@@ -240,7 +246,10 @@ export default function Usage() {
               <h2 className="section">Tokens by type</h2>
               <div className="stack-bar" role="img" aria-label="Token share by type">
                 {segs.map((s) => (
-                  <span key={s.k} style={{ width: `${Math.max(0.4, (100 * s.n) / allTok)}%`, background: s.color }} title={`${s.k}: ${tokens(s.n)}`} />
+                  <span key={s.k} style={{ width: `${Math.max(0.4, (100 * s.n) / barTotal)}%`, background: s.color }} title={`${s.k}: ${tokens(s.n)}`} />
+                ))}
+                {saved.map((s) => (
+                  <span key={s.k} className="seg-saved" style={{ width: `${Math.max(0.4, (100 * s.n) / barTotal)}%` }} title={`${s.k}: ${tokens(s.n)} (measured, never sent)`} />
                 ))}
               </div>
               <div className="stack-legend">
@@ -248,6 +257,12 @@ export default function Usage() {
                   <span key={s.k} className="small">
                     <i style={{ background: s.color }} />
                     <span className="dimmed">{s.k}</span> <b className="mono">{tokens(s.n)}</b>
+                  </span>
+                ))}
+                {saved.map((s) => (
+                  <span key={s.k} className="small">
+                    <i className="seg-saved" />
+                    <span className="dimmed">{s.k}</span> <b className="mono ok">−{tokens(s.n)}</b>
                   </span>
                 ))}
               </div>
