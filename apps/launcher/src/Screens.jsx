@@ -44,6 +44,10 @@ const Failed = ({ error }) => (
 
 const NAME_MAX = 24;
 
+/** Commits running now, by project: a run outlives the card that started it (another screen, a refresh). */
+const running = new Set();
+const announce = () => dispatchEvent(new Event("footnote-commit-run"));
+
 /** One project as a glass card: name, folder (drive squircle + last folder, opens the folder), then pictograms for its
  * memories, code graph and uncommitted changes. Each pictogram explains itself on hover. The commit pictogram sends the
  * engine's commit-and-push request to the next agent turn in the project (`footnote agent-ask`); while it waits, a click
@@ -66,21 +70,46 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
   };
   const open = () => openProjectFolder(p.path).catch((e) => toast(String(e), "warn"));
   const waiting = p.ask?.kind === "commit";
+  const [, rerender] = useState(0);
+  useEffect(() => {
+    const on = () => rerender((n) => n + 1);
+    addEventListener("footnote-commit-run", on);
+    return () => removeEventListener("footnote-commit-run", on);
+  }, []);
+  const committing = running.has(p.name);
+  // A click commits and pushes now: the agent last used here runs unattended (`footnote agent-commit`). With no agent
+  // command line installed, the request waits for the next agent turn instead (`agent-ask`); a click withdraws that.
   const ask = async () => {
-    setAsking(true);
-    try {
-      if (waiting) {
+    if (waiting) {
+      setAsking(true);
+      try {
         await footnote("agent-ask", p.name, "--cancel");
         toast(`Withdrew the commit request for ${p.name}.`);
-      } else {
-        await footnote("agent-ask", p.name);
-        toast(`Sent to the agent in ${p.name}: it commits and pushes at its next turn.`);
+        await refresh?.();
+      } catch (e) {
+        toast(String(e), "warn");
+      } finally {
+        setAsking(false);
       }
-      await refresh?.();
+      return;
+    }
+    running.add(p.name);
+    announce();
+    try {
+      const r = await footnote("agent-commit", p.name);
+      const left = r?.uncommitted ?? 0;
+      toast(`${p.name}: ${clip(r?.said || "done", 220)}${left ? ` (${left} left uncommitted)` : ""}`, left ? "warn" : "ok", { sticky: true });
     } catch (e) {
-      toast(String(e), "warn");
+      if (/is installed on PATH/.test(String(e))) {
+        await footnote("agent-ask", p.name).catch(() => {});
+        toast(`No agent command line found: ${p.name}'s next agent turn commits and pushes instead.`);
+      } else {
+        toast(`${p.name}: ${clip(String(e), 200)}`, "warn", { sticky: true });
+      }
     } finally {
-      setAsking(false);
+      running.delete(p.name);
+      announce();
+      refresh?.();
     }
   };
   const name = clip(p.name, NAME_MAX);
@@ -123,10 +152,16 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
               <span className="stat-ic"><Send size={12} strokeWidth={2.2} /></span>{num(dirty)}
             </button>
           </Tip>
+        ) : dirty > 0 && committing ? (
+          <Tip tip={`The agent is committing and pushing ${p.name}…`}>
+            <span className="stat sent" role="status" aria-label={`Committing and pushing ${p.name}`} tabIndex={0}>
+              <span className="stat-ic"><Loader2 size={12} strokeWidth={2.2} className="spin" /></span>{num(dirty)}
+            </span>
+          </Tip>
         ) : dirty > 0 ? (
-          <Tip tip={`${num(dirty)} uncommitted change${dirty === 1 ? "" : "s"}. Click to have the agent in this project commit and push.`}>
+          <Tip tip={`${num(dirty)} uncommitted change${dirty === 1 ? "" : "s"}. Click: the agent last used here commits and pushes now, in the background.`}>
             <button type="button" className="stat bad" onClick={ask} disabled={asking}
-              aria-label={`${num(dirty)} uncommitted changes in ${p.name}: ask the agent to commit and push`}>
+              aria-label={`${num(dirty)} uncommitted changes in ${p.name}: commit and push now`}>
               <span className="stat-ic"><GitCommitHorizontal size={13} strokeWidth={2.2} /></span>{num(dirty)}
             </button>
           </Tip>

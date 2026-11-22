@@ -113,6 +113,9 @@ fn allowed(args: &[String]) -> bool {
         // The commit button (22 Nov 2026): queue or withdraw the engine's fixed commit-and-push request for the next agent
         // turn in a project. The window names the project only; the text is the engine's.
         ["agent-ask", project] | ["agent-ask", project, "--cancel"] => plain(project),
+        // The commit button: the agent last used in the project commits and pushes now, unattended, with the engine's fixed
+        // request (Claude Code may run git only).
+        ["agent-commit", project] => plain(project),
         // The Projects screen's Ignore button and its undo: Footnote stops listing and recording a project (22 Nov 2026).
         ["projects", "ignore" | "unignore", project] => plain(project),
         // Add project: the folder the user picked in the window's folder browser.
@@ -575,6 +578,7 @@ mod tests {
         assert!(ok("update --check") && ok("update --download") && !ok("update --from C:/x.exe") && !ok("rollback"));
         assert!(ok("forget 12") && !ok("forget abc"));
         assert!(ok("agent-ask footnote") && ok("agent-ask footnote --cancel"));
+        assert!(ok("agent-commit footnote") && !ok("agent-commit --all") && !ok("agent-commit a b"));
         assert!(ok("projects --quick") && ok("projects ignore scratch") && ok("projects unignore scratch"));
         assert!(ok("projects add D:/work/shop") && !ok("projects add --help") && !ok("projects add a b"));
         assert!(!ok("projects ignore --all") && !ok("projects ignore a b") && !ok("projects forget scratch"));

@@ -389,6 +389,13 @@ enum Action {
         #[arg(long)]
         cancel: bool,
     },
+    /// Commit and push a project's uncommitted work now, unattended, with the agent last used there (Claude Code: git
+    /// commands only; Codex: its workspace sandbox). The launcher's commit button.
+    #[cfg(feature = "memory")]
+    AgentCommit {
+        /// The project's name, as `footnote projects` lists it.
+        project: String,
+    },
     /// What memory did, day by day: memories saved, sessions and prompts given memories, the memories used most.
     #[cfg(feature = "memory")]
     Activity {
@@ -1136,6 +1143,10 @@ fn execute(cli: Cli) -> Result<Value> {
             };
         }
         #[cfg(feature = "memory")]
+        Action::AgentCommit { project } => {
+            return crate::projects::commit_now(&crate::state::state_dir()?, project);
+        }
+        #[cfg(feature = "memory")]
         Action::AgentAsk { project, cancel } => {
             return crate::projects::ask(&crate::state::state_dir()?, project, *cancel);
         }
@@ -1625,6 +1636,8 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Projects { .. } => unreachable!("dispatched before the database is opened"),
         #[cfg(feature = "memory")]
         Action::AgentAsk { .. } => unreachable!("dispatched before the database is opened"),
+        #[cfg(feature = "memory")]
+        Action::AgentCommit { .. } => unreachable!("dispatched before the database is opened"),
         Action::Hook { .. } => unreachable!("the hook is dispatched before the database is opened"),
         Action::Install { .. }
         | Action::Uninstall { .. }
@@ -1807,6 +1820,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Projects { .. } => "projects",
         #[cfg(feature = "memory")]
         Action::AgentAsk { .. } => "agent-ask",
+        #[cfg(feature = "memory")]
+        Action::AgentCommit { .. } => "agent-commit",
         #[cfg(feature = "memory")]
         Action::Activity { .. } => "activity",
         Action::Usage { .. } => "usage",
