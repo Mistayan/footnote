@@ -452,8 +452,8 @@ enum Action {
         #[arg(long, requires = "deep")]
         no_install: bool,
     },
-    /// Footnote Code: the architecture map, blocks (folders) with symbol counts, links between them counted in references,
-    /// and the outside packages each block uses.
+    /// Footnote Code: the architecture map, blocks (folders) with symbol counts, links between them counted in references
+    /// with the symbol names each uses most, and the outside packages each block uses.
     #[cfg(feature = "code")]
     CodeMap {
         /// Project folder indexed with `code-index`.
