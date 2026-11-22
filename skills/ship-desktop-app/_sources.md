@@ -1,5 +1,5 @@
 ---
-skill_hash: dab8d4205a7af076
+skill_hash: f7577cf8f3c37a5a
 reviewed: 2026-11-21
 ---
 # ship-desktop-app: sources
@@ -18,6 +18,13 @@ Maintainer file, not synced to agents.
 | Inno Setup dark mode, styles | [Inno Setup 7 what's new](https://jrsoftware.org/files/is7-whatsnew.htm) |
 | Velopack | [velopack.io](https://velopack.io/) |
 | WebView bridge plugin | [tauri-connector](https://github.com/dickwu/tauri-connector) |
+| Rust GUI trade-off comparison (egui vs Iced vs Tauri vs GPUI) | [Velum Theory: Rust GUI Explained](https://www.youtube.com/watch?v=ayipfrKx1QM) |
+| egui immediate-mode architecture | [egui](https://github.com/emilk/egui) |
+| Iced Elm-inspired MVU architecture | [Iced](https://iced.rs/) |
+| GPUI GPU-accelerated framework | [GPUI (Zed)](https://www.gpui.rs/) |
+| Slint declarative native UI & licensing | [Slint](https://slint.dev/) · [Slint licensing](https://slint.dev/pricing) |
+| Dioxus cross-platform RSX | [Dioxus](https://dioxuslabs.com/) |
+| gtk-rs GTK4 bindings | [gtk-rs](https://gtk-rs.org/) |
 
 ## Field evidence
 - WebView bridge traps (bundled frontend required, focused window on Windows) observed integrating the connector 0.17.10 in a private Tauri app; Windows WebView2 only, macOS and Linux unverified.

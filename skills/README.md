@@ -26,7 +26,7 @@ Copy a skill folder into your agent's skills directory (for Claude Code, `~/.cla
 | `run-benchmarks` | deciding whether B beats A on quality | paired-bootstrap |
 | `run-project-governance` | specs, tickets, triage, priorities, RAID, status | |
 | `script-windows` | PowerShell and Windows automation | |
-| `ship-desktop-app` | Tauri desktop apps: testing, installers, signing, updates | |
+| `ship-desktop-app` | choosing a Rust/desktop GUI stack (Tauri, egui, Iced, GPUI, Slint) & shipping apps (testing, installers, signing, updates) | |
 | `ship-rust-cli` | Rust CLIs, daemons and libraries, through release | |
 | `write-a-skill` | writing or reviewing a skill | skill-check |
 | `write-modern-css` | CSS for any UI: controls, states, motion, tokens | |

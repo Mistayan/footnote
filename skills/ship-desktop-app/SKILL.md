@@ -1,6 +1,6 @@
 ---
 name: ship-desktop-app
-description: Use when building, testing or releasing a desktop app, especially Tauri 2 (web front end, Rust backend): commands and IPC, capabilities and CSP, startup and process-tree memory, testing the real WebView, installers (NSIS, Inno Setup, MSI, Velopack), code signing, SmartScreen and updaters.
+description: Use when choosing a desktop or Rust GUI stack (Tauri 2, egui, Iced, GPUI, Slint, Dioxus, gtk-rs) or building, testing and releasing a desktop app: stack selection by use case, Tauri commands and IPC, capabilities and CSP, startup and process-tree memory, testing the real WebView, installers (NSIS, Inno Setup, MSI, Velopack), code signing, SmartScreen and updaters.
 license: MIT
 ---
 
@@ -10,6 +10,15 @@ Name the real stack first (Tauri ≠ Electron ≠ native). Test the release buil
 
 - **Ship:** primary flows in release build / error + recovery states usable / checks pass / startup + memory measured
 - **Best:** + clean install, upgrade, uninstall / signature + update verified / long session without growth / UI passed `review-ui-quality`
+
+## Choose the stack → [references/rust-gui-stacks.md](references/rust-gui-stacks.md)
+- Rich tables, charts, forms, or existing web/CSS design system + Rust core → **Tauri 2** (WebView + typed IPC)
+- Internal dev, debug, or engineering tool needing fastest iteration → **egui** (immediate-mode)
+- Pure-Rust cross-platform app with predictable state and no WebView → **Iced** (Elm MVU)
+- Ultra-lightweight native / tray / embedded UI without WebView2 → **Slint** (check GPLv3/commercial licence)
+- High-FPS dense custom GPU surface (editor, terminal, live stream) → **GPUI**
+- Linux/GNOME-native with full OS accessibility → **gtk-rs**; React-in-Rust across web+desktop → **Dioxus**
+- Keep domain logic in a GUI-free core crate; prototype one real data-heavy view (HiDPI, text, accessibility, RAM) before locking a pre-1.0 native toolkit
 
 ## Tauri 2
 - Commands = the API: validate input / typed errors / no panics / heavy work `async` or `spawn_blocking`
