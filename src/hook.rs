@@ -404,6 +404,10 @@ struct Event {
 }
 impl Event {
     fn normalize(v: &Value) -> Self {
+        Self::normalize_with(v, footnote_core::path_map::map_host_path)
+    }
+
+    fn normalize_with(v: &Value, map: impl Fn(&str) -> String) -> Self {
         let text = |keys: &[&str], fallback: &str| {
             keys.iter()
                 .filter_map(|k| v[k].as_str())
@@ -430,6 +434,7 @@ impl Event {
             .or(workspace_first)
             .unwrap_or(".")
             .to_string();
+        let cwd = map(&cwd);
         Self {
             name,
             session: text(&["session_id", "sessionId", "conversationId"], "unknown"),
@@ -2070,6 +2075,29 @@ mod tests {
             session_path(Path::new("state"), "../été:x"),
             Path::new("state").join("____t__x.json")
         );
+    }
+
+    #[test]
+    fn normalize_maps_windows_cwd_and_keeps_transcript_path_for_agent_detection() {
+        let spec = r"C:\work\repos=/workspaces";
+        let raw_transcript = r"C:\Users\me\.claude\projects\footnote\abc.jsonl";
+        let e = Event::normalize_with(
+            &json!({
+                "hook_event_name": "SessionStart",
+                "session_id": "s1",
+                "cwd": r"C:\work\repos\footnote",
+                "transcript_path": raw_transcript,
+            }),
+            |p| footnote_core::path_map::map_with_spec(p, spec),
+        );
+        assert_eq!(e.cwd, "/workspaces/footnote");
+        assert_eq!(e.transcript, raw_transcript);
+        assert!(
+            e.transcript.contains(".claude"),
+            "unchanged host transcript must keep `.claude`: {}",
+            e.transcript
+        );
+        assert!(transcript_tail(Path::new(&e.transcript)).is_none());
     }
 
     #[test]

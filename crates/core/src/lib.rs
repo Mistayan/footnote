@@ -7,6 +7,7 @@ pub mod audit;
 pub mod config;
 pub mod jobs;
 pub mod metrics;
+pub mod path_map;
 pub mod state;
 
 pub const MAX_FILE: u64 = 16 * 1024 * 1024;
