@@ -26,6 +26,10 @@ pub struct Watch {
     /// One of its scripts failed since it was last suggested: with `read`, the evidence for a skill edit request (#446).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub failed: bool,
+    /// The last of its scripts that failed, as a path inside `scripts/`: the edit request names it (#470). Session state
+    /// only, never logged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_script: Option<String>,
     /// Served from the agent layer (#444): its scope and revision, logged so a revision's trial can count them (#447).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -54,10 +58,14 @@ pub fn readable(chunk: &[u8]) -> bool {
 }
 
 /// What a watched skill went through, in session-file order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Seen {
     Read,
-    Run { ok: bool },
+    /// `script`: the path inside the skill's `scripts/` folder, as the command wrote it.
+    Run {
+        ok: bool,
+        script: String,
+    },
 }
 
 pub fn log_path(state: &Path) -> PathBuf {
@@ -79,32 +87,48 @@ fn reads_skill(path: &str, dir: &str, folder: &str) -> bool {
     path == format!("{dir}/skill.md") || path.ends_with(&format!("/{folder}/skill.md"))
 }
 
-fn runs_script(cmd: &str, dir: &str, folder: &str) -> bool {
-    cmd.contains(&format!("{dir}/scripts/")) || cmd.contains(&format!("{folder}/scripts/"))
+/// The script a (normalized) command runs from the skill, as the path after `scripts/`, in the command's own case when
+/// lowering kept the byte offsets (`slashed` is the command with `/` separators only).
+fn runs_script(cmd: &str, slashed: &str, dir: &str, folder: &str) -> Option<String> {
+    let start = [format!("{dir}/scripts/"), format!("{folder}/scripts/")]
+        .iter()
+        .find_map(|k| cmd.find(k.as_str()).map(|i| i + k.len()))?;
+    let source = if slashed.len() == cmd.len() {
+        slashed
+    } else {
+        cmd
+    };
+    let rest = source.get(start..).unwrap_or_default();
+    let end = rest
+        .find(|c: char| c.is_whitespace() || "\"'`;|&)".contains(c))
+        .unwrap_or(rest.len());
+    Some(rest[..end].to_string())
 }
 
 /// What a shell command does to the watched skills.
 #[derive(Debug, PartialEq, Eq)]
 enum Touch {
     Read(usize),
-    Script(usize),
+    Script(usize, String),
 }
 
-/// Reads of watched skills' `SKILL.md` in a (normalized) shell command, then the first watched skill whose script it runs.
-fn touches(cmd: &str, keys: &[(String, String)]) -> Vec<Touch> {
+/// Reads of watched skills' `SKILL.md` in a shell command, then the first watched skill whose script it runs.
+fn touches(raw: &str, keys: &[(String, String)]) -> Vec<Touch> {
+    let slashed = raw.replace('\\', "/");
+    let cmd = slashed.to_lowercase();
     let mut out = vec![];
     for (i, (d, f)) in keys.iter().enumerate() {
         if cmd.contains(&format!("{d}/skill.md")) || cmd.contains(&format!("/{f}/skill.md")) {
             out.push(Touch::Read(i));
-        } else if runs_script(cmd, d, f) {
-            out.push(Touch::Script(i));
+        } else if let Some(script) = runs_script(&cmd, &slashed, d, f) {
+            out.push(Touch::Script(i, script));
             break;
         }
     }
     out
 }
 
-/// A finished shell command in a Codex rollout line: its normalized command line, and whether it passed (`None` when it
+/// A finished shell command in a Codex rollout line: its command line, and whether it passed (`None` when it
 /// never reached an exit code, such as a declined command). Codex writes one `item_completed` event per command, holding
 /// the argv and the exit code together, so no call has to be paired with its result.
 fn codex_command(line: &[u8]) -> Option<(String, Option<bool>)> {
@@ -132,7 +156,7 @@ fn codex_command(line: &[u8]) -> Option<(String, Option<bool>)> {
     let ok = item["exit_code"]
         .as_i64()
         .map(|code| code == 0 && item["status"] != "failed");
-    Some((norm(&cmd), ok))
+    Some((cmd, ok))
 }
 
 /// A tool result that failed: flagged as an error, or a shell result that starts with a non-zero exit code.
@@ -157,14 +181,14 @@ fn failed(result: &Value) -> bool {
 pub fn scan(chunk: &[u8], watches: &[Watch]) -> Vec<(usize, Seen)> {
     let keys: Vec<(String, String)> = watches.iter().map(keys).collect();
     let mut out = vec![];
-    let mut running: HashMap<String, usize> = HashMap::new();
+    let mut running: HashMap<String, (usize, String)> = HashMap::new();
     for line in chunk.split(|&b| b == b'\n') {
         if let Some((cmd, ok)) = codex_command(line) {
             for t in touches(&cmd, &keys) {
                 match (t, ok) {
                     (Touch::Read(i), _) => out.push((i, Seen::Read)),
-                    (Touch::Script(i), Some(ok)) => out.push((i, Seen::Run { ok })),
-                    (Touch::Script(_), None) => {}
+                    (Touch::Script(i, script), Some(ok)) => out.push((i, Seen::Run { ok, script })),
+                    (Touch::Script(..), None) => {}
                 }
             }
             continue;
@@ -188,12 +212,12 @@ pub fn scan(chunk: &[u8], watches: &[Watch]) -> Vec<(usize, Seen)> {
                             out.push((i, Seen::Read));
                         }
                     } else if let Some(cmd) = input["command"].as_str() {
-                        for t in touches(&norm(cmd), &keys) {
+                        for t in touches(cmd, &keys) {
                             match t {
                                 Touch::Read(i) => out.push((i, Seen::Read)),
-                                Touch::Script(i) => {
+                                Touch::Script(i, script) => {
                                     if let Some(id) = p["id"].as_str() {
-                                        running.insert(id.to_string(), i);
+                                        running.insert(id.to_string(), (i, script));
                                     }
                                 }
                             }
@@ -201,8 +225,16 @@ pub fn scan(chunk: &[u8], watches: &[Watch]) -> Vec<(usize, Seen)> {
                     }
                 }
                 Some("tool_result") => {
-                    if let Some(i) = p["tool_use_id"].as_str().and_then(|id| running.remove(id)) {
-                        out.push((i, Seen::Run { ok: !failed(p) }));
+                    if let Some((i, script)) =
+                        p["tool_use_id"].as_str().and_then(|id| running.remove(id))
+                    {
+                        out.push((
+                            i,
+                            Seen::Run {
+                                ok: !failed(p),
+                                script,
+                            },
+                        ));
                     }
                 }
                 _ => {}
@@ -286,6 +318,13 @@ mod tests {
         }
     }
 
+    fn run(ok: bool, script: &str) -> Seen {
+        Seen::Run {
+            ok,
+            script: script.into(),
+        }
+    }
+
     fn line(v: Value) -> String {
         v.to_string() + "\n"
     }
@@ -331,8 +370,8 @@ mod tests {
             scan(chunk.as_bytes(), &w),
             vec![
                 (0, Seen::Read),
-                (0, Seen::Run { ok: false }),
-                (0, Seen::Run { ok: true })
+                (0, run(false, "red-green/red-green.mjs")),
+                (0, run(true, "leftover-check.mjs"))
             ]
         );
     }
@@ -405,8 +444,8 @@ mod tests {
             scan(chunk.as_bytes(), &w),
             vec![
                 (0, Seen::Read),
-                (0, Seen::Run { ok: true }),
-                (0, Seen::Run { ok: false })
+                (0, run(true, "check.mjs")),
+                (0, run(false, "check.mjs"))
             ]
         );
     }

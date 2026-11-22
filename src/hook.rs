@@ -22,7 +22,8 @@ Then tell the user in one short line what you saved (count and ids), or that not
 /// At this many memories waiting for review (#207), the session start reminds the user, so the queue is never missed.
 const REVIEW_AT: usize = 5;
 /// Asked once per session when the agent read a suggested skill and one of its scripts failed (#446).
-const SKILL_EDIT: &str = r#"Footnote: you read the skill "{name}" ({path}) and one of its scripts failed. Decide whether the skill itself was wrong or missed a step, not your own code or input. If it was, fix it with footnote_skill_edit (MCP server footnote-memory): name "{name}", scope "{project}" if the fix only holds for this project or "global", the full new text of each file you change, and one paragraph on what failed and why. Script changes wait for the user's review. If the skill was right, change nothing. Tell the user in one short line what you did. Then stop."#;
+/// `{script}` names the script that failed (#470), so the fix stays on the step that runs it.
+const SKILL_EDIT: &str = r#"Footnote: you read the skill "{name}" ({path}) and its script {script} failed. Decide whether the skill itself was wrong or missed a step, not your own code or input. If it was, fix it with footnote_skill_edit (MCP server footnote-memory): change only the step that runs {script}, and add nothing unrelated to this failure; name "{name}", scope "{project}" if the fix only holds for this project or "global", the full new text of each file you change, and one paragraph on what failed and why. Script changes, and rewrites of more than that step, wait for the user's review. If the skill was right, change nothing. Tell the user in one short line what you did. Then stop."#;
 #[cfg(feature = "library")]
 const SKILLS_REVIEW: &str = "Footnote: {n} change(s) an agent made to skill scripts are waiting for the user's review and are not used until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote skills approve <name>` serves one, `footnote skills reject <name>` refuses it).";
 const REVIEW: &str = "Footnote: {n} global preferences that agents saved are waiting for the user's review, and no agent sees them until then. Tell the user in one line, and that `footnote memory-review` lists them (`footnote memory-restore <id>` approves one, `footnote forget <id>` rejects it).";
@@ -335,8 +336,11 @@ fn scan_skills(state: &Path, st: &mut Session, e: &Event, project: &str) {
                 crate::skill_outcomes::append(state, project, w, "read", None);
             }
             crate::skill_outcomes::Seen::Read => {}
-            crate::skill_outcomes::Seen::Run { ok } => {
-                w.failed |= !ok;
+            crate::skill_outcomes::Seen::Run { ok, script } => {
+                if !ok {
+                    w.failed = true;
+                    w.failed_script = Some(script);
+                }
                 crate::skill_outcomes::append(state, project, w, "run", Some(ok));
             }
         }
@@ -1733,7 +1737,12 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 // Stop (the agent's own Stop after a request is `stop_active`, so a save first could starve it).
                 st.skill_edit_asked = true;
                 let path = Path::new(&w.dir).join("SKILL.md");
+                let script = w.failed_script.as_deref().map_or_else(
+                    || "(one of its scripts)".to_string(),
+                    |s| format!("scripts/{s}"),
+                );
                 let reason = SKILL_EDIT
+                    .replace("{script}", &script)
                     .replace("{name}", &w.name)
                     .replace("{path}", &path.to_string_lossy())
                     .replace("{project}", &project);

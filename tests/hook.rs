@@ -1295,6 +1295,12 @@ fn skill_rewrite_asks_for_an_edit_only_on_evidence() {
         reason.contains("footnote_skill_edit") && reason.contains("\"css-transitions\""),
         "{reason}"
     );
+    // #470: the request names the script that failed and keeps the fix to its step.
+    assert!(
+        reason.contains("its script scripts/check.mjs failed")
+            && reason.contains("change only the step that runs scripts/check.mjs"),
+        "{reason}"
+    );
     assert!(
         !stop_again("on", &failing_run("c")).contains("footnote_skill_edit"),
         "asked once per session"

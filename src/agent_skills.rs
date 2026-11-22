@@ -310,6 +310,70 @@ fn make_live_from(files: &Path, target: &Path) -> Result<()> {
     copy_skill(files, target)
 }
 
+/// The most `SKILL.md` lines an agent's prose change may change and still go live without review (#470): the larger of
+/// `REWRITE_FLOOR` and a `REWRITE_SHARE`th of the live file. Measured on the two edits of
+/// `bench/experiments/SKILL-EDIT-COST-2026-11-21.md`: fixing the one wrong step changed 2 lines (1 out, 1 in), and the
+/// unrelated step each session added made 3. The floor of 6 lets a fix to one step of up to 3 lines through; the quarter
+/// holds back edits that rewrite much of a longer skill. A one-line unrelated addition still passes: the request text keeps
+/// those out, and trials (#447) catch what does harm.
+const REWRITE_FLOOR: usize = 6;
+const REWRITE_SHARE: usize = 4;
+
+fn rewrite_limit(live_lines: usize) -> usize {
+    REWRITE_FLOOR.max(live_lines / REWRITE_SHARE)
+}
+
+/// A line as compared for the rewrite limit: trailing whitespace dropped, and a numbered list item's number replaced by
+/// `#`, so renumbering the steps after an inserted one does not count as changing them.
+fn compared(line: &str) -> String {
+    let line = line.trim_end();
+    let body = line.trim_start();
+    let indent = &line[..line.len() - body.len()];
+    let digits = body.len() - body.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    let rest = &body[digits..];
+    if digits > 0 && (rest.starts_with(". ") || rest.starts_with(") ")) {
+        format!("{indent}#{rest}")
+    } else {
+        line.to_string()
+    }
+}
+
+/// Lines removed plus lines added between two texts, by longest common subsequence on `compared` lines. Past the diff table
+/// cap, every line counts as changed.
+fn changed_lines(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<String>, Vec<String>) = (
+        a.lines().map(compared).collect(),
+        b.lines().map(compared).collect(),
+    );
+    if a.len().saturating_mul(b.len()) > DIFF_CELLS {
+        return a.len() + b.len();
+    }
+    let mut row = vec![0usize; b.len() + 1];
+    for x in &a {
+        let mut diag = 0;
+        for (j, y) in b.iter().enumerate() {
+            let up = row[j + 1];
+            row[j + 1] = if x == y { diag + 1 } else { up.max(row[j]) };
+            diag = up;
+        }
+    }
+    let common = row[b.len()];
+    a.len() + b.len() - 2 * common
+}
+
+/// When an agent's change rewrites more of the live `SKILL.md` than `rewrite_limit` allows: what it changes, and the limit.
+fn rewrite(from: Option<&Path>, changes: &Map<String, Value>) -> Option<Value> {
+    let new = changes.iter().find_map(|(k, v)| {
+        inside(k)
+            .is_ok_and(|p| p == Path::new("SKILL.md"))
+            .then(|| v.as_str())
+            .flatten()
+    })?;
+    let old = fs::read_to_string(from?.join("SKILL.md")).ok()?;
+    let (n, limit) = (changed_lines(&old, new), rewrite_limit(old.lines().count()));
+    (n > limit).then(|| json!({"changed_lines": n, "limit": limit, "lines": old.lines().count()}))
+}
+
 /// A change that only touches Markdown: instructions, not code.
 fn prose_only(changes: &Map<String, Value>) -> bool {
     changes.keys().all(|k| {
@@ -327,8 +391,9 @@ fn meta_path(state: &Path, scope: &str, stem: &str) -> PathBuf {
 /// own; a skill with no curated original starts from `changes`, which must then hold its `SKILL.md`. `changes` maps a path
 /// inside the skill folder to its new text, or to null to delete that file.
 ///
-/// The user's change is live at once. An agent's change must also pass `lint`; when it touches anything but Markdown it is
-/// kept as a pending revision, not served, until the user approves it, and no other agent change is taken meanwhile.
+/// The user's change is live at once. An agent's change must also pass `lint`; when it touches anything but Markdown, or
+/// changes more of `SKILL.md` than `rewrite_limit` allows, it is kept as a pending revision, not served, until the user
+/// approves it, and no other agent change is taken meanwhile.
 pub fn change(
     state: &Path,
     name: &str,
@@ -373,7 +438,11 @@ pub fn change(
     } else {
         None
     };
-    let goes_live = origin == Origin::User || prose_only(changes);
+    // An agent's prose change that rewrites more than the step it was asked to fix waits for review, like a script (#470).
+    let held = (origin == Origin::Agent)
+        .then(|| rewrite(from.as_deref(), changes))
+        .flatten();
+    let goes_live = origin == Origin::User || (prose_only(changes) && held.is_none());
     let live_before = if meta["dropped"] == false {
         meta["revision"].clone()
     } else {
@@ -401,14 +470,27 @@ pub fn change(
             Value::Null
         };
         meta["pending"] = json!({"revision": n, "base_revision": base});
+        if let Some(held) = &held {
+            let rev_meta = history(state, scope, &stem)
+                .join(n.to_string())
+                .join("meta.json");
+            if let Some(mut m) = read_json(&rev_meta) {
+                m["rewrite"] = held.clone();
+                write_json(&rev_meta, &m)?;
+            }
+        }
     }
     write_json(&meta_file, &meta)?;
     reindex(state)?;
-    Ok(json!({
+    let mut out = json!({
         "name": name, "scope": scope, "revision": n,
         "status": if goes_live { "live" } else { "pending" },
         "path": target.join("SKILL.md")
-    }))
+    });
+    if let Some(held) = held {
+        out["rewrite"] = held;
+    }
+    Ok(out)
 }
 
 /// The user's change: live at once.
@@ -493,7 +575,7 @@ pub fn pending(state: &Path) -> Vec<Value> {
             )?;
             Some(json!({
                 "name": name, "scope": scope, "revision": n, "reason": rev["reason"], "changed": rev["changed"],
-                "at": rev["at"], "by": rev["by"],
+                "at": rev["at"], "by": rev["by"], "rewrite": rev["rewrite"],
                 "files": history(state, scope, &crate::skills::file_stem(name)).join(n.to_string()).join("files"),
             }))
         })
@@ -984,6 +1066,95 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), json!(v)))
             .collect()
+    }
+
+    /// The skill and the two agent edits measured in `bench/experiments/SKILL-EDIT-COST-2026-11-21.md` (script path cut).
+    const FADE: &str = "---\nname: css-fade\ndescription: Add a fade transition to dropdowns and menus in plain CSS.\n---\n# Add a fade to a dropdown or menu\n\n1. On the closed element set `opacity: 0` and `transition: opacity 160ms ease` (the shorthand).\n2. On the open state (for example `.dropdown.open`) set `opacity: 1`.\n3. Check the file: `node skills/css-fade/scripts/check.mjs <css file>`. It must print OK.\n";
+    const FADE_SMALL: &str = "---\nname: css-fade\ndescription: Add a fade transition to dropdowns and menus in plain CSS.\n---\n# Add a fade to a dropdown or menu\n\n1. On the closed element set `opacity: 0` and `transition: opacity 160ms ease` (the shorthand), and also add a separate longhand `transition-duration: 160ms;` line right after it. The check script requires a standalone `transition-duration` declaration and fails on the shorthand alone.\n2. On the open state (for example `.dropdown.open`) set `opacity: 1`.\n3. Optionally add a `@media (prefers-reduced-motion: reduce)` rule that sets `transition: none` on the element.\n4. Check the file: `node skills/css-fade/scripts/check.mjs <css file>`. It must print OK.\n";
+    const FADE_LARGE: &str = "---\nname: css-fade\ndescription: Add a fade transition to dropdowns and menus in plain CSS.\n---\n# Add a fade to a dropdown or menu\n\n1. On the closed element set `opacity: 0` and the transition as longhands, not the shorthand: `transition-property: opacity;`, `transition-duration: 160ms;`, `transition-timing-function: ease;`. The check script looks for a `transition-duration` declaration and fails on `transition: opacity 160ms ease`.\n2. On the open state (for example `.dropdown.open`) set `opacity: 1`.\n3. If the closed element is not hidden with `display: none`, also set `pointer-events: none` when closed and `pointer-events: auto` when open, so an invisible menu does not catch clicks.\n4. Check the file: `node skills/css-fade/scripts/check.mjs <css file>`. It must print OK.\n";
+
+    #[test]
+    fn changed_lines_ignore_renumbering_and_trailing_whitespace() {
+        assert_eq!(changed_lines("a\nb\nc\n", "a\nb\nc\n"), 0);
+        assert_eq!(changed_lines("a\nb\n", "a  \nb\t\n"), 0);
+        assert_eq!(changed_lines("a\nb\nc\n", "a\nB\nc\n"), 2);
+        assert_eq!(changed_lines("a\n", "a\nb\n"), 1);
+        // Inserting step 2 renumbers the old step 2: only the new line counts.
+        assert_eq!(
+            changed_lines("1. one\n2. two\n", "1. one\n2. new\n3. two\n"),
+            1
+        );
+        assert_eq!(compared("  12) step "), "  #) step");
+        assert_eq!(
+            compared("2024. was a year"),
+            "2024. was a year".replace("2024", "#")
+        );
+        assert_eq!(compared("1.5 litres"), "1.5 litres");
+        // The measured edits: the fix (1 out, 1 in) plus the unrelated step each one added.
+        assert_eq!(changed_lines(FADE, FADE_SMALL), 3);
+        assert_eq!(changed_lines(FADE, FADE_LARGE), 3);
+    }
+
+    #[test]
+    fn the_rewrite_limit_has_a_floor_and_a_share() {
+        assert_eq!(rewrite_limit(9), 6);
+        assert_eq!(rewrite_limit(24), 6);
+        assert_eq!(rewrite_limit(100), 25);
+        assert_eq!(rewrite_limit(500), 125);
+    }
+
+    #[test]
+    fn an_agent_rewrite_over_the_limit_waits_for_review_and_a_step_fix_goes_live() {
+        let t = tempfile::tempdir().unwrap();
+        let s = t.path();
+        let base = skill_md("rewrite", "Check things.");
+        let body: String = (1..=8).map(|i| format!("{i}. Step {i}.\n")).collect();
+        let v1 = format!("{base}{body}");
+        change(
+            s,
+            "rewrite",
+            "global",
+            &changes(&[("SKILL.md", &v1)]),
+            "start",
+            Origin::User,
+        )
+        .unwrap();
+        let lines = v1.lines().count();
+        assert_eq!(rewrite_limit(lines), REWRITE_FLOOR);
+
+        // The measured edits stay live: 3 changed lines.
+        let fix = v1
+            .replace("2. Step 2.", "2. Step 2, done right.")
+            .replace("4. Step 4.", "4. Step 4.\n5. Extra.");
+        assert_eq!(changed_lines(&v1, &fix), 3);
+        let r = agent_edit(s, "rewrite", &fix);
+        assert_eq!(r["status"], "live", "{r}");
+        assert!(r["rewrite"].is_null());
+
+        // Exactly at the limit: live. One line over: pending, never served.
+        let at: String = fix
+            .replace("1. Step 1.", "1. One.")
+            .replace("3. Step 3.", "3. Three.")
+            .replace("Extra.", "Extra!");
+        assert_eq!(changed_lines(&fix, &at), REWRITE_FLOOR);
+        assert_eq!(agent_edit(s, "rewrite", &at)["status"], "live");
+        let over = at
+            .replace("Step 5.", "Five.")
+            .replace("Step 6.", "Six.")
+            .replace("Step 7.", "Seven.")
+            .replace("Step 8.", "Eight.");
+        assert_eq!(changed_lines(&at, &over), REWRITE_FLOOR + 2);
+        let r = agent_edit(s, "rewrite", &over);
+        assert_eq!(r["status"], "pending", "{r}");
+        assert_eq!(r["rewrite"]["changed_lines"], REWRITE_FLOOR + 2);
+        assert_eq!(r["rewrite"]["limit"], REWRITE_FLOOR);
+        let served = live(s, "global", "rewrite").join("SKILL.md");
+        assert_eq!(fs::read_to_string(&served).unwrap(), at);
+        assert_eq!(pending(s)[0]["rewrite"]["changed_lines"], REWRITE_FLOOR + 2);
+
+        // The user approves it: served.
+        approve(s, "rewrite", "global").unwrap();
+        assert_eq!(fs::read_to_string(&served).unwrap(), over);
     }
 
     #[test]

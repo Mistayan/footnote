@@ -27,7 +27,8 @@ With `memory.skill_rewrite` on (off by default), agents get `footnote_skill_edit
 - **Script changes wait for the user.** A change that touches anything but Markdown is stored as pending and is not served until `footnote skills approve`. Only one can wait at a time. Session start and `footnote memory-review` say that it is waiting. The approval is refused if the skill changed in the meantime.
 - **The review shows the code.** `footnote skills diff` and the launcher's Skills screen show a pending change line by line against the version it would replace, and the launcher can open its folder. The launcher's page names only the skill: the folder path comes from the engine, so a page cannot make the window open an arbitrary path.
 - **Footnote never runs a skill's scripts.** It does not run them to check a change either. The agent runs them in its own shell, under its own permission prompts.
-- **What remains:** a Markdown change goes live without review, so an injected instruction can still reach later sessions through prose. It is limited to the skill's own folder, visible in the revision history, and reversible. Treat `skill_rewrite` like any setting that lets agents write instructions for other agents.
+- **Rewrites wait too.** A Markdown change that changes more than 6 lines of `SKILL.md`, or more than a quarter of a skill over 24 lines, is held as pending like a script change (#470). The edit request names the script that failed and asks for a change to its step only.
+- **What remains:** a small Markdown change goes live without review, so an injected instruction of a few lines can still reach later sessions through prose. It is limited to the skill's own folder, visible in the revision history, and reversible. Treat `skill_rewrite` like any setting that lets agents write instructions for other agents.
 
 ## Memory cleaning
 

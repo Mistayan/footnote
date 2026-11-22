@@ -598,7 +598,13 @@ fn skill_edit(args: &Value) -> Result<Value> {
         &text("reason", 2000)?,
         crate::agent_skills::Origin::Agent,
     )?;
-    if result["status"] == "pending" {
+    if result["status"] == "pending" && !result["rewrite"].is_null() {
+        let r = &result["rewrite"];
+        result["note"] = json!(format!(
+            "This change rewrites {} lines of SKILL.md, more than the {} a fix to one step may change, so it waits for the user's review: tell the user in one line that `footnote memory-review` lists it. Next time, change only the step that failed.",
+            r["changed_lines"], r["limit"]
+        ));
+    } else if result["status"] == "pending" {
         result["note"] = json!(
             "This change touches scripts, so it waits for the user's review: tell the user in one line that `footnote memory-review` lists it. Run the skill's tests yourself if it has some."
         );

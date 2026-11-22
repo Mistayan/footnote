@@ -613,6 +613,19 @@ fn skill_edit_gates_script_changes_behind_review() {
     assert_eq!(r["status"], "live");
     assert_eq!(fs::read_to_string(live.join("SKILL.md")).unwrap(), prose);
 
+    // #470: a prose change that rewrites more than one step waits for review, with a note saying why.
+    let body: String = (1..=8).map(|i| format!("{i}. New step {i}.\n")).collect();
+    let rewrite = prose.replace("Honour prefers-reduced-motion.\n", &body);
+    let r: Value = serde_json::from_str(&text(&edit(json!({"SKILL.md": rewrite})))).unwrap();
+    assert_eq!(r["status"], "pending", "{r}");
+    let note = r["note"].as_str().unwrap();
+    assert!(
+        note.contains("rewrites 9 lines") && note.contains("only the step that failed"),
+        "{note}"
+    );
+    assert_eq!(fs::read_to_string(live.join("SKILL.md")).unwrap(), prose);
+    run(&["skills", "reject", "css-transitions"]);
+
     let r: Value =
         serde_json::from_str(&text(&edit(json!({"scripts/check.mjs": "new\n"})))).unwrap();
     assert_eq!(r["status"], "pending");

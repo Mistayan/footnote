@@ -180,7 +180,7 @@ footnote memory-restore 354                  # bring one back
 footnote config set memory.clean_days 0      # turn the schedule off
 ```
 
-**Letting agents change skills (opt-in).** `footnote config set memory.skill_rewrite true` gives agents the `footnote_skill_edit` tool. It costs agent tokens: one extra turn for each change, and later sessions re-read the changed skill; `footnote options` gives the details. A change to Markdown files must pass the skill-check rules (description of at most 1024 characters, SKILL.md of at most 500 lines, links that resolve inside the skill), then goes live. A change that touches anything else, such as a script, waits for you, and Footnote never runs it:
+**Letting agents change skills (opt-in).** `footnote config set memory.skill_rewrite true` gives agents the `footnote_skill_edit` tool. It costs agent tokens: one extra turn for each change, and later sessions re-read the changed skill; `footnote options` gives the details. A change to Markdown files must pass the skill-check rules (description of at most 1024 characters, SKILL.md of at most 500 lines, links that resolve inside the skill). It goes live when it changes at most 6 lines of `SKILL.md`, or a quarter of it for a skill over 24 lines; renumbered steps and trailing spaces do not count. That is room for fixing one step, which is what the edit request asks for. A bigger rewrite waits for you, as does a change that touches anything else, such as a script; Footnote never runs it:
 
 ```bash
 footnote memory-review                       # `skills_pending`: what changes, why, and the folder to read
