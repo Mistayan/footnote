@@ -204,7 +204,7 @@ What one request costs:
 
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
-Installs the fast SQLite-free `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles:
+Installs the fast `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles. In Claude Code it also sees `Read`: a whole-file read of a file over 500 lines that `footnote code-index` indexed is answered with the file's outline (definitions and line ranges), and the agent then reads only the part it needs with `offset` and `limit`:
 
 ```bash
 # Preview, then wire Memory + Lean + User PATH in one command:

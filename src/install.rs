@@ -577,6 +577,15 @@ fn add_matcher_hook(
                     }
                 }
             }
+            // An older install's matcher is widened too (#240: Claude Code's lean hook now also sees Read).
+            if group["hooks"]
+                .as_array()
+                .is_some_and(|h| h.iter().any(|h| h["command"].as_str().is_some_and(is_ours)))
+                && group["matcher"] != matcher
+            {
+                group["matcher"] = json!(matcher);
+                changed = true;
+            }
         }
         if !found {
             list.push(json!({
@@ -755,7 +764,7 @@ pub fn lean(dry_run: bool, remove_rtk: bool) -> Result<Value> {
             add_matcher_hook(
                 &hooks,
                 "PreToolUse",
-                "Bash",
+                "Bash|Read",
                 5,
                 &command,
                 is_lean_hook,

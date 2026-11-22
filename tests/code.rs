@@ -629,3 +629,49 @@ def run():
     let tsv = fs::read_to_string(&rules).unwrap();
     assert!(tsv.contains("app.py	4	current	globals.py	import"), "{tsv}");
 }
+
+/// Graph-first reads (#240): a whole-file Read of a large indexed file is answered with its outline; a slice, a small file
+/// or a file outside the session's project passes through untouched.
+#[test]
+fn a_large_whole_file_read_gets_the_outline_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, project) = (dir.path().join("state"), dir.path().join("demo"));
+    fs::create_dir_all(&project).unwrap();
+    let big = format!(
+        "def main():\n    step()\n{}\ndef step():\n    pass\n",
+        "# filler\n".repeat(600)
+    );
+    fs::write(project.join("big.py"), big).unwrap();
+    fs::write(project.join("small.py"), "def tiny():\n    pass\n").unwrap();
+    let root = project.to_str().unwrap();
+    footnote(&state, &["code-index", root]);
+    let hook = |input: Value| {
+        let event = serde_json::json!({"hook_event_name": "PreToolUse", "tool_name": "Read", "cwd": root, "tool_input": input});
+        let out = Command::new(assert_cmd::cargo::cargo_bin!("footnote"))
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .env("FOOTNOTE_POLICY_FILE", state.join("no-policy.json"))
+            .args(["hook", "lean"])
+            .write_stdin(event.to_string())
+            .output()
+            .unwrap();
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let path = |f: &str| project.join(f).to_string_lossy().into_owned();
+    let out: Value =
+        serde_json::from_str(&hook(serde_json::json!({"file_path": path("big.py")}))).unwrap();
+    let reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap();
+    assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "deny");
+    assert!(
+        reason.contains("big.py has 605 lines")
+            && reason.contains("function main")
+            && reason.contains("function step"),
+        "{reason}"
+    );
+    assert_eq!(
+        hook(serde_json::json!({"file_path": path("big.py"), "limit": 2000})),
+        ""
+    );
+    assert_eq!(hook(serde_json::json!({"file_path": path("small.py")})), "");
+}

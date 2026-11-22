@@ -1979,6 +1979,16 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
         .or_else(|| event["toolName"].as_str())
         .or_else(|| event["toolCall"]["name"].as_str())
         .unwrap_or("");
+    #[cfg(feature = "code")]
+    if tool == "Read" && !is_agy && !is_gemini_cli {
+        return outline_instead(event).map(|reason| {
+            json!({"hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": reason,
+            }})
+        });
+    }
     let is_shell = matches!(
         tool.to_ascii_lowercase().as_str(),
         "bash" | "shell" | "run_command" | "run_shell_command" | "command" | "terminal"
@@ -2033,6 +2043,62 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
             "updatedInput": updated,
         }
     }))
+}
+
+/// Lines past which a whole-file Read is answered with the file's outline (#240).
+#[cfg(feature = "code")]
+const OUTLINE_LINES: usize = 500;
+/// Most outline entries listed; past it the agent still has offset and limit.
+#[cfg(feature = "code")]
+const OUTLINE_MAX: usize = 150;
+
+/// Graph-first reads (#240): a whole-file Claude Code `Read` of a large file the code graph indexed gets the file's outline
+/// instead, so the agent reads only the part it needs. Anything else (a slice, a small or unindexed file) passes through.
+#[cfg(feature = "code")]
+fn outline_instead(event: &Value) -> Option<String> {
+    let input = event["tool_input"].as_object()?;
+    if input.contains_key("offset") || input.contains_key("limit") {
+        return None;
+    }
+    let file = Path::new(input.get("file_path")?.as_str()?);
+    let lines = fs::read(file).ok()?.iter().filter(|&&b| b == b'\n').count();
+    if lines < OUTLINE_LINES {
+        return None;
+    }
+    // shortcut: the graph is found from the session's cwd only, so a session started in a subfolder of the indexed root
+    // gets no outline; walk up to the indexed root if that shows up in the paired benchmark.
+    let root = Path::new(event["cwd"].as_str()?);
+    let rel = file
+        .canonicalize()
+        .ok()?
+        .strip_prefix(root.canonicalize().ok()?)
+        .ok()?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let db = crate::app::code_db(root).ok().filter(|d| d.exists())?;
+    let v = footnote_code::outline(&db, &rel).ok()?;
+    let symbols = v["symbols"].as_array().filter(|s| !s.is_empty())?;
+    let mut list: Vec<String> = symbols
+        .iter()
+        .take(OUTLINE_MAX)
+        .map(|s| {
+            format!(
+                "{}-{} {} {}",
+                s["lines"][0],
+                s["lines"][1],
+                s["kind"].as_str().unwrap_or_default(),
+                s["name"].as_str().unwrap_or_default()
+            )
+        })
+        .collect();
+    if symbols.len() > OUTLINE_MAX {
+        list.push(format!("... {} more", symbols.len() - OUTLINE_MAX));
+    }
+    Some(format!(
+        "{rel} has {lines} lines, so Footnote gives its outline first (lines, kind, name):\n{}\n\
+         Read it again with offset and limit for the part you need (limit 2000 reads it whole).",
+        list.join("\n")
+    ))
 }
 
 /// Standalone `footnote hook lean` entrypoint: fast, SQLite-free PreToolUse/BeforeTool command rewriter.

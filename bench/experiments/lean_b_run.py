@@ -4,6 +4,8 @@ import json, os, pathlib, random, subprocess, sys, tempfile, time
 sys.path.insert(0, os.getcwd())
 os.environ.setdefault("FOOTNOTE_BIN", os.path.expanduser("~/AppData/Local/Programs/footnote/footnote.exe"))
 from evaluation import luna_pilot, dependency_pilot
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from explore_cost import explore
 FN = os.environ["FOOTNOTE_BIN"]
 RULES = pathlib.Path(__file__).resolve().parents[2] / "rules/lean/LEAN-B.md"
 TASKS = {"L1": (luna_pilot, ["-m", "integration.check_intervals", "{w}", "--followup"], "TASK.txt, CONTRACT.txt and DECISION.txt"),
@@ -46,7 +48,7 @@ def run_one(arm, task, n, model, effort, tmp):
     chk = subprocess.run([sys.executable, *[a.replace("{w}", str(work)) for a in TASKS[task][1]]], capture_output=True, text=True)
     return {"arm": arm, "task": task, "run": n, "accepted": chk.returncode == 0 and active, "turns": res.get("num_turns"),
             "uncached_in": u["input"], "cache_write": u["cache_write_5m"] + u["cache_write_1h"], "cache_read": u["cache_read"],
-            "output": u["output"], "seconds": sec, "usd": u.get("api_price_usd"), "plugins": plug, "active": active}
+            "output": u["output"], "seconds": sec, "usd": u.get("api_price_usd"), "plugins": plug, "active": active, **explore(f)}
 
 if __name__ == "__main__":
     out, model, effort, runs = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
