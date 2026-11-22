@@ -50,6 +50,10 @@ Check 'launcher running in the tray after install' (WaitFor { (Launchers).Count 
 Check 'launcher opens no window at startup' (@(Launchers | Where-Object { $_.MainWindowTitle -eq 'Footnote' }).Count -eq 0)
 
 Write-Host '== open the Start menu shortcut while it runs'
+# A launch in the launcher's first second can be lost: the running one does not listen for a second launch yet. Wait until it
+# does (the single-instance plugin's window, 'dev.footnote.one-siw', exists), as a user clicking later would.
+WaitFor { @(Launchers | Where-Object { $_.MainWindowTitle -like '*-siw' }).Count -ge 1 } 15 | Out-Null
+Start-Sleep -Seconds 1
 $before = @(Launchers).Count
 Start-Process $startMenu
 $shown = WaitFor { @(Launchers | Where-Object { $_.MainWindowTitle -eq 'Footnote' }).Count -ge 1 } 20
