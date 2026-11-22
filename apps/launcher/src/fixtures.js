@@ -169,27 +169,65 @@ const usage = {
 // `footnote options`, only the entries the window reads. Gain and cost are the engine catalogue's text for this option.
 const rewrite = {
   key: "memory.skill_rewrite", default: false, value: false, locked: false, reason: null, source: "default", range: null,
-  gain: "Agents adapt the skills you reuse to your projects: they get footnote_skill_edit, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
-  cost: "Agent tokens: one extra agent turn per edit request (reading the skill, writing the change), an edited skill is new text that later sessions read again, and an edit that does worse is rolled back and may be redone. A change to a skill's scripts waits for your review (`footnote memory-review`). Off by default",
+  gain: "Agents may change the skills you reuse to fit your projects: they get `footnote_skill_edit`, and after a skill's script fails they are asked once whether the skill itself was wrong. Worth it when the same skills come back session after session",
+  cost: "Each change request costs one more agent turn, about as much as sending a third of the session's context once as fresh input (see `bench/experiments/SKILL-EDIT-COST-2026-11-21.md`). Later sessions read a changed skill again, and a change that does worse is rolled back. Changes to a skill's scripts wait for your review",
 };
 const options = (o = {}) => ({ options: [{ key: "memory.enabled", value: true }, { ...rewrite, ...o }] });
-const history = "C:/Users/sample/AppData/Local/footnote/skills/agent/.history";
+const history = "C:\\Users\\maya\\AppData\\Local\\footnote\\skills\\agent\\.history";
 const review = (skills_pending) => ({ pending: [], duplicates: [], old_sessions: [], unused: [], counts: {}, skills_pending });
 const pending = [
-  { name: "css-transitions", scope: "global", revision: 3, changed: ["scripts/check.mjs"],
+  { name: "css-transitions", scope: "global", revision: 3, changed: ["scripts/check.mjs"], at: "2026-11-21T16:42:10Z", by: "agent",
     reason: "The check flagged transitions on prefers-reduced-motion users as missing; it now reads the media query before failing.",
-    files: `${history}/global/css-transitions/3/files` },
-  { name: "release-checklist", scope: "atlas-api", revision: 2, changed: ["scripts/verify.sh", "SKILL.md"],
+    files: `${history}\\global\\css-transitions\\3\\files` },
+  { name: "release-checklist", scope: "atlas-api", revision: 2, changed: ["scripts/verify.sh", "SKILL.md"], at: "2026-11-20T09:15:00Z", by: "agent",
     reason: "This repo publishes from the release branch, not main; the verify step checked out the wrong branch and failed every time.",
-    files: `${history}/project-atlas-api/release-checklist/2/files` },
-  { name: "sql-migrations-with-a-rather-long-skill-name", scope: "harbor-web", revision: 5, changed: ["scripts/lint_migrations.py"],
+    files: `${history}\\project-atlas-api\\release-checklist\\2\\files` },
+  { name: "postgres-zero-downtime-migrations", scope: "harbor-web", revision: 5, changed: ["scripts/lint_migrations.py"], at: "2026-11-18T13:02:44Z", by: "agent",
     reason: "Added a guard for the advisory lock the deploy uses, so the lint no longer reports the lock statement as an unsafe migration.",
-    files: `${history}/project-harbor-web/sql-migrations-with-a-rather-long-skill-name/5/files` },
+    files: `${history}\\project-harbor-web\\postgres-zero-downtime-migrations\\5\\files` },
 ];
+// `footnote skills diff <name>`: the line diff the review shows (#472), with each side's line number.
+const line = (op, text, old, nw) => ({ op, text, old: op === "+" ? null : old, new: op === "-" ? null : nw });
+// A folded run with its lines, as the engine sends it (runs over 500 lines come without them).
+const fold = (fromOld, fromNew, texts) => ({ op: "…", text: `${texts.length} unchanged line${texts.length === 1 ? "" : "s"}`,
+  lines: texts.map((t, k) => line(" ", t, fromOld + k, fromNew + k)) });
+const diff = {
+  name: "css-transitions", scope: "global", revision: 3, base_revision: 2, folder: pending[0].files,
+  files: [{ file: "scripts/check.mjs", status: "changed", lines: [
+    fold(1, 1, ["// Fails when a CSS transition has no reduced-motion fallback.", "import { readFileSync } from \"node:fs\";", "import { parse } from \"./css.mjs\";", "", "const file = process.argv[2];", "if (!file) {", "  console.error(\"usage: check.mjs <file.css>\");", "  process.exit(2);", "}", "const sheet = parse(readFileSync(file, \"utf8\"));", "let failed = 0;", "const fail = (rule, why) => {", "  failed += 1;", "  console.log(`${rule.selectorText}: ${why}`);", "};", "const hasReducedMotion = (rule) =>", "  sheet.reducedMotion.has(rule.selectorText);", ""]),
+    line(" ", "for (const rule of sheet.cssRules) {", 19, 19),
+    line(" ", "  if (!rule.style?.transition) continue;", 20, 20),
+    line("-", "  if (!hasReducedMotion(rule)) fail(rule, \"no reduced-motion fallback\");", 21),
+    line("+", "  const guarded = rule.parentRule?.media?.mediaText.includes(\"prefers-reduced-motion\")", null, 21),
+    line("+", "    || hasReducedMotion(rule);", null, 22),
+    line("+", "  if (!guarded) fail(rule, \"no reduced-motion fallback\");", null, 23),
+    line(" ", "}", 22, 24),
+    { op: "…", text: "612 unchanged lines (open the folder to read them)" }, // over 500: counted only
+  ] }],
+};
+// Two files: a script and a prose step.
+const diff2 = {
+  name: "release-checklist", scope: "atlas-api", revision: 2, base_revision: 1, folder: pending[1].files,
+  files: [
+    { file: "scripts/verify.sh", status: "changed", lines: [
+      line(" ", "set -euo pipefail", 1, 1),
+      line("-", "git checkout main", 2),
+      line("+", "git checkout \"${RELEASE_BRANCH:-release}\"", null, 2),
+      line(" ", "cargo test --locked", 3, 3),
+      fold(4, 4, ["cargo clippy --locked -- -D warnings", "", "branch=$(git rev-parse --abbrev-ref HEAD)", "echo \"verified $branch\"", "", "if [ -n \"${CI:-}\" ]; then", "  echo \"::notice::release verified\"", "fi", "", "git checkout -", "", "exit 0"]),
+    ] },
+    { file: "SKILL.md", status: "changed", lines: [
+      fold(1, 1, ["---", "name: release-checklist", "description: Steps to cut and verify a release of this repo.", "---", "# Release checklist", "", "1. Update CHANGELOG.md.", "2. Bump the version in Cargo.toml.", ""]),
+      line(" ", "## Verify", 10, 10),
+      line("-", "Run `scripts/verify.sh` from main.", 11),
+      line("+", "Run `scripts/verify.sh`; it checks out the release branch (`RELEASE_BRANCH`, default `release`).", null, 11),
+    ] },
+  ],
+};
 
 export const fixtures = {
   ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
-    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {},
+    options: options(), "memory-review": review(pending), "skills approve": {}, "skills reject": {}, "skills diff release-checklist": diff2, "skills diff": diff,
     "find --": { query: "pagination", products: [
       { product: "memory", state: "ok", results: [
         { id: 17, title: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", detail: "fact · atlas-api · 2026-11-12" },

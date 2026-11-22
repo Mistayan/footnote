@@ -493,10 +493,144 @@ pub fn pending(state: &Path) -> Vec<Value> {
             )?;
             Some(json!({
                 "name": name, "scope": scope, "revision": n, "reason": rev["reason"], "changed": rev["changed"],
+                "at": rev["at"], "by": rev["by"],
                 "files": history(state, scope, &crate::skills::file_stem(name)).join(n.to_string()).join("files"),
             }))
         })
         .collect()
+}
+
+/// Lines of context kept around each change, the most lines shown per file, and the largest table the line diff builds.
+const DIFF_CONTEXT: usize = 3;
+const DIFF_LINES: usize = 400;
+const DIFF_CELLS: usize = 4_000_000;
+/// The longest folded run that keeps its lines for unfolding; a longer one is only counted.
+const DIFF_FOLD: usize = 500;
+
+/// What the pending change to a skill changes, line by line, against the revision it would replace (#472): the review the
+/// user does before `approve`, in the window or the terminal. Text files only; a binary or very large file is named with
+/// a note to open the folder.
+pub fn diff(state: &Path, name: &str, scope: &str) -> Result<Value> {
+    let stem = check(name, scope)?;
+    let meta = read_json(&meta_path(state, scope, &stem))
+        .with_context(|| format!("no agent version of `{name}` for scope {scope}"))?;
+    let n = meta["pending"]["revision"]
+        .as_u64()
+        .with_context(|| format!("no change to `{name}` is waiting for review"))?;
+    let hist = history(state, scope, &stem);
+    let new = hist.join(n.to_string()).join("files");
+    let old = meta["pending"]["base_revision"]
+        .as_u64()
+        .map(|b| hist.join(b.to_string()).join("files"));
+    let rev = read_json(&hist.join(n.to_string()).join("meta.json")).unwrap_or_default();
+    let mut files = Vec::new();
+    for rel in rev["changed"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        let Ok(path) = inside(rel) else { continue };
+        let before = old.as_ref().and_then(|d| fs::read(d.join(&path)).ok());
+        let after = fs::read(new.join(&path)).ok();
+        let status = match (&before, &after) {
+            (None, Some(_)) => "added",
+            (Some(_), None) => "removed",
+            _ => "changed",
+        };
+        let text =
+            |v: Option<Vec<u8>>| v.map_or(Some(String::new()), |b| String::from_utf8(b).ok());
+        let lines = match (text(before), text(after)) {
+            (Some(a), Some(b)) => {
+                line_diff(&a, &b).ok_or("too large to show here; open the folder")
+            }
+            _ => Err("not text; open the folder"),
+        };
+        files.push(match lines {
+            Ok(lines) => json!({"file": rel, "status": status, "lines": lines}),
+            Err(note) => json!({"file": rel, "status": status, "lines": [], "note": note}),
+        });
+    }
+    Ok(json!({
+        "name": name, "scope": scope, "revision": n, "base_revision": meta["pending"]["base_revision"],
+        "folder": new, "files": files
+    }))
+}
+
+/// A line diff by longest common subsequence: `{op, text, old, new}` with op " ", "-" or "+" and each side's line number
+/// (null on the side without the line), runs of unchanged lines far from a
+/// change folded into one "…" line. `None` when the files are too large for the table.
+fn line_diff(a: &str, b: &str) -> Option<Vec<Value>> {
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    if a.len().saturating_mul(b.len()) > DIFF_CELLS {
+        return None;
+    }
+    let w = b.len() + 1;
+    let mut t = vec![0u32; (a.len() + 1) * w];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            t[i * w + j] = if a[i] == b[j] {
+                t[(i + 1) * w + j + 1] + 1
+            } else {
+                t[(i + 1) * w + j].max(t[i * w + j + 1])
+            };
+        }
+    }
+    // (op, text, line in the old file, line in the new file), lines counted from 1.
+    let mut ops: Vec<(&str, &str, Option<usize>, Option<usize>)> = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            ops.push((" ", a[i], Some(i + 1), Some(j + 1)));
+            (i, j) = (i + 1, j + 1);
+        } else if i < a.len() && (j == b.len() || t[(i + 1) * w + j] >= t[i * w + j + 1]) {
+            ops.push(("-", a[i], Some(i + 1), None));
+            i += 1;
+        } else {
+            ops.push(("+", b[j], None, Some(j + 1)));
+            j += 1;
+        }
+    }
+    let near = |k: usize| {
+        ops[k.saturating_sub(DIFF_CONTEXT)..(k + DIFF_CONTEXT + 1).min(ops.len())]
+            .iter()
+            .any(|(op, ..)| *op != " ")
+    };
+    let line = |(op, text, old, new): &(&str, &str, Option<usize>, Option<usize>)| json!({"op": op, "text": text, "old": old, "new": new});
+    // A folded run keeps its lines (up to DIFF_FOLD) so the reviewer can unfold the context around a change.
+    let fold = |run: &[(&str, &str, Option<usize>, Option<usize>)]| {
+        let n = run.len();
+        let mut v = json!({"op": "…", "text": format!("{n} unchanged line{}", if n == 1 { "" } else { "s" })});
+        if n <= DIFF_FOLD {
+            v["lines"] = run.iter().map(line).collect();
+        } else {
+            v["text"] = json!(format!(
+                "{n} unchanged lines (open the folder to read them)"
+            ));
+        }
+        v
+    };
+    let mut out = Vec::new();
+    let mut skipped = 0;
+    for (k, (op, text, old, new)) in ops.iter().enumerate() {
+        if *op == " " && !near(k) {
+            skipped += 1;
+            continue;
+        }
+        if skipped > 0 {
+            out.push(fold(&ops[k - skipped..k]));
+            skipped = 0;
+        }
+        if out.len() >= DIFF_LINES {
+            out.push(json!({"op": "…", "text": "more changes: open the folder"}));
+            return Some(out);
+        }
+        out.push(line(&(*op, *text, *old, *new)));
+    }
+    if skipped > 0 {
+        out.push(fold(&ops[ops.len() - skipped..]));
+    }
+    Some(out)
 }
 
 /// Every revision of a skill, oldest first, with the live one marked.
@@ -985,6 +1119,111 @@ mod tests {
         );
         reject(s, "lintme", "global").unwrap();
         assert!(pending(s).is_empty());
+    }
+
+    #[test]
+    fn line_diff_keeps_changes_with_context_and_folds_the_rest() {
+        let ops = |v: &[Value]| {
+            v.iter()
+                .map(|l| l["op"].as_str().unwrap().to_string())
+                .collect::<String>()
+        };
+        let a: String = (1..=20).map(|i| format!("l{i}\n")).collect();
+        let b = a.replace("l10\n", "ten\n");
+        let d = line_diff(&a, &b).unwrap();
+        // 6 unchanged folded, 3 context, the change, 3 context, 7 folded.
+        assert_eq!(ops(&d), "…   -+   …");
+        assert_eq!(d[0]["text"], "6 unchanged lines");
+        // A fold keeps its lines, numbered, for unfolding.
+        let hidden = d[0]["lines"].as_array().unwrap();
+        assert_eq!(hidden.len(), 6);
+        assert_eq!(
+            (hidden[0]["text"].as_str(), hidden[0]["old"].as_u64()),
+            (Some("l1"), Some(1))
+        );
+        assert_eq!(d[9]["lines"].as_array().map(Vec::len), Some(7));
+        assert_eq!(
+            (d[4]["text"].as_str(), d[5]["text"].as_str()),
+            (Some("l10"), Some("ten"))
+        );
+        // Line numbers on each side; null on the side without the line.
+        assert_eq!(
+            (d[4]["old"].as_u64(), d[4]["new"].as_u64()),
+            (Some(10), None)
+        );
+        assert_eq!(
+            (d[5]["old"].as_u64(), d[5]["new"].as_u64()),
+            (None, Some(10))
+        );
+        assert_eq!(
+            (d[6]["old"].as_u64(), d[6]["new"].as_u64()),
+            (Some(11), Some(11))
+        );
+        assert_eq!(ops(&line_diff("", "x\ny\n").unwrap()), "++");
+        assert_eq!(ops(&line_diff("same\n", "same\n").unwrap()), "…");
+        let huge = "x\n".repeat(2_001);
+        assert!(line_diff(&huge, &huge).is_none(), "over the table cap");
+    }
+
+    #[test]
+    fn diff_shows_the_pending_change_against_what_it_replaces() {
+        let t = tempfile::tempdir().unwrap();
+        let s = t.path();
+        let md = skill_md("differ", "Check things.");
+        revise(
+            s,
+            "differ",
+            "global",
+            &changes(&[("SKILL.md", &md), ("scripts/run.sh", "echo a\necho b\n")]),
+            "first",
+        )
+        .unwrap();
+        assert!(diff(s, "differ", "global").is_err(), "nothing pending");
+        let r = change(
+            s,
+            "differ",
+            "global",
+            &changes(&[
+                ("scripts/run.sh", "echo a\necho c\n"),
+                ("scripts/new.sh", "true\n"),
+            ]),
+            "why",
+            Origin::Agent,
+        )
+        .unwrap();
+        assert_eq!(r["status"], "pending");
+        let d = diff(s, "differ", "global").unwrap();
+        assert_eq!(d["revision"], r["revision"]);
+        assert!(
+            Path::new(d["folder"].as_str().unwrap())
+                .join("scripts/run.sh")
+                .is_file()
+        );
+        let file = |f: &str| {
+            d["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|x| x["file"] == f)
+                .unwrap()
+                .clone()
+        };
+        let run = file("scripts/run.sh");
+        assert_eq!(run["status"], "changed");
+        let lines: Vec<String> = run["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| {
+                format!(
+                    "{}{}",
+                    l["op"].as_str().unwrap(),
+                    l["text"].as_str().unwrap()
+                )
+            })
+            .collect();
+        assert_eq!(lines, [" echo a", "-echo b", "+echo c"]);
+        assert_eq!(file("scripts/new.sh")["status"], "added");
     }
 
     /// `n` suggestions of `name` served as `rev` (None: the curated skill), each read, with one script run each; the first

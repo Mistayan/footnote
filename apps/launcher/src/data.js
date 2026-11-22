@@ -26,6 +26,17 @@ export function openSupport(to) {
   return inApp ? invoke("open_support", { to }) : Promise.resolve();
 }
 
+/** Open the folder of an agent's pending skill change in the file manager. The app asks the engine for the folder; the
+ * page only names the skill. */
+export function openSkillFolder(name, scope) {
+  return inApp ? invoke("open_skill_folder", { name, project: scope === "global" ? null : scope }) : Promise.resolve();
+}
+
+/** Open a measurement report (`bench/experiments/<name>.md`) on the project's site; the app checks the path. */
+export function openReceipt(path) {
+  return inApp ? invoke("open_receipt", { path }) : Promise.resolve();
+}
+
 /** Stop the model download in progress (the window keeps at most one). */
 export function cancelInstall() {
   return inApp ? invoke("cancel_install") : Promise.resolve(true);

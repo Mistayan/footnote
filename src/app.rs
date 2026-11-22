@@ -754,6 +754,12 @@ enum SkillsAction {
         #[arg(long)]
         project: Option<String>,
     },
+    /// What the agent's pending change to a skill changes, line by line, against the version it would replace.
+    Diff {
+        name: String,
+        #[arg(long)]
+        project: Option<String>,
+    },
     /// Refuse the agent's pending change to a skill; it stays in the history as rejected.
     Reject {
         name: String,
@@ -1247,6 +1253,9 @@ fn execute(cli: Cli) -> Result<Value> {
                     name,
                     project.as_deref().unwrap_or("global"),
                 ),
+                SkillsAction::Diff { name, project } => {
+                    crate::agent_skills::diff(&state, name, project.as_deref().unwrap_or("global"))
+                }
                 SkillsAction::Reject { name, project } => crate::agent_skills::reject(
                     &state,
                     name,

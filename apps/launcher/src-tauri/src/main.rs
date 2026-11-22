@@ -50,11 +50,16 @@ fn allowed(args: &[String]) -> bool {
         ] => true,
         // The options catalogue (what each option gains and costs) and the review queue: reads.
         ["options"] | ["memory-review"] => true,
-        // An agent's pending change to a skill's scripts: the user serves or refuses it (#457). Nothing runs it.
-        ["skills", "approve" | "reject", name] => plain(name),
-        ["skills", "approve" | "reject", name, "--project", project] => {
-            plain(name) && plain(project)
-        }
+        // An agent's pending change to a skill's scripts: the user reads its diff (#472), then serves or refuses it (#457).
+        // Nothing runs it.
+        ["skills", "approve" | "reject" | "diff", name] => plain(name),
+        [
+            "skills",
+            "approve" | "reject" | "diff",
+            name,
+            "--project",
+            project,
+        ] => plain(name) && plain(project),
         ["code-map", "--root", _, "--depth", d] => d.parse::<u8>().is_ok(),
         _ => false,
     }
@@ -161,25 +166,71 @@ fn install(mut cmd: Command) -> std::io::Result<std::process::Output> {
     })
 }
 
-/// Stop the model download in progress, if any. Returns whether one was running.
-/// The support link: only these two fixed addresses can be opened, in the system browser or mail app (decided 17 Nov).
-#[tauri::command]
-fn open_support(to: String) -> Result<(), String> {
-    let url = match to.as_str() {
-        "issues" => "https://github.com/bobcat88/footnote/issues/new",
-        "email" => "mailto:johan.velocity.lab@pm.me?subject=Footnote",
-        _ => return Err("unknown support address".into()),
-    };
+/// Open a web address or a folder in the system browser, mail app or file manager, outside the window.
+fn open_outside(target: &std::ffi::OsStr) -> Result<(), String> {
     #[cfg(windows)]
     let mut cmd = std::process::Command::new("explorer.exe");
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut cmd = std::process::Command::new("xdg-open");
-    // explorer.exe returns 1 even when it opened the address, so only a failed start counts.
-    cmd.arg(url).spawn().map(drop).map_err(|e| e.to_string())
+    // explorer.exe returns 1 even when it opened the target, so only a failed start counts.
+    cmd.arg(target).spawn().map(drop).map_err(|e| e.to_string())
 }
 
+/// The support links: only these fixed addresses can be opened (decided 17 Nov; the install page added for #472).
+#[tauri::command]
+fn open_support(to: String) -> Result<(), String> {
+    let url = match to.as_str() {
+        "issues" => "https://github.com/bobcat88/footnote/issues/new",
+        "install" => "https://github.com/bobcat88/footnote/releases/latest",
+        "email" => "mailto:johan.velocity.lab@pm.me?subject=Footnote",
+        _ => return Err("unknown support address".into()),
+    };
+    open_outside(url.as_ref())
+}
+
+/// A measurement report the catalogue cites (`bench/experiments/<name>.md`), as its page on the project's site. Anything
+/// else (another folder, `..`, a query or a scheme) gives `None`.
+fn receipt_url(path: &str) -> Option<String> {
+    let name = path.strip_prefix("bench/experiments/")?;
+    let ok = name.len() <= 100
+        && name.ends_with(".md")
+        && !name.starts_with('.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    ok.then(|| format!("https://github.com/bobcat88/footnote/blob/main/{path}"))
+}
+
+/// Open the measurement behind an option's cost (#472), on the project's site.
+#[tauri::command]
+fn open_receipt(path: String) -> Result<(), String> {
+    let url = receipt_url(&path).ok_or("not a measurement report")?;
+    open_outside(url.as_ref())
+}
+
+/// Open the folder holding an agent's pending skill change, so the user can read its files before approving (#472). The
+/// window names the skill only: the folder comes from the engine's `skills diff`, never from the page.
+#[tauri::command(async)]
+fn open_skill_folder(name: String, project: Option<String>) -> Result<(), String> {
+    let mut args = vec!["skills".to_string(), "diff".into(), name];
+    if let Some(p) = project {
+        args.extend(["--project".into(), p]);
+    }
+    let diff = footnote(args)?;
+    let folder = PathBuf::from(
+        diff["folder"]
+            .as_str()
+            .ok_or("the engine named no folder")?,
+    );
+    if !folder.is_dir() {
+        return Err(format!("{} is not a folder", folder.display()));
+    }
+    open_outside(folder.as_os_str())
+}
+
+/// Stop the model download in progress, if any. Returns whether one was running.
 #[tauri::command]
 fn cancel_install() -> bool {
     let child = INSTALL.lock().unwrap_or_else(|p| p.into_inner()).take();
@@ -220,7 +271,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             footnote,
             cancel_install,
-            open_support
+            open_support,
+            open_skill_folder,
+            open_receipt
         ])
         // The tray (decided 15 Nov: a compact tray panel plus the full window): a left click opens the mini panel, the menu
         // opens either window or quits. Quitting is only ever from this menu, so closing a window never loses the app.
@@ -271,7 +324,30 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{allowed, tray_only};
+    use super::{allowed, receipt_url, tray_only};
+
+    /// #472: only a report under bench/experiments opens, and only on the project's site.
+    #[test]
+    fn only_measurement_reports_open_as_receipts() {
+        assert_eq!(
+            receipt_url("bench/experiments/SKILL-EDIT-COST-2026-11-21.md").as_deref(),
+            Some(
+                "https://github.com/bobcat88/footnote/blob/main/bench/experiments/SKILL-EDIT-COST-2026-11-21.md"
+            )
+        );
+        for bad in [
+            "bench/experiments/../../SECURITY.md",
+            "bench/experiments/a/b.md",
+            "bench/experiments/x.md?y=1",
+            "bench/experiments/.md",
+            "bench/experiments/run.sh",
+            "https://example.com/bench/experiments/x.md",
+            "docs/x.md",
+            "",
+        ] {
+            assert!(receipt_url(bad).is_none(), "{bad}");
+        }
+    }
 
     #[test]
     fn tray_flag_starts_without_a_window() {
@@ -335,6 +411,8 @@ mod tests {
         assert!(
             ok("skills approve css-transitions")
                 && ok("skills reject css-transitions --project atlas-api")
+                && ok("skills diff css-transitions")
+                && ok("skills diff css-transitions --project atlas-api")
                 && ok("skills approve plugin:name")
         );
         assert!(
@@ -343,6 +421,7 @@ mod tests {
                 && !ok("skills revise a")
                 && !ok("skills drop a")
                 && !ok("skills approve a b")
+                && !ok("skills diff --project x")
                 && !ok("memory-review --limit 5")
                 && !ok("options --set")
         );

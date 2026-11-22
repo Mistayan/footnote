@@ -5,7 +5,12 @@ The desktop window over the `footnote` engine (Tauri 2 + React). It holds no dat
 one Tauri command with an allowlist (`src-tauri/src/main.rs`). The allowlist permits only a few reversible writes:
 - a product's on/off switch;
 - the skill-rewriting switch (`memory.skill_rewrite`), whose cost the Skills screen shows before it is turned on;
-- `skills approve` or `skills reject` for an agent's pending skill change. Nothing in the window or the engine runs that change.
+- `skills approve` or `skills reject` for an agent's pending skill change, after `skills diff` (a read) shows it line by line.
+  Nothing in the window or the engine runs that change.
+
+Besides that command, the window can open only fixed addresses (the support page, mail, the install page), a measurement
+report under `bench/experiments/` on the project's site, and the folder of a
+pending skill change, which the engine names from `skills diff`; the page passes a skill name, never a path.
 
 Design: [DESIGN.md](../../DESIGN.md) section 11.
 

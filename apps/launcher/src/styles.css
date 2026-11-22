@@ -97,15 +97,19 @@ main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .card.muted .big { color: var(--mute); }
 .card h2 .state { margin-left: auto; color: var(--dim); font-weight: 400; font-size: var(--t-s); }
 /* The product switch: the knob's side and the track's fill both say on or off, not colour alone. */
-.switch { margin-left: auto; width: 30px; height: 16px; border-radius: 8px; border: 1px solid var(--line2); background: var(--panel);
-  position: relative; padding: 0; cursor: pointer; flex: none; }
-.switch span { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--dim);
+/* 40 x 24 px target; the off track's edge is --mute (7:1 on the card), so the control reads without its fill (WCAG 1.4.11). */
+.switch { margin-left: auto; width: 40px; height: 24px; border-radius: 12px; border: 1px solid var(--mute); background: var(--panel);
+  position: relative; padding: 0; cursor: pointer; flex: none; transition: border-color var(--fast) var(--ease); }
+.switch span { position: absolute; top: 4px; left: 4px; width: 14px; height: 14px; border-radius: 50%; background: var(--mute);
   transition: transform 120ms ease, background 120ms ease; }
 .switch[aria-checked="true"] { background: color-mix(in srgb, var(--ok) 25%, var(--panel)); border-color: var(--ok); }
-.switch[aria-checked="true"] span { transform: translateX(14px); background: var(--ok); }
+.switch[aria-checked="true"] span { transform: translateX(16px); background: var(--ok); }
 .switch:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
 .switch:disabled { opacity: .6; cursor: progress; }
-@media (prefers-reduced-motion: reduce) { .switch span { transition: none; } }
+.switch:hover:not(:disabled) { border-color: var(--text); }
+.switch:hover:not(:disabled) span { background: var(--text); }
+.switch:active:not(:disabled) { background: var(--raise); }
+@media (prefers-reduced-motion: reduce) { .switch, .switch span { transition: none; } }
 .section { font: 500 var(--t-s) var(--f-ui); color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
 
 .tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
@@ -214,9 +218,9 @@ code.cmd { font-family: var(--f-mono); font-size: var(--t-s); color: var(--text)
   border-top: 1px solid var(--line); background: rgb(13 24 16 / 0.85); grid-row: 2; }
 
 /* Messages and the Enterprise page */
-.msg { max-width: 560px; margin: 64px auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
-  padding: 20px 22px; display: flex; flex-direction: column; gap: 10px; color: var(--mute); }
-.msg h2 { font: 600 var(--t-brand) var(--f-title); color: var(--text); }
+.msg { max-width: 760px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; color: var(--mute); }
+.msg h2 { font: 600 var(--t-ui) / 20px var(--f-ui); color: var(--text); }
 .prose { max-width: 640px; display: flex; flex-direction: column; gap: 10px; color: var(--mute); }
 .prose h2 { font: 600 var(--t-brand) var(--f-title); color: var(--text); }
 .prose ul { padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
@@ -291,21 +295,78 @@ code.cmd { font-family: var(--f-mono); font-size: var(--t-s); color: var(--text)
 .grade { font: var(--t-xs) var(--f-mono); color: var(--ok); white-space: nowrap; }
 .grade.guess { color: var(--warn); }
 
-/* Skills screen (#457): the rewriting switch with its cost, and agents' changes waiting for the user. */
+/* Skills screen (#457, reworked for #472): one 760 px column, 14 px prose on a 20 px line, 4 px grid. The option card, then
+   agents' changes waiting for the user, each with its diff. */
+.skills { gap: 24px; }
+.skills > * { width: 100%; max-width: 760px; }
+.skills .group { display: flex; flex-direction: column; gap: 8px; }
+.skills .heading { font: 600 var(--t-brand) / 20px var(--f-title); color: var(--text); display: flex; align-items: center; gap: 8px; }
+.skills .count { font: 500 var(--t-s) / 20px var(--f-ui); color: var(--text); background: var(--raise); border-radius: 999px;
+  padding: 0 8px; min-width: 24px; text-align: center; }
+.skills .copy, .skills .empty, .confirm p, .change, .change p { font-size: var(--t-ui); line-height: 20px; }
+.skills .copy { color: var(--mute); max-width: 60ch; }
+.skills .copy.cost { color: var(--text); }
+.skills .copy strong, .confirm strong, .policy strong { color: var(--text); font-weight: 500; }
+.skills code { font-size: var(--t-s); color: var(--text); white-space: nowrap; }
+.skills .empty { padding: 12px 16px; }
+.skills .empty span { display: block; max-width: 60ch; }
 .setting { display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; }
-.setting h2, .setting .sub, .confirm p, .change, .change p { line-height: 20px; }
-.setting .sub strong, .confirm strong { color: var(--text); font-weight: 500; }
-.setting .sub, .confirm p { max-width: 96ch; }
-.setting code, .confirm code { color: var(--text); }
-.confirm { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; border: 1px solid var(--warn);
+.setting .title { display: flex; align-items: center; gap: 12px; min-height: 24px; }
+.setting h2 { font: 600 var(--t-ui) / 20px var(--f-ui); color: var(--text); }
+.toggle, .locked { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--mute); font-size: var(--t-ui);
+  line-height: 20px; }
+.toggle .switch { margin-left: 0; }
+.locked { padding: 2px 10px; background: var(--raise); border-radius: 999px; gap: 6px; cursor: default; }
+.policy { padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); background: var(--raise);
+  border-radius: var(--r-ctl);
+  color: var(--mute); line-height: 20px; max-width: 60ch; }
+.confirm { display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; margin: 8px 0 4px; border: 1px solid var(--warn);
   border-radius: var(--r-ctl); background: var(--raise); }
-.actions { display: flex; gap: 8px; padding-top: 8px; }
+.confirm p { color: var(--text); max-width: 60ch; }
+.actions { display: flex; align-items: center; gap: 8px; padding-top: 8px; }
+.actions .gap { flex: 1; }
+.skills .btn, .msg .btn { font-size: var(--t-ui); padding: 4px 12px; }
+.btn.wide { min-width: 148px; text-align: center; } /* "Show" and "Hide the changes": one width, nothing beside it moves */
 .btn.primary { color: var(--text); border-color: var(--acc); }
-.btn.primary:hover { color: var(--acc); }
+.btn.primary:hover { color: var(--acc); border-color: var(--acc); background: color-mix(in srgb, var(--acc) 10%, transparent); }
+.btn.primary:active:not(:disabled) { border-color: var(--acc); background: color-mix(in srgb, var(--acc) 22%, transparent); }
 .changes { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .change { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: 12px 16px;
-  display: flex; flex-direction: column; gap: 4px; color: var(--mute); font-size: var(--t-s); min-width: 0; }
-.change .head { display: flex; align-items: baseline; gap: 12px; }
-.change .head .mono { color: var(--text); font-size: var(--t-m); }
-.change p { color: var(--text); font-size: var(--t-ui); }
+  display: flex; flex-direction: column; gap: 4px; color: var(--mute); min-width: 0; }
+.change .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.change .head .name { color: var(--text); font-size: var(--t-ui); font-weight: 400; overflow-wrap: anywhere; }
+.change > p:not(.files) { color: var(--text); max-width: 60ch; }
+.diff { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.diff figure { border: 1px solid var(--line); border-radius: var(--r-ctl); overflow: hidden; }
+.diff figcaption { padding: 4px 12px; background: var(--raise); border-bottom: 1px solid var(--line); font-size: var(--t-s); }
+.diff figure > p { padding: 8px 12px; }
+.diff pre { margin: 0; padding: 4px 0; line-height: 20px; color: var(--mute); font-variant-ligatures: none; } /* "=>" stays two characters */
+.diff pre > span:not(.sr-only) { display: grid; grid-template-columns: 4ch 5ch 2ch minmax(0, 1fr); padding-right: 12px; }
+.diff pre .t { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff pre i { padding-right: 1ch; text-align: right; font-style: normal; color: var(--mute);
+  user-select: none; }
+.diff pre i + i { margin-right: 1ch; border-right: 1px solid var(--line); }
+.diff pre b { font-weight: 400; color: var(--dim); }
+.diff .add { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--text); }
+.diff .add b { color: var(--ok); }
+.diff .del { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text); }
+.diff .del b { color: var(--warn); }
+.diff .fold { color: var(--dim); font-style: italic; }
+.diff pre > span.fold { padding-right: 0; }
+.skills .heading .note { font: 400 var(--t-ui) / 20px var(--f-ui); color: var(--mute); }
+.skel.prose { max-width: 60ch; }
+.diff .fold button { grid-column: 1 / -1; text-align: left; padding: 0 0 0 calc(9ch + 1px); color: var(--mute); font: inherit;
+  font-style: normal; background: color-mix(in srgb, var(--raise) 60%, transparent); border-radius: 0; }
+.diff .fold button:hover { color: var(--text); background: var(--raise); }
+.diff .fold .t { grid-column: 4; }
+.receipt { font: inherit; color: var(--acc); padding: 0; border-radius: 4px; transition: color var(--fast) var(--ease); }
+.receipt:hover { color: var(--text); }
+.receipt:active { color: var(--mute); }
+.skel-card { display: flex; flex-direction: column; gap: 12px; }
+.setting.skel-card { height: 247px; }
+.skel-para { display: flex; flex-direction: column; justify-content: space-around; height: 40px; }
+.change.skel-card { height: 156px; }
+.skel.w20 { width: 20%; } .skel.w30 { width: 30%; } .skel.w40 { width: 40%; } .skel.w70 { width: 70%; }
+.skel.line { height: 20px; }
+.skills .btn:active:not(:disabled) { background: var(--line2); color: var(--text); transform: translateY(1px); }
 .path { overflow-wrap: anywhere; }

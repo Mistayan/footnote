@@ -175,6 +175,7 @@ footnote skills list            # agent skills too, with `behind` when the curat
 
 ```bash
 footnote memory-review                       # `skills_pending`: what changes, why, and the folder to read
+footnote skills diff css-transitions         # the change line by line, against the version it would replace
 footnote skills approve css-transitions      # serve it (add --project for a project's version)
 footnote skills reject css-transitions       # refuse it; it stays in the history as rejected
 ```

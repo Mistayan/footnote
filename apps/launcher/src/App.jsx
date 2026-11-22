@@ -14,7 +14,7 @@ const SCREENS = {
   models: { title: "Models" },
   activity: { title: "Activity", note: "what Memory did" },
   usage: { title: "Usage", note: "tokens your agents used" },
-  skills: { title: "Skills", note: "what agents may change" },
+  skills: { title: "Skills", note: "agents' changes, and your review" },
   enterprise: { title: "Footnote Enterprise" },
 };
 
@@ -352,13 +352,16 @@ function Problem({ error, retry }) {
         <h2>{missing ? "The Footnote engine was not found" : "Footnote could not read its data"}</h2>
         {missing ? (
           <p>
-            Install <code>footnote</code>, or set <code>FOOTNOTE_BIN</code> to its path, then refresh.
+            Install <code>footnote</code>, or set <code>FOOTNOTE_BIN</code> to its path, then try again.
           </p>
         ) : (
           <p className="mono">{error}</p>
         )}
-        <div>
-          <button className="btn" onClick={retry}>Refresh</button>
+        <div className="actions">
+          {missing && (
+            <button className="btn primary" onClick={() => openSupport("install")}>Get Footnote</button>
+          )}
+          <button className="btn" onClick={retry}>Try again</button>
         </div>
       </div>
     </div>

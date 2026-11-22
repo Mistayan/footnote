@@ -112,12 +112,17 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   follows the heaviest references; the lit path animates with dots, but not under reduced motion. The detail panel shows the
   selected flow or block: its memories first, then its steps or links. All colours, type and radii are this section's tokens.
   The Layers tab reads the same map top to bottom: entry, features, base, outside, each with its links down.
-- **Skills screen (21 Nov 2026, #457):** a workspace screen with two blocks.
+- **Launcher-only colour roles:** besides section 3, the window uses `--side` #0D1810 (sidebar ground), `--raise` #182A20
+  (selected rows, raised fills, callouts), `--line2` #34413A (control borders) and `--dim` #8A978D (tertiary labels; 5.7:1 on
+  the surface). `--acc` in the window is the glow teal #5FD3C3, used for focus and primary-button borders.
+- **Skills screen (21 Nov 2026, #457; reworked 22 Nov 2026, #472):** a workspace screen in one 760 px reading column, left
+  aligned like every other screen (the activity column belongs to Overview only). Two blocks, 24 px apart.
   - One card holds the `memory.skill_rewrite` switch, with the engine catalogue's gain and cost text. That text is read from `footnote options`, never copied into the app, and its backtick spans render as code.
-  - Turning the switch on opens an inline confirmation inside the card. It has a `--warn` border, repeats the cost, and puts focus on "Turn on". Turning it off is immediate.
-  - A company policy replaces the switch with "Set by your company" and shows its reason.
-  - Below the card is the list of agents' pending skill changes. Each item has the name, scope, revision, reason, changed files, the folder to read, and Approve / Reject buttons. Approve is a `--acc`-bordered button.
-  - Spacing is on the 4 px grid, with 20 px line height and text capped at 96ch.
+  - The title row reads "Agents may change skills" (Hanken 14 px, 600: a card title, one step below the Jakarta 15 px section heading "Changes waiting for you"), then "On" or "Off" beside a 40 × 24 px switch whose off edge is `--mute` (≥ 3:1). Diff lines wrap inside their panel, keeping the line-number gutter.
+  - Turning the switch on opens an inline confirmation inside the card. It has a `--warn` border, one line on what turning it on costs, and puts focus on "Turn on". Escape or Cancel closes it and returns focus to the switch. Turning it off is immediate.
+  - A company policy replaces the switch with a borderless `--raise` status pill with a lock glyph naming the locked value ("Off, set by your company"), and its reason sits under the title in a callout with a `--warn`-tinted border. The empty list then says that no change can arrive.
+  - Below the card, under the title "Changes waiting for you" with their count, is the list of agents' pending skill changes. Each item has the name, scope, revision, the date it was proposed, the reason and changed files, then "Show the changes" (the line diff from `footnote skills diff`, with old and new line numbers, removed lines on a `--warn` tint, added on an `--ok` tint, unchanged runs folded into a row that unfolds them in place and moves focus to the first revealed line, or opens the folder for a run over 500 lines; no font ligatures in diffs), "Open folder" (the engine names the folder; the window only names the skill), and Approve / Reject on the right. Approve is a `--acc`-bordered button.
+  - All prose is 14 px on a 20 px line, capped at 60ch (at most about 75 characters of Hanken Grotesk); the cost text is at full `--text` strength, and its measurement report opens on the project's site. Spacing is on the 4 px grid. The loading state draws the card and one change as skeletons of the same size.
 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
