@@ -446,6 +446,31 @@ fn show(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+/// The mini window: Tauri draws a frameless window's shadow by extending the frame 1 px into it, which shows as a light line,
+/// so the window has no shadow (tauri.conf.json). Windows 11 is asked to round its corners and draw no border instead
+/// (`DWMWA_WINDOW_CORNER_PREFERENCE` = round, `DWMWA_BORDER_COLOR` = none). Best effort: older Windows ignores both.
+#[cfg(windows)]
+fn no_border(window: &tauri::WebviewWindow) {
+    #[link(name = "dwmapi")]
+    unsafe extern "system" {
+        fn DwmSetWindowAttribute(hwnd: isize, attribute: u32, value: *const u32, size: u32) -> i32;
+    }
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_ROUND: u32 = 2;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWA_COLOR_NONE: u32 = 0xFFFF_FFFE;
+    if let Ok(hwnd) = window.hwnd() {
+        // SAFETY: a live window handle from Tauri, 4-byte values read during each call only.
+        unsafe {
+            DwmSetWindowAttribute(hwnd.0 as isize, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_ROUND, 4);
+            DwmSetWindowAttribute(hwnd.0 as isize, DWMWA_BORDER_COLOR, &DWMWA_COLOR_NONE, 4);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn no_border(_: &tauri::WebviewWindow) {}
+
 /// `--tray`: start in the tray without opening a window. The installer's Windows startup entry passes it.
 fn tray_only(args: &[String]) -> bool {
     args.iter().any(|a| a == "--tray")
@@ -473,6 +498,9 @@ fn main() {
         // The tray (decided 15 Nov: a compact tray panel plus the full window): a left click opens the mini panel, the menu
         // opens either window or quits. Quitting is only ever from this menu, so closing a window never loses the app.
         .setup(|app| {
+            if let Some(mini) = app.get_webview_window("mini") {
+                no_border(&mini);
+            }
             let open = MenuItem::with_id(app, "open", "Open Footnote", true, None::<&str>)?;
             let mini = MenuItem::with_id(app, "mini", "Mini mode", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Footnote", true, None::<&str>)?;
