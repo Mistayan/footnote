@@ -1,3 +1,6 @@
+//! Structured records (incident and fix knowledge): an agent proposes a JSON record (symptom, root cause, fix), validation
+//! with evidence promotes it, and every revision is kept. Records are searched by keyword (FTS5) and feed the hybrid
+//! shortlist like chunks do.
 use anyhow::{Context, Result, bail};
 use footnote_core::bounded_read;
 use footnote_core::hash;

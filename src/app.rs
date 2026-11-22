@@ -1,3 +1,6 @@
+//! The `footnote` command line: the clap definitions of every command and `run`, which dispatches each one to its module
+//! and prints its JSON result. Most modules are reached from here, so it is the place to start reading. Hook and `run`
+//! output belong to the agent's protocol and skip the JSON wrapper.
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};

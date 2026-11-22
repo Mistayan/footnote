@@ -9,10 +9,10 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 /// List prices in USD per million tokens, from the providers' pricing pages, read 16 Nov 2026:
-/// https://platform.claude.com/docs/en/about-claude/pricing and https://developers.openai.com/api/docs/pricing (standard tier);
+/// <https://platform.claude.com/docs/en/about-claude/pricing> and <https://developers.openai.com/api/docs/pricing> (standard tier);
 /// gpt-6.2-sol read 18 Nov 2026 from the same OpenAI page (#223);
-/// https://api-docs.deepseek.com/quick_start/pricing read 20 Nov 2026 (standard/peak list rates; off-peak 50% discount not modelled);
-/// https://ai.google.dev/gemini-api/docs/pricing read 21 Nov 2026 (global standard list rates; implicit cache reads at 5-10% of input).
+/// <https://api-docs.deepseek.com/quick_start/pricing> read 20 Nov 2026 (standard/peak list rates; off-peak 50% discount not modelled);
+/// <https://ai.google.dev/gemini-api/docs/pricing> read 21 Nov 2026 (global standard list rates; implicit cache reads at 5-10% of input).
 /// Changing a price: edit the row and `PRICES`; every file is then read again so old counts get the new prices.
 /// shortcut: batch, fast tier, US-only inference (x1.1), off-peak discounts and regional endpoints are not priced; add them when someone uses them.
 const PRICES: &str = "2026-11-21";

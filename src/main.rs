@@ -1,3 +1,5 @@
+//! The `footnote` binary's entry point: declares the modules and runs `app::run` on a thread with an 8 MB stack, because
+//! Windows gives the main thread 1 MB, which a debug build with every feature overflows (#265).
 #[cfg(feature = "memory")]
 mod activity;
 mod app;

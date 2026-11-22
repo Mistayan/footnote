@@ -1,3 +1,5 @@
+//! Text extraction for Library: runs the bundled Python helper (`tools/extract.py`) on one document snapshot and reads
+//! its pages back as JSON. The interpreter is `FOOTNOTE_PYTHON` or the `.venv` beside the binary or checkout.
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::{
