@@ -349,3 +349,17 @@ sys.exit(101)
     assert!(!t5.contains("repeat failure"), "{t5}");
     assert!(t5.contains("left: 99"), "{t5}");
 }
+
+#[test]
+fn oversized_stdin_passes_through_without_a_handle() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = vec![b'x'; 8 * 1024 * 1024 + 1];
+    let mut cmd = assert_cmd::Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+    let result = cmd
+        .env("FOOTNOTE_STATE_DIR", dir.path())
+        .args(["run", "--stdin"])
+        .write_stdin(input.clone())
+        .assert()
+        .success();
+    assert!(result.get_output().stdout == input);
+}

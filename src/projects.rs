@@ -252,6 +252,25 @@ pub fn commit_now(state: &Path, project: &str) -> Result<Value> {
     )
 }
 
+fn codex_command(out_file: &std::path::Path) -> std::process::Command {
+    // `--full-auto` is rejected by Codex 0.171+ (#542); approval and sandbox are spelled out.
+    let mut c = std::process::Command::new("codex");
+    c.args([
+        "-a",
+        "never",
+        "exec",
+        "--sandbox",
+        "workspace-write",
+        "-c",
+        "sandbox_workspace_write.network_access=true",
+        "--ephemeral",
+        "-o",
+    ])
+    .arg(out_file)
+    .arg("-");
+    c
+}
+
 fn run_agent(agent: &str, root: &str, prompt: &str) -> Result<String> {
     use anyhow::Context;
     use std::io::Write;
@@ -281,18 +300,7 @@ fn run_agent(agent: &str, root: &str, prompt: &str) -> Result<String> {
         ]);
         c
     } else {
-        let mut c = Command::new("codex");
-        c.args([
-            "exec",
-            "--full-auto",
-            "-c",
-            "sandbox_workspace_write.network_access=true",
-            "--ephemeral",
-            "-o",
-        ])
-        .arg(&out_file)
-        .arg("-");
-        c
+        codex_command(&out_file)
     };
     cmd.current_dir(root)
         .env("FOOTNOTE_HOOK_OFF", "1")
@@ -442,6 +450,31 @@ fn memories_by_project(state: &Path) -> Result<std::collections::HashMap<String,
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codex_commit_arguments_are_pinned() {
+        let c = super::codex_command(std::path::Path::new("out.txt"));
+        let args: Vec<_> = c
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            [
+                "-a",
+                "never",
+                "exec",
+                "--sandbox",
+                "workspace-write",
+                "-c",
+                "sandbox_workspace_write.network_access=true",
+                "--ephemeral",
+                "-o",
+                "out.txt",
+                "-",
+            ]
+        );
+    }
+
     #[test]
     fn a_folder_added_by_hand_is_listed_under_its_name_and_unignored() {
         let dir = tempfile::tempdir().unwrap();

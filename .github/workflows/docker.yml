@@ -17,6 +17,10 @@ jobs:
         run: DOCKER_BUILDKIT=1 docker build -t footnote:local .
       - name: Smoke test CLI and MCP
         run: |
+          mkdir -p "$RUNNER_TEMP/footnote-notes"
+          echo 'walcheckpoint records transaction progress' > "$RUNNER_TEMP/footnote-notes/archive.md"
+          docker run --rm -v fn-state:/state -v "$RUNNER_TEMP/footnote-notes:/notes:ro" footnote:local --db /state/docs.db index --root /notes --allow /notes
+          docker run --rm -v fn-state:/state -v "$RUNNER_TEMP/footnote-notes:/notes:ro" footnote:local --db /state/docs.db search walcheckpoint | grep -q 'archive.md'
           docker run --rm -v fn-state:/state footnote:local status
           docker run --rm -v fn-state:/state -v "$PWD:/workspace" footnote:local code-index .
           docker run --rm -v fn-state:/state -v "$PWD:/workspace" footnote:local grep state_dir

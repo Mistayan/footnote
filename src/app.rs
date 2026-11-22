@@ -181,7 +181,7 @@ enum Action {
         limit: u16,
     },
     #[cfg(feature = "memory")]
-    /// Retire stale project memories with an agent you already use (Claude Code or Codex); `memory-restore` undoes it.
+    /// Retire stale project memories with local rules and optional tool-free Claude Code review; `memory-restore` undoes it.
     MemoryClean {
         /// Show what would be retired; change nothing.
         #[arg(long)]

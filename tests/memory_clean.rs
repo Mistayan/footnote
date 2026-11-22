@@ -54,3 +54,23 @@ fn a_failed_scheduled_cleaning_changes_nothing_and_retries_tomorrow() {
     );
     assert_eq!(live(), before, "a failed run retires nothing");
 }
+
+#[test]
+fn codex_selection_uses_local_rules_without_starting_an_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("memory.db");
+    let mut save = Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+    save.env("FOOTNOTE_STATE_DIR", dir.path()).arg("--db").arg(&db).arg("remember")
+        .write_stdin(json!([{"text":"Synthetic project fact","kind":"fact","scope":"alpha","observed_at":"2026-11-20"}]).to_string())
+        .assert().success();
+    let mut clean = Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+    let result = clean
+        .env("FOOTNOTE_STATE_DIR", dir.path())
+        .env("PATH", dir.path().join("no-agents"))
+        .args(["memory-clean", "--agent", "codex", "--dry-run"])
+        .assert()
+        .success();
+    let report: Value = serde_json::from_slice(&result.get_output().stdout).unwrap();
+    assert_eq!(report["model_review"], "skipped_no_tool_free_mode");
+    assert!(report["usage"].is_null());
+}

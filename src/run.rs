@@ -288,10 +288,19 @@ pub fn run_cli(opts: &RunOptions) -> i32 {
 fn run_inner(opts: &RunOptions) -> Result<i32> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let (raw_output, exit_code, family) = if opts.stdin_mode {
-        let mut buf = String::new();
-        std::io::stdin()
-            .read_to_string(&mut buf)
-            .context("read stdin")?;
+        let mut input = std::io::stdin().lock();
+        let mut bytes = Vec::new();
+        input
+            .by_ref()
+            .take(MAX_STORE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > MAX_STORE_BYTES {
+            let mut output = std::io::stdout().lock();
+            output.write_all(&bytes)?;
+            std::io::copy(&mut input, &mut output)?;
+            return Ok(0);
+        }
+        let buf = String::from_utf8(bytes).context("read stdin")?;
         let fam = opts.family_override.unwrap_or(CommandFamily::Generic);
         (buf, 0, fam)
     } else {
@@ -302,7 +311,10 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
             .family_override
             .unwrap_or_else(|| classify_command(&opts.command));
         let (combined, code) = spawn_and_capture(&opts.command)?;
-        (combined, code, fam)
+        let Some(output) = combined else {
+            return Ok(code);
+        };
+        (output, code, fam)
     };
 
     if opts.raw || raw_output.is_empty() {
@@ -522,7 +534,7 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
     Ok(exit_code)
 }
 
-fn spawn_and_capture(cmd: &[String]) -> Result<(String, i32)> {
+fn spawn_and_capture(cmd: &[String]) -> Result<(Option<String>, i32)> {
     let mut child = Command::new(&cmd[0])
         .args(&cmd[1..])
         .stdin(Stdio::inherit())
@@ -531,28 +543,71 @@ fn spawn_and_capture(cmd: &[String]) -> Result<(String, i32)> {
         .spawn()
         .with_context(|| format!("failed to spawn `{}`", cmd[0]))?;
 
-    let mut out_pipe = child.stdout.take();
-    let mut err_pipe = child.stderr.take();
-
-    let out_thread = std::thread::spawn(move || -> Vec<u8> {
-        let mut buf = Vec::new();
-        if let Some(ref mut r) = out_pipe {
-            let _ = r.read_to_end(&mut buf);
+    let out = child.stdout.take().context("child stdout")?;
+    let err = child.stderr.take().context("child stderr")?;
+    // Drain both pipes concurrently. Once the combined budget is exceeded, bypass
+    // compaction and forward bytes as they arrive without persisting raw output.
+    let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+    let pump = |mut pipe: Box<dyn Read + Send>,
+                stderr,
+                tx: std::sync::mpsc::SyncSender<(bool, Vec<u8>)>| {
+        std::thread::spawn(move || -> std::io::Result<()> {
+            let mut buf = [0u8; 32 * 1024];
+            loop {
+                let n = match pipe.read(&mut buf) {
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    result => result?,
+                };
+                if n == 0 || tx.send((stderr, buf[..n].to_vec())).is_err() {
+                    break;
+                }
+            }
+            Ok(())
+        })
+    };
+    let out_reader = pump(Box::new(out), false, sender.clone());
+    let err_reader = pump(Box::new(err), true, sender);
+    let (mut stdout_bytes, mut stderr_bytes) = (Vec::new(), Vec::new());
+    let mut streaming = false;
+    let mut output = std::io::stdout().lock();
+    let drained = (|| -> std::io::Result<()> {
+        for (stderr, chunk) in receiver {
+            if !streaming && stdout_bytes.len() + stderr_bytes.len() + chunk.len() > MAX_STORE_BYTES
+            {
+                streaming = true;
+                output.write_all(&stderr_bytes)?;
+                output.write_all(&stdout_bytes)?;
+                stdout_bytes.clear();
+                stderr_bytes.clear();
+            }
+            if streaming {
+                output.write_all(&chunk)?;
+            } else if stderr {
+                stderr_bytes.extend_from_slice(&chunk);
+            } else {
+                stdout_bytes.extend_from_slice(&chunk);
+            }
         }
-        buf
-    });
-    let err_thread = std::thread::spawn(move || -> Vec<u8> {
-        let mut buf = Vec::new();
-        if let Some(ref mut r) = err_pipe {
-            let _ = r.read_to_end(&mut buf);
-        }
-        buf
-    });
-
-    let status = child.wait().context("wait for child process")?;
-    let stdout_bytes = out_thread.join().unwrap_or_default();
-    let stderr_bytes = err_thread.join().unwrap_or_default();
-    let exit_code = status.code().unwrap_or(1);
+        Ok(())
+    })();
+    if drained.is_err() {
+        let _ = child.kill();
+    }
+    let exit_code = child
+        .wait()
+        .context("wait for child process")?
+        .code()
+        .unwrap_or(1);
+    out_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("stdout reader failed"))??;
+    err_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("stderr reader failed"))??;
+    drained?;
+    if streaming {
+        return Ok((None, exit_code));
+    }
 
     let stdout_str = String::from_utf8_lossy(&stdout_bytes);
     let stderr_str = String::from_utf8_lossy(&stderr_bytes);
@@ -569,7 +624,7 @@ fn spawn_and_capture(cmd: &[String]) -> Result<(String, i32)> {
             }
         }
     };
-    Ok((combined, exit_code))
+    Ok((Some(combined), exit_code))
 }
 
 /// Core preservation-first dispatcher across the shipped command families.

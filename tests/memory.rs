@@ -675,3 +675,41 @@ fn an_mcp_client_cannot_load_a_model_folder_of_its_choosing() {
         );
     }
 }
+
+#[test]
+fn scoped_recall_keeps_a_match_below_the_global_shortlist() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("memories.db");
+    let date = "2026-11-20";
+    run(
+        &db,
+        &["remember"],
+        Some(json!([mem(
+            "The north project checkpoint policy is recorded in its maintenance guide.",
+            "fact",
+            "north",
+            date
+        )])),
+    );
+    for batch in 0..13 {
+        let rows: Vec<_> = (0..50)
+            .map(|i| {
+                mem(
+                    &format!("checkpoint checkpoint {}", batch * 50 + i),
+                    "fact",
+                    "south",
+                    date,
+                )
+            })
+            .collect();
+        run(&db, &["remember"], Some(json!(rows)));
+    }
+    let recalled = run(
+        &db,
+        &["memory-recall", "checkpoint", "--project", "north"],
+        None,
+    );
+    assert_eq!(recalled["candidates"], 1);
+    assert_eq!(recalled["memories"].as_array().unwrap().len(), 1);
+    assert_eq!(recalled["memories"][0]["scope"], "north");
+}

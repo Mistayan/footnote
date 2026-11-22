@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::{
     fs,
@@ -19,25 +19,39 @@ pub struct Extraction {
     pub pages: Vec<Page>,
 }
 
+const HELPER: &str = include_str!("../../../tools/extract.py");
+
+pub(crate) fn helper_hash() -> &'static str {
+    static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    HASH.get_or_init(|| footnote_core::hash(HELPER.as_bytes()))
+}
+
 pub fn extract(bytes: &[u8], ext: &str) -> Result<Extraction> {
     let scratch = footnote_core::scratch_dir()?;
     let dir = tempfile::tempdir_in(scratch)?;
     let source = dir.path().join(format!("snapshot.{ext}"));
     fs::write(&source, bytes)?;
     let output = dir.path().join("output.json");
-    let helper = crate::repo().join("tools/extract.py");
-    let python = std::env::var_os("FOOTNOTE_PYTHON")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            crate::repo().join(if cfg!(windows) {
-                ".venv/Scripts/python.exe"
-            } else {
-                ".venv/bin/python"
-            })
-        });
+    let python = if let Some(path) = std::env::var_os("FOOTNOTE_PYTHON") {
+        std::path::PathBuf::from(path)
+    } else {
+        let exe = std::env::current_exe()?;
+        let bin = exe.parent().context("engine directory")?;
+        let interpreter = if cfg!(windows) {
+            ".venv/Scripts/python.exe"
+        } else {
+            ".venv/bin/python"
+        };
+        // Cargo builds normally live at <checkout>/target/<profile>/footnote.
+        let root = bin
+            .parent()
+            .filter(|p| p.ends_with("target"))
+            .and_then(|p| p.parent())
+            .unwrap_or(bin);
+        root.join(interpreter)
+    };
     let mut cmd = Command::new(python);
-    cmd.arg("-I")
-        .arg(&helper)
+    cmd.args(["-I", "-c", HELPER])
         .arg(source)
         .stdout(fs::File::create(&output)?)
         .stderr(Stdio::null())
@@ -59,10 +73,9 @@ pub fn extract(bytes: &[u8], ext: &str) -> Result<Extraction> {
     {
         bail!("extractor response exceeded limits");
     }
-    result.extractor.push_str(&format!(
-        ";helper-sha256={}",
-        footnote_core::hash(&fs::read(helper)?)
-    ));
+    result
+        .extractor
+        .push_str(&format!(";helper-sha256={}", helper_hash()));
     result.extractor.push_str(";chunker-v2");
     Ok(result)
 }
