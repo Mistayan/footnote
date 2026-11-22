@@ -1,7 +1,8 @@
 //! What agents do with suggested skills (#443): whether they read the `SKILL.md`, and whether the skill's scripts pass.
 //! The prompt hook watches each skill it suggests; at Stop it scans only the part of the session file written since its
 //! last scan and appends events to `<state>/memory-hook/skill-outcomes.jsonl`. Rows hold the skill's name and theme, the
-//! project and the event, never a prompt, path or command. Free: no tokens, no model. Claude Code session files only.
+//! project and the event, never a prompt, path or command. Free: no tokens, no model. Session files read: Claude Code
+//! (JSONL tool calls) and Codex (rollout JSONL, #471); any other agent's file logs nothing.
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -35,13 +36,21 @@ pub struct Watch {
     pub checked: bool,
 }
 
-/// Whether a slice of a session file is one `scan` can read (Claude Code JSONL): only then does a suggestion without a
-/// logged read mean the agent did not read the skill. Other agents' files never count against a skill (#448).
+fn has(line: &[u8], needle: &[u8]) -> bool {
+    line.windows(needle.len()).any(|w| w == needle)
+}
+
+/// A Codex rollout line holding a finished shell command (#471).
+const CODEX_COMMAND: &[u8] = b"\"type\":\"CommandExecution\"";
+
+/// Whether a slice of a session file is one `scan` can read (Claude Code JSONL, or a Codex rollout with shell commands):
+/// only then does a suggestion without a logged read mean the agent did not read the skill. Other agents' files never
+/// count against a skill (#448).
 pub fn readable(chunk: &[u8]) -> bool {
-    let has = |line: &[u8], needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
-    chunk
-        .split(|&b| b == b'\n')
-        .any(|l| has(l, b"\"type\":\"assistant\"") && has(l, b"\"message\":{"))
+    chunk.split(|&b| b == b'\n').any(|l| {
+        (has(l, b"\"type\":\"assistant\"") && has(l, b"\"message\":{"))
+            || (has(l, CODEX_COMMAND) && has(l, b"\"item_completed\""))
+    })
 }
 
 /// What a watched skill went through, in session-file order.
@@ -74,6 +83,58 @@ fn runs_script(cmd: &str, dir: &str, folder: &str) -> bool {
     cmd.contains(&format!("{dir}/scripts/")) || cmd.contains(&format!("{folder}/scripts/"))
 }
 
+/// What a shell command does to the watched skills.
+#[derive(Debug, PartialEq, Eq)]
+enum Touch {
+    Read(usize),
+    Script(usize),
+}
+
+/// Reads of watched skills' `SKILL.md` in a (normalized) shell command, then the first watched skill whose script it runs.
+fn touches(cmd: &str, keys: &[(String, String)]) -> Vec<Touch> {
+    let mut out = vec![];
+    for (i, (d, f)) in keys.iter().enumerate() {
+        if cmd.contains(&format!("{d}/skill.md")) || cmd.contains(&format!("/{f}/skill.md")) {
+            out.push(Touch::Read(i));
+        } else if runs_script(cmd, d, f) {
+            out.push(Touch::Script(i));
+            break;
+        }
+    }
+    out
+}
+
+/// A finished shell command in a Codex rollout line: its normalized command line, and whether it passed (`None` when it
+/// never reached an exit code, such as a declined command). Codex writes one `item_completed` event per command, holding
+/// the argv and the exit code together, so no call has to be paired with its result.
+fn codex_command(line: &[u8]) -> Option<(String, Option<bool>)> {
+    if !has(line, CODEX_COMMAND) {
+        return None;
+    }
+    let v: Value = serde_json::from_slice(line).ok()?;
+    let p = &v["payload"];
+    if v["type"] != "event_msg" || p["type"] != "item_completed" {
+        return None;
+    }
+    let item = &p["item"];
+    if item["type"] != "CommandExecution" {
+        return None;
+    }
+    let cmd = match &item["command"] {
+        Value::String(s) => s.clone(),
+        Value::Array(argv) => argv
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(" "),
+        _ => return None,
+    };
+    let ok = item["exit_code"]
+        .as_i64()
+        .map(|code| code == 0 && item["status"] != "failed");
+    Some((norm(&cmd), ok))
+}
+
 /// A tool result that failed: flagged as an error, or a shell result that starts with a non-zero exit code.
 fn failed(result: &Value) -> bool {
     if result["is_error"].as_bool() == Some(true) {
@@ -90,16 +151,25 @@ fn failed(result: &Value) -> bool {
     text.trim_start().starts_with("Exit code ") && !text.trim_start().starts_with("Exit code 0")
 }
 
-/// Reads and script runs of the watched skills in a slice of a Claude Code session file (JSONL), as `(watch index,
-/// what)`. Only tool names, the read path, the command and the result's error flag are looked at; nothing is kept.
-/// A run whose result is not in the slice is not counted.
+/// Reads and script runs of the watched skills in a slice of a session file (Claude Code JSONL or Codex rollout), as
+/// `(watch index, what)`. Only tool names, the read path, the command and the result's error flag or exit code are
+/// looked at; nothing is kept. A Claude Code run whose result is not in the slice is not counted.
 pub fn scan(chunk: &[u8], watches: &[Watch]) -> Vec<(usize, Seen)> {
     let keys: Vec<(String, String)> = watches.iter().map(keys).collect();
     let mut out = vec![];
     let mut running: HashMap<String, usize> = HashMap::new();
     for line in chunk.split(|&b| b == b'\n') {
-        let has = |needle: &[u8]| line.windows(needle.len()).any(|w| w == needle);
-        if !has(b"\"tool_use\"") && !has(b"\"tool_result\"") {
+        if let Some((cmd, ok)) = codex_command(line) {
+            for t in touches(&cmd, &keys) {
+                match (t, ok) {
+                    (Touch::Read(i), _) => out.push((i, Seen::Read)),
+                    (Touch::Script(i), Some(ok)) => out.push((i, Seen::Run { ok })),
+                    (Touch::Script(_), None) => {}
+                }
+            }
+            continue;
+        }
+        if !has(line, b"\"tool_use\"") && !has(line, b"\"tool_result\"") {
             continue;
         }
         let Ok(v) = serde_json::from_slice::<Value>(line) else {
@@ -118,17 +188,14 @@ pub fn scan(chunk: &[u8], watches: &[Watch]) -> Vec<(usize, Seen)> {
                             out.push((i, Seen::Read));
                         }
                     } else if let Some(cmd) = input["command"].as_str() {
-                        let cmd = norm(cmd);
-                        for (i, (d, f)) in keys.iter().enumerate() {
-                            if cmd.contains(&format!("{d}/skill.md"))
-                                || cmd.contains(&format!("/{f}/skill.md"))
-                            {
-                                out.push((i, Seen::Read));
-                            } else if runs_script(&cmd, d, f)
-                                && let Some(id) = p["id"].as_str()
-                            {
-                                running.insert(id.to_string(), i);
-                                break;
+                        for t in touches(&norm(cmd), &keys) {
+                            match t {
+                                Touch::Read(i) => out.push((i, Seen::Read)),
+                                Touch::Script(i) => {
+                                    if let Some(id) = p["id"].as_str() {
+                                        running.insert(id.to_string(), i);
+                                    }
+                                }
                             }
                         }
                     }
@@ -287,6 +354,78 @@ mod tests {
         ]
         .concat();
         assert_eq!(scan(chunk.as_bytes(), &w), vec![(0, Seen::Read)]);
+    }
+
+    fn codex_command_line(id: &str, argv: Value, status: &str, exit_code: Value) -> String {
+        line(
+            json!({"type": "event_msg", "payload": {"type": "item_completed", "item": {
+            "type": "CommandExecution", "id": id, "command": argv, "status": status, "exit_code": exit_code}}}),
+        )
+    }
+
+    #[test]
+    fn codex_rollouts_give_reads_and_script_runs_with_their_exit_code() {
+        let w = [watch(r"C:\Skills\debug-and-test")];
+        let chunk = [
+            line(json!({"type": "turn_context", "payload": {"model": "gpt-5.5"}})),
+            codex_command_line(
+                "1",
+                json!([
+                    "pwsh.exe",
+                    "-Command",
+                    "Get-Content C:/Skills/debug-and-test/SKILL.md"
+                ]),
+                "completed",
+                json!(0),
+            ),
+            codex_command_line(
+                "2",
+                json!(["bash", "-lc", "node debug-and-test/scripts/check.mjs"]),
+                "completed",
+                json!(0),
+            ),
+            codex_command_line(
+                "3",
+                json!(r"node C:\Skills\debug-and-test\scripts\check.mjs"),
+                "failed",
+                json!(1),
+            ),
+            // Declined or killed: no exit code, so no run is counted.
+            codex_command_line(
+                "4",
+                json!(["node", "C:/Skills/debug-and-test/scripts/check.mjs"]),
+                "declined",
+                Value::Null,
+            ),
+            codex_command_line("5", json!(["cargo", "test"]), "failed", json!(101)),
+        ]
+        .concat();
+        assert!(readable(chunk.as_bytes()));
+        assert_eq!(
+            scan(chunk.as_bytes(), &w),
+            vec![
+                (0, Seen::Read),
+                (0, Seen::Run { ok: true }),
+                (0, Seen::Run { ok: false })
+            ]
+        );
+    }
+
+    #[test]
+    fn only_known_session_formats_are_readable() {
+        let codex_chat_only = [
+            line(json!({"type": "turn_context", "payload": {"model": "gpt-5.5"}})),
+            line(json!({"type": "response_item", "payload": {"type": "message", "role": "assistant"}})),
+        ]
+        .concat();
+        assert!(!readable(codex_chat_only.as_bytes()));
+        let gemini = line(
+            json!({"role": "model", "parts": [{"functionCall": {"name": "run_shell_command"}}]}),
+        );
+        assert!(!readable(gemini.as_bytes()));
+        assert!(readable(
+            tool_use("a", "Read", json!({"file_path": "x"})).as_bytes()
+        ));
     }
 
     #[test]

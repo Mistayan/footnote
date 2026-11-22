@@ -149,7 +149,7 @@ Supersedes decisions 1 and 4 above. Footnote Memory is for agents and by agents:
   - Once per suggestion, a Stop whose scanned slice holds Claude Code lines logs `checked`. Only such suggestions can show that the agent did not read the skill.
   - After 10 checked suggestions since the last unmute without a read, the skill is muted for both layers (`skills/muted.json`), and `suggest` passes over it to the theme's next hit.
   - `footnote skills unmute` resets the count. Free, and not behind `skill_rewrite`.
-- **The signal is passive and free** (#443): the Stop hook reads the session file written since its last check and logs, per suggested skill, whether the agent read its `SKILL.md` and how its scripts ran. No LLM grades a session, and the agent never grades itself. These logs decide when to ask for an edit, whether an edit survives its trial, and which never-read skills stop being suggested (#448).
+- **The signal is passive and free** (#443): the Stop hook reads the session file (Claude Code JSONL or Codex rollout, #471) written since its last check and logs, per suggested skill, whether the agent read its `SKILL.md` and how its scripts ran. No LLM grades a session, and the agent never grades itself. These logs decide when to ask for an edit, whether an edit survives its trial, and which never-read skills stop being suggested (#448).
 
 ## 8. Built so far (14 November 2026)
 
