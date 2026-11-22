@@ -497,14 +497,28 @@ pub(crate) fn project_of(cwd: &str) -> String {
         .to_lowercase()
 }
 
+/// Default per-call bound for read-only git queries (`footnote projects` runs them in parallel with no hook deadline).
+const GIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Shared time budget across the config check and `git status` during a `Stop` hook, so both together stay inside the
+/// agent's 5-second Stop timeout (leaving headroom for `docker exec` and hook I/O).
+const STOP_GIT_STATUS_BUDGET: Duration = Duration::from_secs(4);
+
 /// One git query with a 5-second bound; empty on any failure.
 pub(crate) fn git(cwd: &str, args: &[&str]) -> String {
-    (|| -> Result<String> {
+    git_run(cwd, args, GIT_TIMEOUT)
+        .filter(|(code, _)| *code == Some(0))
+        .map(|(_, out)| out)
+        .unwrap_or_default()
+}
+
+/// Exit code and trimmed stdout of one bounded, hardened git query (`footnote_core::git_command`); `None` when git cannot
+/// be started, times out, or prints something other than UTF-8.
+fn git_run(cwd: &str, args: &[&str], timeout: Duration) -> Option<(Option<i32>, String)> {
+    (|| -> Result<Option<(Option<i32>, String)>> {
         let mut child = hidden(
-            Command::new("git")
+            footnote_core::git_command(Path::new(cwd))
                 .args(args)
-                .current_dir(cwd)
-                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null()),
         )
@@ -517,18 +531,81 @@ pub(crate) fn git(cwd: &str, args: &[&str]) -> String {
             let _ = std::io::Read::read_to_end(&mut stdout, &mut out);
             out
         });
-        let Some(status) = child.wait_timeout(Duration::from_secs(5))? else {
+        let Some(status) = child.wait_timeout(timeout)? else {
             let _ = child.kill();
             let _ = child.wait();
-            return Ok(String::new());
+            return Ok(None);
         };
         let out = reader.join().unwrap_or_default();
-        if !status.success() {
-            return Ok(String::new());
-        }
-        Ok(String::from_utf8(out)?.trim().to_string())
+        Ok(Some((
+            status.code(),
+            String::from_utf8(out)?.trim().to_string(),
+        )))
     })()
-    .unwrap_or_default()
+    .ok()
+    .flatten()
+}
+
+/// `git status --porcelain`, or `None` when it fails or is skipped. It is skipped when the repository defines a filter driver
+/// in its own config: `status` runs `filter.<driver>.clean` / `.process` on every file whose stat data changed, which is
+/// every file of a repository mounted into a container. A repository's `.git/config` must not be able to start a program in
+/// the process that holds every project's memories. Drivers from the user's own global or system config (Git LFS) stay
+/// trusted. Fails closed: when the config scopes cannot be read (git older than 2.26, a broken config, a timeout), it is
+/// skipped.
+///
+/// Uses `GIT_TIMEOUT` (5 s) per git call for callers without a hook deadline (`footnote projects`, which queries repositories
+/// in parallel). The `Stop` hook calls `stop_git_status` so both git calls share one 4-second budget inside its 5 s timeout.
+pub(crate) fn git_status(cwd: &str) -> Option<String> {
+    git_status_with(cwd, None)
+}
+
+/// `git_status` for the `Stop` hook: both git calls share `STOP_GIT_STATUS_BUDGET` (4 s) so Stop stays inside its 5 s bound.
+fn stop_git_status(cwd: &str) -> Option<String> {
+    git_status_with(cwd, Some(STOP_GIT_STATUS_BUDGET))
+}
+
+fn git_status_with(cwd: &str, budget: Option<Duration>) -> Option<String> {
+    let deadline = budget.map(|b| Instant::now() + b);
+    let first_timeout = budget.unwrap_or(GIT_TIMEOUT);
+    let scopes = git_run(
+        cwd,
+        &[
+            "config",
+            "--show-scope",
+            "--name-only",
+            "--get-regexp",
+            r"^filter\.",
+        ],
+        first_timeout,
+    );
+    let trusted = match scopes {
+        // Exit code 1: no `filter.*` key in any scope.
+        Some((Some(1), _)) => true,
+        Some((Some(0), keys)) => keys
+            .lines()
+            .all(|l| matches!(l.split('\t').next(), Some("global" | "system"))),
+        _ => false,
+    };
+    if !trusted {
+        return None;
+    }
+    let second_timeout = match deadline {
+        Some(d) => {
+            let remaining = d.checked_duration_since(Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+            remaining
+        }
+        None => GIT_TIMEOUT,
+    };
+    git_run(
+        cwd,
+        &["status", "--porcelain", "--ignore-submodules=all"],
+        second_timeout,
+    )
+    .filter(|(code, _)| *code == Some(0))
+    .map(|(_, out)| out)
 }
 
 fn safe_session_id(id: &str) -> String {
@@ -1734,7 +1811,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                     .replace("{tokens}", &format!("{}k", tokens / 1000))
                     .replace("{today}", &today)
                     .replace("{project}", &project)
-                    + &changed_hint(&git(&e.cwd, &["status", "--porcelain"]));
+                    + &changed_hint(&stop_git_status(&e.cwd).unwrap_or_default());
                 out = Some(stop_ask(&e, reason));
             } else if let Some((idle_min, tokens)) = idle_handoff {
                 // Resumed after 1h cache expiry with a large context (#379): hand off before paying repeated cold cache writes.
@@ -1747,7 +1824,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                     .replace("{tokens}", &format!("{}k", tokens / 1000))
                     .replace("{today}", &today)
                     .replace("{project}", &project)
-                    + &changed_hint(&git(&e.cwd, &["status", "--porcelain"]));
+                    + &changed_hint(&stop_git_status(&e.cwd).unwrap_or_default());
                 out = Some(stop_ask(&e, reason));
             } else if let Some(w) = (s.skill_rewrite && !st.skill_edit_asked)
                 .then(|| st.skill_watch.iter().find(|w| w.read && w.failed))
@@ -1774,7 +1851,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 let reason = SAVE
                     .replace("{today}", &today)
                     .replace("{project}", &project)
-                    + &changed_hint(&git(&e.cwd, &["status", "--porcelain"]));
+                    + &changed_hint(&stop_git_status(&e.cwd).unwrap_or_default());
                 out = Some(stop_ask(&e, reason));
             } else {
                 st.turn_prompt_hash = None;
@@ -1921,6 +1998,46 @@ mod tests {
             "{hint}"
         );
         assert_eq!(changed_hint(""), "");
+    }
+
+    /// A repository's own config must not start a program through Footnote's git queries (#392). Fsmonitor is off for every
+    /// query. `status` is skipped for a repository that defines its own filter driver.
+    #[cfg(unix)]
+    #[test]
+    fn git_queries_never_run_programs_named_by_the_repository() {
+        let t = tempfile::tempdir().unwrap();
+        let repo = t.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        let run = |args: &[&str]| {
+            let ok = Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .args(args)
+                .current_dir(&repo)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        run(&["init", "-q"]);
+        fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(&["add", "a.txt"]);
+        run(&["commit", "-qm", "init"]);
+        let marker = t.path().join("ran");
+        let program = format!("touch '{}' #", marker.display());
+        run(&["config", "core.fsmonitor", &program]);
+        let cwd = repo.to_str().unwrap();
+
+        assert!(git(cwd, &["rev-parse", "--show-toplevel"]).ends_with("repo"));
+        assert_eq!(git_status(cwd).as_deref(), Some(""));
+        assert!(!marker.exists(), "the repository's core.fsmonitor ran");
+
+        fs::write(repo.join(".gitattributes"), "* filter=evil\n").unwrap();
+        run(&["config", "filter.evil.clean", &program]);
+        fs::write(repo.join("a.txt"), "two\n").unwrap();
+        assert_eq!(git_status(cwd), None, "status must be skipped");
+        assert!(!marker.exists(), "the repository's filter driver ran");
     }
 
     #[test]

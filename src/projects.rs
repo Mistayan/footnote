@@ -422,17 +422,19 @@ pub fn take(state: &Path, project: &str) -> Option<String> {
     })
 }
 
-/// Files changed but not committed, and commits not pushed (null without an upstream branch); null outside a repository.
+/// Files changed but not committed (null when `status` is skipped: the repository defines its own filter driver), and commits
+/// not pushed (null without an upstream branch); null outside a repository.
 fn git_state(root: &str) -> Value {
-    let status = crate::hook::git(root, &["status", "--porcelain"]);
     let top = crate::hook::git(root, &["rev-parse", "--show-toplevel"]);
     if top.is_empty() {
         return Value::Null;
     }
+    let uncommitted =
+        crate::hook::git_status(root).map(|s| s.lines().filter(|l| !l.trim().is_empty()).count());
     let unpushed = crate::hook::git(root, &["rev-list", "--count", "@{u}..HEAD"])
         .parse::<u64>()
         .ok();
-    json!({"uncommitted": status.lines().filter(|l| !l.trim().is_empty()).count(), "unpushed": unpushed})
+    json!({"uncommitted": uncommitted, "unpushed": unpushed})
 }
 
 fn memories_by_project(state: &Path) -> Result<std::collections::HashMap<String, i64>> {
@@ -557,5 +559,43 @@ mod tests {
             "dossier-financier-..-x"
         );
         assert_eq!(super::file_name(".."), "unnamed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn git_state_reports_null_uncommitted_when_repo_defines_filter_driver() {
+        use std::process::{Command, Stdio};
+
+        let t = tempfile::tempdir().unwrap();
+        let repo = t.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let run = |args: &[&str]| {
+            let ok = Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .args(args)
+                .current_dir(&repo)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        run(&["init", "-q"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        std::fs::write(repo.join(".gitattributes"), "* filter=evil\n").unwrap();
+        run(&["add", "a.txt", ".gitattributes"]);
+        run(&["commit", "-qm", "init"]);
+        let marker = t.path().join("ran");
+        run(&[
+            "config",
+            "filter.evil.clean",
+            &format!("touch '{}' #", marker.display()),
+        ]);
+        std::fs::write(repo.join("a.txt"), "two\n").unwrap();
+
+        let state = super::git_state(repo.to_str().unwrap());
+        assert!(state["uncommitted"].is_null(), "{state}");
+        assert!(!marker.exists(), "the repository's filter driver ran");
     }
 }
