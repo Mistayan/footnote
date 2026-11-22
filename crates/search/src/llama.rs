@@ -34,12 +34,51 @@ fn backend() -> Result<&'static LlamaBackend> {
     .map_err(|e| anyhow!("llama.cpp backend: {e}"))
 }
 
+/// What a GGUF file declares about itself, to import it as an embedding model (#556).
+pub struct GgufInfo {
+    pub name: String,
+    /// "mean", "cls" or "last": the pooling `Gguf::load` takes.
+    pub pooling: String,
+    pub dimension: usize,
+    pub context: usize,
+}
+
+/// Read a GGUF's metadata (loads the weights, on the CPU). Refuses a file without an embedding pooling type: a chat model or a
+/// reranker would otherwise import fine and fail at the first recall.
+pub fn inspect(path: &Path) -> Result<GgufInfo> {
+    let model = LlamaModel::load_from_file(
+        backend()?,
+        path,
+        &LlamaModelParams::default().with_n_gpu_layers(0),
+    )
+    .map_err(|e| anyhow!("not a GGUF model llama.cpp can load: {e}"))?;
+    let meta = |key: &str| model.meta_val_str(key).ok();
+    let arch = meta("general.architecture").context("GGUF without general.architecture")?;
+    let pooling = match meta(&format!("{arch}.pooling_type")).as_deref() {
+        Some("1") => "mean",
+        Some("2") => "cls",
+        Some("3") => "last",
+        _ => bail!(
+            "{arch} model declares no embedding pooling: not an embedding model (or one llama.cpp cannot pool)"
+        ),
+    };
+    Ok(GgufInfo {
+        name: meta("general.name").unwrap_or_default(),
+        pooling: pooling.into(),
+        dimension: usize::try_from(model.n_embd_out()).context("embedding width")?,
+        context: meta(&format!("{arch}.context_length"))
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(512),
+    })
+}
+
 impl Gguf {
     /// `pooling` is the manifest's: "last" or "mean". The file must already be verified by the caller.
     pub fn load(path: &Path, pooling: &str, max_len: usize) -> Result<Self> {
         let pooling = match pooling {
             "last" => LlamaPoolingType::Last,
             "mean" => LlamaPoolingType::Mean,
+            "cls" => LlamaPoolingType::Cls,
             _ => bail!("unsupported pooling for a GGUF model"),
         };
         if !(8..=CTX as usize).contains(&max_len) {

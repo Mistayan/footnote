@@ -657,6 +657,8 @@ enum ModelsAction {
     Use { names: Vec<String> },
     /// Delete an installed model that nothing uses.
     Remove { name: String },
+    /// Copy a GGUF embedding model into the models folder so `models use` can pick it (builds with llama.cpp).
+    Import { file: PathBuf },
     /// Recommend models from this machine (CPU, RAM, GPU) and, with --db, the corpus language.
     Recommend,
 }
@@ -1386,6 +1388,7 @@ fn execute(cli: Cli) -> Result<Value> {
                 ModelsAction::Install { names } => crate::models::install(&state, names),
                 ModelsAction::Use { names } => crate::models::use_models(&state, names),
                 ModelsAction::Remove { name } => crate::models::remove(&state, name),
+                ModelsAction::Import { file } => crate::models::import(&state, file),
                 ModelsAction::Recommend => crate::models::recommend(cli.db.as_deref()),
             };
         }

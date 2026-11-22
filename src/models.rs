@@ -3,7 +3,7 @@
 //! `models install` is the only command that reaches the network: it fetches public model files pinned to a Hugging Face commit
 //! and checks them against pinned SHA-256 hashes. The manifest it writes is byte-identical to the one the former Python script
 //! wrote, because a model's identity is the hash of its manifest (vectors computed before stay valid).
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::{
     fs,
@@ -200,13 +200,35 @@ pub fn list(state: &Path) -> Result<Value> {
                 "license": (!r.license.is_empty()).then_some(r.license)})
         })
         .collect();
+    // Models imported from a GGUF file (#556): any other folder of the models folder with a manifest.
+    let mut rows = rows;
+    for dir in fs::read_dir(models_dir(state))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+    {
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if !dir.join("manifest.json").exists() || recipe(&name).is_ok() {
+            continue;
+        }
+        let bytes = fs::metadata(dir.join("model.gguf")).map_or(0, |m| m.len());
+        rows.push(json!({"name": name, "role": "imported GGUF", "installed": true, "imported": true, "path": dir,
+            "bytes": bytes, "download_bytes": null, "used_by_memory": used.iter().any(|u| same_model(u, &dir)),
+            "source": "imported", "license": null}));
+    }
     // Models the hook uses from elsewhere (for example a development checkout) are reported too.
     let elsewhere: Vec<&String> = used
         .iter()
         .filter(|u| {
-            !RECIPES
-                .iter()
-                .any(|r| same_model(u, &models_dir(state).join(r.name)))
+            !rows.iter().any(|r| {
+                r["path"]
+                    .as_str()
+                    .is_some_and(|p| same_model(u, Path::new(p)))
+            })
         })
         .collect();
     Ok(
@@ -421,7 +443,10 @@ fn fetch(state: &Path, name: &str, path: &Path, url: &str, pinned: Option<&str>)
 pub fn use_models(state: &Path, names: &[String]) -> Result<Value> {
     let mut paths = Vec::new();
     for name in names {
-        recipe(name)?;
+        ensure!(
+            recipe(name).is_ok() || valid_name(name),
+            "unknown model `{name}`; `footnote models list` shows them"
+        );
         let dir = models_dir(state).join(name);
         if !dir.join("manifest.json").exists() {
             bail!("`{name}` is not installed; run `footnote models install {name}` first");
@@ -437,8 +462,116 @@ pub fn use_models(state: &Path, names: &[String]) -> Result<Value> {
     )
 }
 
+/// An imported model's folder name: lowercase ASCII, digits, `-`, `_` and `.`, never a path.
+fn valid_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && !name.starts_with('.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
+}
+
+/// The folder name for an imported file: its stem, lowercased, other characters as `-`.
+fn import_name(file: &Path) -> String {
+    let stem = file
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let name: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    name.trim_matches(|c| c == '-' || c == '.')
+        .chars()
+        .take(64)
+        .collect()
+}
+
+/// Copy a GGUF embedding model into the models folder with a manifest, so `models use` can pick it (#556). The original file
+/// stays where it is.
+pub fn import(state: &Path, file: &Path) -> Result<Value> {
+    ensure!(
+        file.extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gguf")),
+        "{} is not a .gguf file",
+        file.display()
+    );
+    ensure!(
+        fs::metadata(file)
+            .with_context(|| format!("cannot read {}", file.display()))?
+            .is_file(),
+        "not a file"
+    );
+    let name = import_name(file);
+    ensure!(
+        valid_name(&name),
+        "cannot name a model after {}",
+        file.display()
+    );
+    ensure!(
+        recipe(&name).is_err(),
+        "`{name}` is a catalogue model; install it with `footnote models install {name}`"
+    );
+    let dir = models_dir(state).join(&name);
+    ensure!(!dir.exists(), "a model named `{name}` is already installed");
+    import_gguf(file, &dir, &name)
+}
+
+#[cfg(not(feature = "llama"))]
+fn import_gguf(_: &Path, _: &Path, _: &str) -> Result<Value> {
+    bail!(
+        "this build has no llama.cpp support, so it cannot run a GGUF model; release builds have it (`--features llama`)"
+    )
+}
+
+#[cfg(feature = "llama")]
+fn import_gguf(file: &Path, dir: &Path, name: &str) -> Result<Value> {
+    let info = footnote_search::llama::inspect(file)?;
+    fs::create_dir_all(dir)?;
+    let copied = (|| -> Result<(String, u64)> {
+        let partial = dir.join("model.gguf.partial");
+        let bytes = fs::copy(file, &partial)?;
+        fs::rename(&partial, dir.join("model.gguf"))?;
+        Ok((sha256_file(&dir.join("model.gguf"))?, bytes))
+    })();
+    let (sha, bytes) = match copied {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = fs::remove_dir_all(dir); // no half-imported model left behind
+            return Err(e.context(format!("copy {} into the models folder", file.display())));
+        }
+    };
+    // shortcut: no query or passage prefixes; models trained with them rank a little worse. Add a per-family table when one is
+    // imported often.
+    let manifest = json!({
+        "repository": "imported", "revision": "", "license": "", "source": file, "name": info.name,
+        "runtime": "llama.cpp", "files": {"model.gguf": {"sha256": sha, "bytes": bytes}},
+        "pooling": info.pooling, "query_prefix": "", "passage_prefix": "",
+        "max_length": info.context.clamp(8, 512), "dimension": info.dimension, "quantization": "",
+    });
+    fs::write(
+        dir.join("manifest.json"),
+        serde_json::to_string_pretty(&manifest)?
+            + "
+",
+    )?;
+    Ok(
+        json!({"imported": true, "name": name, "path": dir, "bytes": bytes, "dimension": info.dimension, "pooling": info.pooling,
+        "note": format!("`footnote models use {name}` makes Footnote Memory use it; its vectors are computed at the next session start. No query or passage prefixes are known for it, and its licence is the model card's.")}),
+    )
+}
+
 pub fn remove(state: &Path, name: &str) -> Result<Value> {
-    recipe(name)?;
+    ensure!(
+        recipe(name).is_ok() || valid_name(name),
+        "unknown model `{name}`; `footnote models list` shows them"
+    );
     let dir = models_dir(state).join(name);
     if in_use(state)?.iter().any(|u| same_model(u, &dir)) {
         bail!("`{name}` is used by Footnote Memory; switch with `footnote models use` first");
@@ -526,6 +659,57 @@ pub fn recommend(db: Option<&Path>) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn imported_names_are_folder_safe() {
+        assert_eq!(
+            super::import_name(Path::new("D:/m/Qwen3-Embedding-0.6B-Q8_0.gguf")),
+            "qwen3-embedding-0.6b-q8_0"
+        );
+        assert_eq!(super::import_name(Path::new("../..gguf")), "");
+        for bad in ["", "..", ".hidden", "a/b", "a\\b", "Upper", &"x".repeat(65)] {
+            assert!(!super::valid_name(bad), "{bad}");
+        }
+        assert!(super::valid_name("bge-m3-q8_0"));
+    }
+
+    /// An imported model shows in the list, can be used and then removed; a bad name or a non-GGUF file is refused.
+    #[test]
+    fn an_imported_model_is_listed_used_and_removed() {
+        let t = tempfile::tempdir().unwrap();
+        let state = t.path();
+        let dir = super::models_dir(state).join("my-embed");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("manifest.json"), "{}").unwrap();
+        std::fs::write(dir.join("model.gguf"), b"1234").unwrap();
+        let list = super::list(state).unwrap();
+        let row = list["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["name"] == "my-embed")
+            .unwrap()
+            .clone();
+        assert_eq!(
+            (row["imported"].clone(), row["bytes"].clone()),
+            (serde_json::json!(true), serde_json::json!(4))
+        );
+        super::use_models(state, &["my-embed".into()]).unwrap();
+        assert!(
+            super::list(state).unwrap()["memory_uses_from_elsewhere"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            super::remove(state, "my-embed").is_err(),
+            "removed while in use"
+        );
+        assert!(super::use_models(state, &["../outside".into()]).is_err());
+        assert!(super::import(state, &t.path().join("notes.txt")).is_err());
+    }
+
     /// Same bytes as the manifest the lab wrote for test 6, so a model's identity (the manifest hash) does not change.
     #[test]
     fn nano_manifest_matches_the_benchmarked_one() {
