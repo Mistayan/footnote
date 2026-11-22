@@ -485,6 +485,9 @@ enum Action {
         /// How many folders deep a block goes (`crates/code` is 2).
         #[arg(long, default_value_t = 2)]
         depth: usize,
+        /// Only the files under this folder (a block's name, e.g. `src`), each file its own block.
+        #[arg(long)]
+        block: Option<String>,
     },
     /// Footnote Code: a symbol's signature, place, callers and callees, from the compiler's index.
     #[cfg(feature = "code")]
@@ -1041,8 +1044,8 @@ fn execute(cli: Cli) -> Result<Value> {
             return Ok(out);
         }
         #[cfg(feature = "code")]
-        Action::CodeMap { root, depth } => {
-            let mut map = footnote_code::map(&code_db(root)?, (*depth).max(1))?;
+        Action::CodeMap { root, depth, block } => {
+            let mut map = footnote_code::map(&code_db(root)?, (*depth).max(1), block.as_deref())?;
             crate::find::add_block_memories(&mut map);
             return Ok(map);
         }

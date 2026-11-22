@@ -122,6 +122,38 @@ const codeMap = {
   ],
 };
 
+// `code-map --block src`: the files of one block, with a hub (`src/app.rs` on most links).
+const f = (from, to, references, names, other = 0) => ({ from: `src/${from}`, to: `src/${to}`, references,
+  symbols: names.map((name, i) => ({ name, references: Math.max(1, references - i * 3) })), other_symbols: other });
+const codeMapSrc = {
+  root: "D:/work/atlas-api", origin: "compiler", depth: 2, block: "src",
+  blocks: [
+    { name: "src/app.rs", files: 1, symbols: 64, entry: false },
+    { name: "src/main.rs", files: 1, symbols: 6, entry: true },
+    { name: "src/routes/orders.rs", files: 1, symbols: 31, entry: false },
+    { name: "src/routes/invoices.rs", files: 1, symbols: 22, entry: false },
+    { name: "src/jobs/export.rs", files: 1, symbols: 18, entry: false },
+    { name: "src/config.rs", files: 1, symbols: 14, entry: false },
+    { name: "src/errors.rs", files: 1, symbols: 9, entry: false },
+  ],
+  links: [
+    f("main.rs", "app.rs", 12, ["run", "Args"]),
+    f("app.rs", "routes/orders.rs", 9, ["list_orders", "create_order", "OrderQuery"], 4),
+    f("app.rs", "routes/invoices.rs", 7, ["list_invoices", "InvoiceQuery"]),
+    f("app.rs", "jobs/export.rs", 5, ["export_all"]),
+    f("app.rs", "config.rs", 14, ["state_dir", "Settings", "load"], 2),
+    f("routes/orders.rs", "app.rs", 6, ["AppState"]),
+    f("routes/invoices.rs", "app.rs", 4, ["AppState"]),
+    f("routes/orders.rs", "errors.rs", 8, ["ApiError", "not_found"]),
+    f("routes/invoices.rs", "errors.rs", 5, ["ApiError"]),
+    f("jobs/export.rs", "config.rs", 3, ["state_dir"]),
+  ],
+  outside: [
+    { package: "axum", version: "0.8.4", references: 40, class: "server", used_by: ["src/app.rs", "src/routes/orders.rs"] },
+    { package: "walkdir", version: "2.5.0", references: 6, class: "system", used_by: ["src/jobs/export.rs"] },
+  ],
+};
+
 const code = {
   root: "D:/work/atlas-api", origin: "compiler", stale: [],
   symbols: [{
@@ -253,7 +285,7 @@ export function mockFolders(path) {
 }
 
 export const fixtures = {
-  ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-impact": codeImpact, code, usage, "config set": {},
+  ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-map --root D:/work/atlas-api --block src": codeMapSrc, "code-impact": codeImpact, code, usage, "config set": {},
     options: options(), "agent-ask": { queued: true }, "projects add": { added: true, name: "shop-api", path: "D:/work/shop-api" }, "projects ignore": { ignored: true }, "projects unignore": { ignored: false }, "install --memory": { installed: true },
     "update --check": { installed: "0.1.0-alpha.3", latest: "0.1.0-alpha.4", newer: true, installer: "Footnote-Setup-0.1.0-alpha.4-x64.exe",
       published_at: new Date(Date.now() - 51 * 60000).toISOString(),

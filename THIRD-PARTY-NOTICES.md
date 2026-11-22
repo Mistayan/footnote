@@ -692,7 +692,7 @@ Every third-party package compiled into Footnote's engine and launcher, with its
 | zvariant_derive | 5.15.1 | MIT | https://github.com/z-galaxy/zbus/ |
 | zvariant_utils | 4.2.0 | MIT | https://github.com/z-galaxy/zbus/ |
 
-## Launcher web packages (8)
+## Launcher web packages (9)
 
 | Package | Version | Licence |
 |---|---|---|
@@ -700,6 +700,7 @@ Every third-party package compiled into Footnote's engine and launcher, with its
 | @fontsource/jetbrains-mono | 5.3.0 | OFL-1.1 |
 | @fontsource/plus-jakarta-sans | 5.3.0 | OFL-1.1 |
 | @tauri-apps/api | 2.12.5 | Apache-2.0 OR MIT |
+| elkjs | 0.12.1 | EPL-2.0 OR GPL-3.0-or-later |
 | lucide-react | 1.77.0 | ISC |
 | react | 19.3.1 | MIT |
 | react-dom | 19.3.1 | MIT |

@@ -106,6 +106,10 @@ fn allowed(args: &[String]) -> bool {
             project,
         ] => plain(name) && plain(project),
         ["code-map", "--root", _, "--depth", d] => d.parse::<u8>().is_ok(),
+        // One block's files (#504): a folder path from the map, nothing else.
+        ["code-map", "--root", _, "--block", b] => {
+            plain(b) && b.chars().all(|c| c.is_alphanumeric() || "/\\._- ".contains(c))
+        }
         // The commit button (22 Nov 2026): queue or withdraw the engine's fixed commit-and-push request for the next agent
         // turn in a project. The window names the project only; the text is the engine's.
         ["agent-ask", project] | ["agent-ask", project, "--cancel"] => plain(project),
@@ -583,6 +587,9 @@ mod tests {
         );
         assert!(ok("code-index D:/x") && !ok("code-index --deep") && !ok("code-index a b"));
         assert!(!ok("code --root . --root") && !ok("code-map --root . --depth 2;rm"));
+        assert!(ok("code-map --root . --block crates/code/src") && ok("code-map --root . --block src"));
+        assert!(!ok("code-map --root . --block src;rm") && !ok("code-map --root . --block --depth"));
+        assert!(!ok("code-map --root . --block src --depth 2"));
         assert!(
             ok("usage --days 30")
                 && ok("usage --days 7 --sync-prices")

@@ -711,7 +711,7 @@ fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
                         .filter(|n| (1..=5).contains(n))
                         .context("`depth` must be 1 to 5")? as usize,
                 };
-                return footnote_code::map(&app::code_db(&root)?, depth);
+                return footnote_code::map(&app::code_db(&root)?, depth, None);
             }
             // `stack`: the libraries the project uses, from manifests, else imports; reports the difference from the recorded
             // stack but records nothing (recording is `footnote stack` on the command line).

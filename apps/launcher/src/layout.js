@@ -1,53 +1,81 @@
-// Layered layout for the architecture map: a block sits one row below the lowest block that uses it, so callers are above
-// what they call (src above crates/search above crates/core). Cycles are cut by a bound on the passes.
+// Data for the architecture map (CodeMap.jsx, #360): `footnote code-map` output turned into the boxes and links of one
+// zoom level, and the impact of a selection. Pure functions, so they are tested without a browser.
 
-/** Row of each block: 0 for blocks nothing uses, then one more than the deepest user. */
-export function ranks(blocks, links) {
-  const rank = Object.fromEntries(blocks.map((b) => [b, 0]));
-  // Drop the links that close a cycle (DFS back edges), else ranks climb around the loop to the cap.
-  const out = {};
-  for (const l of links) if (l.from in rank && l.to in rank && l.from !== l.to) (out[l.from] ??= []).push(l);
-  const state = {}, acyclic = [];
-  const visit = (n) => {
-    state[n] = 1;
-    for (const l of out[n] ?? []) {
-      if (state[l.to] === 1) continue;
-      acyclic.push(l);
-      if (!state[l.to]) visit(l.to);
-    }
-    state[n] = 2;
-  };
-  for (const b of blocks) if (!state[b]) visit(b);
-  for (let pass = 0; pass < blocks.length; pass++) {
-    let moved = false;
-    for (const { from, to } of acyclic) {
-      if (from in rank && to in rank && rank[to] < rank[from] + 1 && rank[from] + 1 < blocks.length) {
-        rank[to] = rank[from] + 1;
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
-  return rank;
+const KINDS = { database: "Databases", model: "Model runtimes", network: "Network and APIs", system: "Files and system" };
+// `server` and `mcp` packages mean the project is called in, so they sit on the "calls in" side.
+const INBOUND = { server: ["Serves HTTP", "HTTP"], mcp: ["Serves MCP", "MCP"] };
+
+/** The names a link uses most, as one line: `state_dir, product_settings, ensure_private_dir +28`. */
+export function linkNames(l) {
+  const s = (l.symbols ?? []).map((x) => x.name).join(", ");
+  return s && l.other_symbols ? `${s} +${l.other_symbols}` : s;
 }
 
-/** Box positions: rows by rank, boxes centred in their row. The drawing is at least `minWidth` wide, wider if a row needs it. */
-export function place(blocks, links, minWidth, box = { w: 168, h: 56, gapX: 28, gapY: 72 }) {
-  const rank = ranks(blocks.map((b) => b.name), links);
-  const sparse = [];
-  for (const b of blocks) (sparse[rank[b.name]] ??= []).push(b);
-  // No empty rows (`.map` skips holes, which made the width NaN), and a long rank wraps so the map stays readable.
-  const perRow = Math.max(1, Math.floor((minWidth - 32 + box.gapX) / (box.w + box.gapX)));
-  const rows = sparse.filter(Boolean).flatMap((r) => Array.from({ length: Math.ceil(r.length / perRow) }, (_, i) => r.slice(i * perRow, (i + 1) * perRow)));
-  const widest = Math.max(0, ...rows.map((r) => r.length * box.w + (r.length - 1) * box.gapX));
-  const width = Math.max(minWidth, widest + 32);
-  const pos = {};
-  rows.forEach((row, r) => {
-    const total = row.length * box.w + (row.length - 1) * box.gapX;
-    row.forEach((b, i) => {
-      pos[b.name] = { x: (width - total) / 2 + i * (box.w + box.gapX), y: 16 + r * (box.h + box.gapY), ...box };
-    });
-  });
-  const height = 16 + rows.length * (box.h + box.gapY) - box.gapY + 16;
-  return { pos, height, width };
+const last = (p) => p.split("/").pop();
+const edge = (l) => ({ from: l.from, to: l.to, refs: l.references, label: `${l.references}`, names: linkNames(l) });
+
+/** Level 1: the project's blocks that link to another block (the rest are listed, not drawn), what calls in, and what they
+ *  call out to, grouped by kind. */
+export function engineLevel(map) {
+  // Tests, benchmarks and examples call the product, nothing calls them: listed, not drawn, as in the approved mockup.
+  const aside = (n) => /^(tests?|benches|bench|examples?|e2e|fixtures)(\/|$)/.test(n);
+  const linked = new Set(map.links.flatMap((l) => (l.from === l.to || aside(l.from) || aside(l.to) ? [] : [l.from, l.to])));
+  const real = map.blocks.filter((b) => b.symbols > 0);
+  const shown = linked.size ? real.filter((b) => linked.has(b.name)) : real;
+  const ids = new Set(shown.map((b) => b.name));
+  const pkgs = (b) => map.outside.filter((o) => o.used_by.includes(b) && o.class && !INBOUND[o.class] && o.class !== "standard library")
+    .slice(0, 3).map((o) => o.package);
+  const nodes = shown.map((b) => ({
+    id: b.name, kind: "block", title: last(b.name), path: b.name, desc: b.description ?? null, descSource: b.described_in ?? null,
+    stats: { files: b.files, symbols: b.symbols }, badges: pkgs(b.name), memories: b.memories?.recent ?? [],
+    memoryCount: b.memories?.count ?? 0, drill: b.files > 1 && b.name !== "." ? `files:${b.name}` : null,
+  }));
+  const edges = map.links.filter((l) => l.from !== l.to && ids.has(l.from) && ids.has(l.to)).map(edge);
+  for (const o of map.outside.filter((x) => INBOUND[x.class])) {
+    const users = o.used_by.filter((u) => ids.has(u));
+    if (!users.length) continue;
+    const id = `in:${o.package}`;
+    nodes.unshift({ id, kind: "actor", title: o.package, desc: INBOUND[o.class][0] });
+    for (const u of users) edges.push({ from: id, to: u, label: INBOUND[o.class][1], boundary: true });
+  }
+  for (const [cls, title] of Object.entries(KINDS)) {
+    // One row per package, even when two versions of it are in the lock file.
+    const pk = map.outside.filter((o, i, all) => o.class === cls && o.used_by.some((u) => ids.has(u))
+      && all.findIndex((x) => x.package === o.package && x.class === cls) === i);
+    if (!pk.length) continue;
+    const id = `out:${cls}`;
+    nodes.push({ id, kind: "outside", title, packages: pk.slice(0, 4).map((o) => ({ name: o.package, refs: o.references, version: o.version })) });
+    for (const u of new Set(pk.flatMap((o) => o.used_by.filter((x) => ids.has(x))))) {
+      edges.push({ from: u, to: id, outside: true, label: pk.filter((o) => o.used_by.includes(u)).map((o) => o.package).join(", ") });
+    }
+  }
+  return { nodes, edges, hidden: real.filter((b) => !ids.has(b.name)).map((b) => b.name) };
+}
+
+/** Level 2: the files of one block (`code-map --block`), each with its leading doc and size. */
+export function filesLevel(map, block) {
+  const nodes = map.blocks.map((b) => ({
+    id: b.name, kind: "file", title: b.name.startsWith(block + "/") ? b.name.slice(block.length + 1) : b.name, path: b.name,
+    desc: b.description ?? null, descSource: b.description ? "its leading module doc" : null, stats: { lines: b.lines ?? 0 },
+    memories: b.memories?.recent ?? [], memoryCount: b.memories?.count ?? 0,
+  }));
+  return { nodes, edges: map.links.filter((l) => l.from !== l.to).map(edge), hidden: [] };
+}
+
+/** Everything `id` reaches going down links ("down": what it relies on) or up them ("up": what a change to it affects),
+ *  at most `hops` links away. */
+export function closure(edges, id, dir, hops = Infinity) {
+  const seen = new Set();
+  let frontier = [id];
+  for (let h = 0; h < hops && frontier.length; h++) {
+    const next = [];
+    for (const c of frontier) {
+      for (const e of edges) {
+        const [a, b] = dir === "up" ? [e.to, e.from] : [e.from, e.to];
+        if (a === c && b !== id && !seen.has(b)) { seen.add(b); next.push(b); }
+      }
+    }
+    frontier = next;
+  }
+  return seen;
 }

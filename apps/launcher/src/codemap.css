@@ -1,0 +1,136 @@
+/* Architecture map (#360, CodeMap.jsx): the approved mockup of 22 Nov 2026 on the launcher's tokens, so every palette works.
+   Amber (--warn) is what a change affects, the glow (--acc) what the selection relies on. */
+.cmap {
+  --cm-edge: color-mix(in srgb, var(--line2) 70%, var(--mute));
+  --cm-accent: color-mix(in srgb, var(--acc) 55%, var(--bg));
+  display: flex; flex-direction: column; gap: 10px; min-height: 0;
+}
+.cmap-bar { display: flex; align-items: center; gap: 12px; }
+.cmap .crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.cmap .crumbs button { background: none; border: 0; padding: 4px 8px; border-radius: 8px; color: var(--mute); cursor: pointer; white-space: nowrap; font: inherit; }
+.cmap .crumbs button:hover { color: var(--text); background: var(--panel); }
+.cmap .crumbs button[aria-current] { color: var(--text); font-weight: 600; cursor: default; background: none; }
+.cmap .crumbs .sep { color: var(--line2); }
+.cmap .levels { margin-left: auto; display: flex; gap: 4px; font: var(--t-xs) var(--f-mono); color: var(--mute); }
+.cmap .levels span { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; }
+.cmap .levels span.on { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, transparent); }
+
+.cmap-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: max(560px, calc(100vh - 150px));
+  border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
+.cmap .stage { position: relative; overflow: hidden; cursor: grab; touch-action: none; background-color: var(--bg);
+  background-image: linear-gradient(color-mix(in srgb, var(--line) 42%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--line) 42%, transparent) 1px, transparent 1px); }
+.cmap .stage.panning { cursor: grabbing; }
+.cmap .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.cmap .stage svg > g { transition: opacity 160ms ease-out; }
+.cmap .stage svg > g.swap { opacity: 0; }
+.cmap .overlay { position: absolute; pointer-events: none; }
+.cmap .caption { top: 13px; left: 17px; max-width: 520px; }
+.cmap .caption b { font: 600 21px var(--f-title); display: block; letter-spacing: -.01em; color: var(--text); }
+.cmap .caption span { color: var(--mute); font-size: 13px; }
+.cmap .legend { left: 17px; bottom: 13px; display: flex; flex-wrap: wrap; gap: 4px 17px; font-size: 12px; color: var(--mute);
+  background: color-mix(in srgb, var(--bg) 82%, transparent); padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.cmap .legend i { display: inline-block; vertical-align: middle; margin-right: 6px; }
+.cmap .legend .ln { width: 22px; border-top: 2px solid var(--cm-edge); }
+.cmap .legend .ln.b { border-top: 2px dashed var(--cm-accent); }
+.cmap .legend .ln.o { border-top: 2px dotted var(--mute); }
+.cmap .legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+.cmap .legend .dot.up { background: var(--warn); }
+.cmap .legend .dot.down { background: var(--acc); }
+.cmap .zoom { right: 13px; bottom: 13px; display: flex; gap: 4px; pointer-events: auto; }
+.cmap .zoom button { height: 32px; min-width: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); cursor: pointer; font: inherit; }
+.cmap .zoom button:hover { border-color: var(--line2); }
+.cmap .loading { inset: 0; display: grid; place-items: center; color: var(--mute); }
+.cmap .loading.warn { color: var(--warn); }
+
+.cmap .grp rect { fill: color-mix(in srgb, var(--panel) 35%, transparent); stroke: var(--line); stroke-width: 1; }
+.cmap .grp.dashed rect { fill: none; stroke-dasharray: 5 5; }
+.cmap .grp text { fill: var(--mute); font: 600 11px var(--f-ui); letter-spacing: .07em; text-transform: uppercase; }
+.cmap .edge { fill: none; stroke: var(--cm-edge); stroke-linecap: round; stroke-linejoin: round; transition: opacity 160ms ease-out; }
+.cmap .edge.boundary { stroke: var(--cm-accent); stroke-dasharray: 6 5; }
+.cmap .edge.outside { stroke: var(--dim); stroke-dasharray: 1.5 5; }
+.cmap .edge.up { stroke: var(--warn); }
+.cmap .edge.down { stroke: var(--acc); }
+.cmap .dim { opacity: .14; }
+.cmap .quiet .edge { opacity: .38; }
+.cmap .flow { fill: none; stroke: var(--text); stroke-width: 2; stroke-dasharray: 1 12; stroke-linecap: round; opacity: .85;
+  animation: cm-flow 1.2s linear infinite; pointer-events: none; }
+@keyframes cm-flow { to { stroke-dashoffset: -13; } }
+.cmap .mk-base { fill: var(--cm-edge); } .cmap .mk-boundary { fill: var(--cm-accent); } .cmap .mk-outside { fill: var(--dim); }
+.cmap .mk-up { fill: var(--warn); } .cmap .mk-down { fill: var(--acc); }
+.cmap .lbl rect { fill: var(--bg); stroke: var(--line); }
+.cmap .lbl text { fill: var(--mute); font: 11px var(--f-mono); }
+.cmap .lbl.boundary text { fill: var(--acc); }
+.cmap .lbl.hot rect { stroke: var(--line2); } .cmap .lbl.hot text { fill: var(--text); }
+
+/* Cards (also measured off screen before layout). */
+.cmap .card { position: relative; width: 100%; padding: 12px 13px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  cursor: pointer; outline: none; color: var(--text); font: 14px/1.45 var(--f-ui);
+  transition: transform 160ms ease-out, border-color 160ms ease-out, opacity 160ms ease-out, box-shadow 160ms ease-out; }
+.cmap .card:hover { border-color: var(--line2); transform: translateY(-1px); }
+.cmap .card:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--acc); }
+.cmap .k-outside { background: color-mix(in srgb, var(--bg) 60%, transparent); border-style: dashed; }
+.cmap .k-actor { background: var(--side); }
+.cmap .card.is-sel { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc), 0 10px 34px color-mix(in srgb, var(--acc) 16%, transparent); }
+.cmap .card.is-up { border-color: color-mix(in srgb, var(--warn) 75%, transparent); }
+.cmap .card.is-down { border-color: color-mix(in srgb, var(--acc) 70%, transparent); }
+.cmap .card.is-both { border-color: color-mix(in srgb, var(--warn) 75%, transparent); border-style: dashed; }
+.cmap .card.is-dim { opacity: .3; }
+.cmap .c-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 16px; }
+.cmap .eyebrow { font: 600 11px var(--f-ui); letter-spacing: .07em; text-transform: uppercase; color: var(--mute); }
+.cmap .mem { display: inline-flex; align-items: center; gap: 5px; font: 600 11px var(--f-mono); color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent); padding: 1px 7px; border-radius: 999px; }
+.cmap .mem::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--warn); }
+.cmap .c-title { font: 600 16px/1.25 var(--f-title); margin-top: 4px; letter-spacing: -.005em; }
+.cmap .c-path { font: 11.5px var(--f-mono); color: var(--mute); margin-top: 1px; overflow-wrap: anywhere; }
+.cmap .c-desc { margin: 8px 0 0; font-size: 12.5px; line-height: 1.42; color: var(--mute); display: -webkit-box; -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical; overflow: hidden; }
+.cmap .c-desc.none { font-style: italic; color: var(--dim); }
+.cmap .c-meta { margin-top: 8px; font: 11.5px var(--f-mono); font-variant-numeric: tabular-nums; color: var(--text); }
+.cmap .c-bar { margin-top: 6px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.cmap .c-bar i { display: block; height: 100%; background: var(--cm-accent); }
+.cmap .c-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.cmap .c-badges span { font: 11px var(--f-mono); color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.cmap .c-pk { list-style: none; margin: 8px 0 0; padding: 0; font: 11.5px var(--f-mono); }
+.cmap .c-pk li { display: flex; justify-content: space-between; padding: 2px 0; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.cmap .c-pk li span:last-child { color: var(--mute); font-variant-numeric: tabular-nums; }
+.cmap .c-open { font: 600 11px var(--f-ui); color: var(--acc); }
+.cmap-measure { position: absolute; left: -10000px; top: 0; visibility: hidden; }
+
+/* Detail panel. */
+.cmap-panel { border-left: 1px solid var(--line); background: var(--side); overflow: auto; padding: 17px 17px 34px; }
+.cmap-panel h2 { font: 600 21px/1.2 var(--f-title); margin: 4px 0 2px; letter-spacing: -.01em; }
+.cmap-panel .path { font: 12px var(--f-mono); color: var(--mute); overflow-wrap: anywhere; }
+.cmap-panel p { margin: 13px 0 0; color: var(--text); }
+.cmap-panel h3 { font: 600 11px var(--f-ui); letter-spacing: .07em; text-transform: uppercase; color: var(--mute); margin: 25px 0 8px; }
+.cmap-panel .fn { color: var(--acc); font: 600 10px var(--f-mono); vertical-align: super; margin-left: 2px; }
+.cmap-panel .src { font-size: 12px; color: var(--mute); margin-top: 6px; }
+.cmap-panel code { font: 11.5px var(--f-mono); color: var(--text); }
+.cmap-panel .stats { display: flex; gap: 25px; margin-top: 17px; }
+.cmap-panel .stats div { font: 600 21px var(--f-title); font-variant-numeric: tabular-nums; }
+.cmap-panel .stats small { display: block; font: 12px var(--f-ui); color: var(--mute); }
+.cmap-panel .rows { list-style: none; margin: 0; padding: 0; }
+.cmap-panel .rows li + li { border-top: 1px solid var(--line); }
+.cmap-panel .rows button, .cmap-panel .rows .pk { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; background: none;
+  border: 0; padding: 6px 4px; border-radius: 6px; color: var(--text); font: inherit; }
+.cmap-panel .rows button { cursor: pointer; }
+.cmap-panel .rows button:hover { background: var(--panel); }
+.cmap-panel .rows .d { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.cmap-panel .rows .n { font: 12.5px var(--f-mono); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmap-panel .rows .n small { display: block; font: 11px var(--f-mono); color: var(--mute); overflow: hidden; text-overflow: ellipsis; }
+.cmap-panel .rows .v { font: 11.5px var(--f-mono); color: var(--mute); }
+.cmap-panel .memo { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn); border-radius: 8px;
+  padding: 8px 10px; margin-top: 8px; font-size: 12.5px; color: var(--mute); }
+.cmap-panel .memo b { color: var(--warn); font: 600 11px var(--f-mono); display: block; margin-bottom: 2px; }
+.cmap-panel .memo span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.cmap-panel .primary { margin-top: 17px; height: 34px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--acc); color: var(--acc-ink);
+  font-weight: 600; cursor: pointer; transition: filter 160ms ease-out; }
+.cmap-panel .primary:hover { filter: brightness(1.1); }
+.cmap-panel .primary:focus-visible, .cmap-panel .rows button:focus-visible, .cmap .zoom button:focus-visible, .cmap .crumbs button:focus-visible {
+  outline: 2px solid var(--acc); outline-offset: 2px; }
+.cmap-panel .how { padding-left: 0; list-style: none; }
+.cmap-panel .how li { font-size: 12.5px; color: var(--mute); margin: 4px 0; }
+.cmap-panel .hint { color: var(--mute); font-size: 13px; }
+.cmap-panel .chip { display: inline-block; font: 11px var(--f-mono); color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin: 2px 2px 0 0; }
+
+@media (prefers-reduced-motion: reduce) { .cmap *, .cmap *::before, .cmap *::after { transition: none !important; animation: none !important; } }

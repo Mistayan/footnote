@@ -20,6 +20,8 @@ ALLOWED = {
     "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "zlib-acknowledgement", "0BSD", "Unlicense",
     "CC0-1.0", "BSL-1.0", "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0", "CDLA-Permissive-2.0", "OFL-1.1",
     "Apache-2.0 WITH LLVM-exception", "blessing", "WTFPL",
+    # File-level copyleft like MPL-2.0; elkjs (the launcher's map layout) ships unmodified. Allowed 22 Nov 2026.
+    "EPL-2.0",
 }
 
 

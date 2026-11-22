@@ -1,6 +1,6 @@
 #![cfg(feature = "code")]
 use assert_cmd::Command;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{fs, path::Path, time::Duration};
 
 fn footnote(state: &Path, args: &[&str]) -> Value {
@@ -241,6 +241,65 @@ fn the_architecture_map_counts_blocks_links_and_outside_packages() {
         "{map}"
     );
     assert_eq!(ext["used_by"], serde_json::json!(["crates/b"]), "{map}");
+}
+
+/// `--block` (#504): the files of one block, each its own block, with the exact names its links use and each file's own
+/// description; the block level reads the manifest's description.
+#[test]
+fn a_block_opens_into_its_files_with_link_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let (state, root) = (dir.path().join("state"), dir.path().join("ws"));
+    let file = |p: &str, text: &str| {
+        let p = root.join(p);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    file(
+        "Cargo.toml",
+        "[package]\nname = \"ws\"\nversion = \"0.1.0\"\nedition = \"2021\"\ndescription = \"A test crate\"\n",
+    );
+    file(
+        "src/lib.rs",
+        "mod util;\npub fn top() -> u8 {\n    util::help() + util::help()\n}\n",
+    );
+    file(
+        "src/util.rs",
+        "//! Small helpers. More text here.\npub fn help() -> u8 {\n    1\n}\n",
+    );
+    file("other/x.rs", "pub fn x() {}\n");
+    let root = root.to_str().unwrap();
+
+    footnote(&state, &["code-index", root]);
+    let map = footnote(&state, &["code-map", "--root", root, "--block", "src"]);
+    let blocks = map["blocks"].as_array().unwrap();
+    let mut names: Vec<&str> = blocks.iter().map(|b| b["name"].as_str().unwrap()).collect();
+    names.sort();
+    assert_eq!(names, ["src/lib.rs", "src/util.rs"], "{map}");
+    assert_eq!(map["block"], "src", "{map}");
+    let link = &map["links"][0];
+    assert_eq!(
+        (&link["from"], &link["to"], &link["symbols"][0]["name"]),
+        (&json!("src/lib.rs"), &json!("src/util.rs"), &json!("help")),
+        "{map}"
+    );
+    let util = blocks.iter().find(|b| b["name"] == "src/util.rs").unwrap();
+    assert_eq!(
+        (&util["description"], &util["lines"]),
+        (&json!("Small helpers."), &json!(4)),
+        "{map}"
+    );
+    let top = footnote(&state, &["code-map", "--root", root]);
+    let src = top["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["name"] == "src")
+        .unwrap();
+    assert_eq!(
+        (&src["description"], &src["described_in"]),
+        (&json!("A test crate"), &json!("Cargo.toml")),
+        "{top}"
+    );
 }
 
 /// A Tauri-style app: TypeScript at the top, Rust in `src-tauri`. The Rust must still get its compiler graph (#218), with paths

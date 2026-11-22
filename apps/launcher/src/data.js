@@ -15,7 +15,8 @@ export function footnote(...args) {
   if (mockState) {
     const key = args.join(" ");
     const set = fixtures[mockState] ?? fixtures.ok;
-    const hit = Object.entries(set).find(([k]) => key === k || key.startsWith(k + " "));
+    // The most specific sample wins (`code-map --root x --block src` before `code-map`).
+    const hit = Object.entries(set).filter(([k]) => key === k || key.startsWith(k + " ")).sort((a, b) => b[0].length - a[0].length)[0];
     return hit ? Promise.resolve(structuredClone(hit[1])) : Promise.reject(`no sample for: footnote ${key}`);
   }
   return Promise.reject("ENGINE_MISSING");

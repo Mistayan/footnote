@@ -1051,12 +1051,105 @@ fn block(path: &str, depth: usize) -> String {
     }
 }
 
+/// What a block says it is, as its author wrote it: the `description` of the manifest in its folder (or, for a `src` or
+/// `lib` folder, its parent's). `Cargo.toml` and `package.json` only; no model writes these.
+fn block_description(root: &Path, block: &str) -> Option<(String, String)> {
+    let dir = root.join(block);
+    let up = matches!(dir.file_name()?.to_str()?, "src" | "lib")
+        .then(|| dir.parent().map(Path::to_path_buf))
+        .flatten();
+    for d in std::iter::once(dir).chain(up) {
+        if let Ok(t) = std::fs::read_to_string(d.join("Cargo.toml")) {
+            // The `[package]` table's `description = "..."`, read by line: enough for the one string we show.
+            let pkg = t
+                .split("\n[")
+                .find(|s| s.starts_with("package]") || s.trim_start().starts_with("[package]"));
+            if let Some(v) = pkg.and_then(|p| {
+                p.lines().find_map(|l| {
+                    l.trim()
+                        .strip_prefix("description")?
+                        .trim()
+                        .strip_prefix('=')
+                })
+            }) {
+                let v = v.trim().trim_matches('"').trim();
+                if !v.is_empty() {
+                    let at = d
+                        .join("Cargo.toml")
+                        .strip_prefix(root)
+                        .ok()?
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    return Some((v.to_string(), at));
+                }
+            }
+        }
+        if let Ok(t) = std::fs::read_to_string(d.join("package.json"))
+            && let Some(v) = serde_json::from_str::<Value>(&t)
+                .ok()
+                .and_then(|j| j["description"].as_str().map(str::to_string))
+            && !v.trim().is_empty()
+        {
+            let at = d
+                .join("package.json")
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            return Some((v.trim().to_string(), at));
+        }
+    }
+    None
+}
+
+/// A file's own one-line description: the first sentence of its leading module doc (`//!` in Rust, a module docstring in
+/// Python, a leading `/** */` in JavaScript and TypeScript), and its line count.
+fn file_doc(path: &Path) -> (Option<String>, usize) {
+    let Ok(t) = std::fs::read_to_string(path) else {
+        return (None, 0);
+    };
+    let lines = t.lines().count();
+    let body = t.trim_start_matches('\u{feff}').trim_start();
+    let text: String = if body.starts_with("//!") {
+        body.lines()
+            .take_while(|l| l.trim_start().starts_with("//!"))
+            .map(|l| l.trim_start()[3..].trim())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else if let Some(rest) = body
+        .strip_prefix("\"\"\"")
+        .or_else(|| body.strip_prefix("'''"))
+    {
+        rest.split(['"', '\''])
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else if let Some(rest) = body.strip_prefix("/**") {
+        rest.split("*/")
+            .next()
+            .unwrap_or("")
+            .lines()
+            .map(|l| l.trim().trim_start_matches('*').trim())
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        String::new()
+    };
+    let text = text.replace('`', "");
+    let first = text.split_inclusive(". ").next().unwrap_or("").trim();
+    let first = first.chars().take(200).collect::<String>();
+    ((!first.is_empty()).then_some(first), lines)
+}
+
 /// How many symbol names the map lists per link.
 const TOP_SYMBOLS: usize = 3;
 
 /// The architecture map: blocks (folders, `depth` deep) with their symbols, links between blocks counted in
-/// references with the symbol names they use most, and the outside packages each block uses.
-pub fn map(db: &Path, depth: usize) -> Result<Value> {
+/// references with the symbol names they use most, and the outside packages each block uses. With `inside`, only the
+/// files under that folder count and each file is its own block (the module level of one block, #504).
+pub fn map(db: &Path, depth: usize, inside: Option<&str>) -> Result<Value> {
     let c = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .with_context(|| {
             format!(
@@ -1075,11 +1168,26 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
         );
     }
     let root: String = c.query_row("SELECT value FROM meta WHERE key='root'", [], |r| r.get(0))?;
-    let blocks: HashMap<i64, String> = c
-        .prepare("SELECT id, path FROM files")?
-        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
-        .map(|r| r.map(|(id, p)| (id, block(&p, depth))))
-        .collect::<rusqlite::Result<_>>()?;
+    let inside = inside.map(|b| format!("{}/", b.replace('\\', "/").trim_matches('/')));
+    let mut blocks: HashMap<i64, String> = HashMap::new();
+    let mut q = c.prepare("SELECT id, path FROM files")?;
+    for r in q.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
+        let (id, p) = r?;
+        match &inside {
+            None => blocks.insert(id, block(&p, depth)),
+            Some(pre) => {
+                let p = p.replace('\\', "/");
+                p.starts_with(pre.as_str())
+                    .then(|| blocks.insert(id, p))
+                    .flatten()
+            }
+        };
+    }
+    if let Some(pre) = &inside
+        && blocks.is_empty()
+    {
+        bail!("no indexed file under {pre}");
+    }
     let rows = |sql: &str| -> Result<Vec<(i64, i64, i64)>> {
         Ok(c.prepare(sql)?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
@@ -1092,7 +1200,9 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
     for (file, n, _) in
         rows("SELECT file_id, count(*), 0 FROM symbols WHERE kind != 'module' GROUP BY file_id")?
     {
-        sizes.entry(&blocks[&file]).or_default().1 += n;
+        if let Some(b) = blocks.get(&file) {
+            sizes.entry(b).or_default().1 += n;
+        }
     }
     type Names = HashMap<String, i64>; // symbol name -> references
     let mut links: HashMap<(&str, &str), (i64, Names)> = HashMap::new();
@@ -1109,7 +1219,10 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
     })?;
     for r in found {
         let (from, to, name, n) = r?;
-        let (a, b) = (blocks[&from].as_str(), blocks[&to].as_str());
+        let (Some(a), Some(b)) = (blocks.get(&from), blocks.get(&to)) else {
+            continue;
+        };
+        let (a, b) = (a.as_str(), b.as_str());
         if a != b {
             let e = links.entry((a, b)).or_default();
             e.0 += n;
@@ -1129,9 +1242,10 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
     })?;
     for r in found {
         let (file, pkg, ver, n) = r?;
+        let Some(b) = blocks.get(&file) else { continue };
         let e = outside.entry((pkg, ver)).or_default();
         e.0 += n;
-        e.1.insert(&blocks[&file]);
+        e.1.insert(b);
     }
     let mut blocks: Vec<_> = sizes.into_iter().collect();
     blocks.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(a.0.cmp(b.0)));
@@ -1140,10 +1254,21 @@ pub fn map(db: &Path, depth: usize) -> Result<Value> {
     let mut outside: Vec<_> = outside.into_iter().collect();
     outside.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(&b.0)));
     Ok(json!({
-        "root": root, "origin": origin(&c)?, "depth": depth,
+        "root": root, "origin": origin(&c)?, "depth": depth, "block": inside.as_deref().map(|b| b.trim_end_matches('/')),
         // An entry block is one no other block references: where a run, a request or a test starts.
-        "blocks": blocks.iter().map(|(b, (f, s))| json!({"name": b, "files": f, "symbols": s,
-            "entry": !links.iter().any(|((_, to), _)| to == b)})).collect::<Vec<_>>(),
+        // What each box says it is, from the project's own words: a manifest `description`, or a file's leading doc.
+        "blocks": blocks.iter().map(|(b, (f, s))| {
+            let mut v = json!({"name": b, "files": f, "symbols": s, "entry": !links.iter().any(|((_, to), _)| to == b)});
+            if inside.is_some() {
+                let (doc, lines) = file_doc(&Path::new(&root).join(b));
+                v["lines"] = json!(lines);
+                v["description"] = json!(doc);
+            } else if let Some((d, from)) = block_description(Path::new(&root), b) {
+                v["description"] = json!(d);
+                v["described_in"] = json!(from);
+            }
+            v
+        }).collect::<Vec<_>>(),
         // The names a link uses most, so a reader sees what crosses it; `other_symbols` counts the names left out.
         "links": links.iter().map(|((a, b), (n, names))| {
             let mut names: Vec<_> = names.iter().collect();

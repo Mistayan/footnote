@@ -119,6 +119,14 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
   follows the heaviest references; the lit path animates with dots, but not under reduced motion. The detail panel shows the
   selected flow or block: its memories first, then its steps or links. All colours, type and radii are this section's tokens.
   The Layers tab reads the same map top to bottom: entry, features, base, outside, each with its links down.
+- **Architecture map by zoom level (22 Nov 2026, #360, replaces the blueprint map above):** the mockup approved in chat, built on
+  this section's tokens. Level 1 is the project's linked blocks (tests, benchmarks and examples are listed, not drawn), "Calls in"
+  for `server`/`mcp` packages and "Calls out" by kind; level 2 is one block's files (`code-map --block`). ELK lays each level out
+  left to right with orthogonal routes. Cards carry the block's manifest `description` or the file's leading module doc, as
+  written. Selecting a card lights what a change affects in `--warn` and what it relies on in `--acc`, with moving dots on the
+  lit routes (not under reduced motion); the side panel lists both with reference counts and top symbol names. Double-click or
+  "Open its files" goes down, Esc or the breadcrumb goes up; drag pans, the wheel zooms, Fit shows the whole level. The Symbol
+  tab adds a side toggle: both sides, "Affected if it changes" (callers by level from `code-impact`), "It relies on".
 - **Launcher-only colour roles:** besides section 3, the window uses `--side` #0D1810 (sidebar ground), `--raise` #182A20
   (selected rows, raised fills, callouts), `--line2` #34413A (control borders) and `--dim` #8A978D (tertiary labels; 5.7:1 on
   the surface). `--acc` in the window is the glow teal #5FD3C3, used for focus and primary-button borders.
