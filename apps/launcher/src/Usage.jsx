@@ -24,16 +24,20 @@ function smoothPath(pts) {
     const p1 = pts[i];
     const p2 = pts[i + 1];
     const p3 = pts[Math.min(pts.length - 1, i + 2)];
+    // Clamp control points between the two ends so the curve never overshoots (no dips below zero).
+    const lo = Math.min(p1[1], p2[1]), hi = Math.max(p1[1], p2[1]);
+    const clamp = (v) => Math.min(hi, Math.max(lo, v));
     const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
-    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const cp1y = clamp(p1[1] + (p2[1] - p0[1]) / 6);
     const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
-    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+    const cp2y = clamp(p2[1] - (p3[1] - p1[1]) / 6);
     d += ` C${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
   }
   return d;
 }
 
 function DailyChart({ byDay, byDayAgent, agents, metric }) {
+  const [hover, setHover] = useState(null);
   const dates = byDay.map((d) => d.date);
   if (dates.length === 0) return <p className="dimmed small">No daily activity in this period.</p>;
 
@@ -61,11 +65,27 @@ function DailyChart({ byDay, byDayAgent, agents, metric }) {
   const ticks = [0, 0.5, 1];
   const fmtTick = (v) => (metric === "cost" ? usd.format(v) : tokens(Math.round(v)));
   const labelIdx = dates.length <= 4 ? dates.map((_, i) => i) : [0, Math.floor((dates.length - 1) / 2), dates.length - 1];
+  const hi = hover != null && hover < dates.length ? hover : null;
+  const pick = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * W;
+    setHover(dates.length === 1 ? 0 : Math.max(0, Math.min(dates.length - 1, Math.round(((vx - padL) / cw) * (dates.length - 1)))));
+  };
+  const onKey = (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const step = e.key === "ArrowLeft" ? -1 : 1;
+      setHover((h) => Math.max(0, Math.min(dates.length - 1, (h ?? (step > 0 ? -1 : dates.length)) + step)));
+    } else if (e.key === "Escape") setHover(null);
+  };
+  const title = metric === "cost" ? "Daily API list cost" : "Daily processed tokens";
 
   return (
     <div className="usage-chart">
-      <div className="usage-chart-title">{metric === "cost" ? "Daily API list cost" : "Daily processed tokens"}</div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={metric === "cost" ? "Daily API list cost" : "Daily processed tokens"}>
+      <div className="usage-chart-title">{title}</div>
+      <div className="usage-chart-plot">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`${title}. Hover or use arrow keys to read each day.`} tabIndex={0}
+        onMouseMove={pick} onMouseLeave={() => setHover(null)} onKeyDown={onKey} onBlur={() => setHover(null)}>
         <defs>
           {series.map((s) => (
             <linearGradient key={s.id} id={`ug-${s.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -92,19 +112,40 @@ function DailyChart({ byDay, byDayAgent, agents, metric }) {
               {pts.length > 1 && <path d={area} fill={`url(#ug-${s.id})`} />}
               <path d={line} fill="none" stroke={s.color} strokeWidth="1.8" />
               {pts.map(([px, py], i) => (
-                <circle key={dates[i]} cx={px} cy={py} r="2.5" fill={s.color} opacity={pts.length <= 14 ? 0.85 : 0}>
-                  <title>{`${agentInfo(s.id).label} · ${shortDate(dates[i])}: ${fmtTick(s.values[i])}`}</title>
-                </circle>
+                <circle key={dates[i]} cx={px} cy={py} r={i === hi ? 4 : 2.5} fill={s.color} opacity={i === hi ? 1 : pts.length <= 14 ? 0.85 : 0} />
               ))}
             </g>
           );
         })}
+        {hi != null && <line x1={x(hi)} x2={x(hi)} y1={padT} y2={padT + ch} className="chart-cursor" />}
         {labelIdx.map((i) => (
           <text key={dates[i]} x={x(i)} y={H - 6} textAnchor={i === 0 ? "start" : i === dates.length - 1 ? "end" : "middle"} className="chart-axis">
             {shortDate(dates[i]).toUpperCase()}
           </text>
         ))}
       </svg>
+      {hi != null && (
+        <div className={`chart-tip${x(hi) > W * 0.6 ? " left" : ""}`} style={{ left: `${(100 * x(hi)) / W}%` }} aria-live="polite">
+          <b>{shortDate(dates[hi])}</b>
+          {series
+            .map((s) => ({ s, v: s.values[hi] }))
+            .sort((a, b) => b.v - a.v)
+            .map(({ s, v }) => (
+              <span key={s.id}>
+                <i style={{ background: s.color }} />
+                <span className="dimmed">{s.id === "all" ? "All agents" : agentInfo(s.id).label}</span>
+                <b className="mono">{fmtTick(v)}</b>
+              </span>
+            ))}
+          {series.length > 1 && (
+            <span className="chart-tip-total">
+              <span className="dimmed">Total</span>
+              <b className="mono">{fmtTick(series.reduce((a, s) => a + s.values[hi], 0))}</b>
+            </span>
+          )}
+        </div>
+      )}
+      </div>
     </div>
   );
 }
