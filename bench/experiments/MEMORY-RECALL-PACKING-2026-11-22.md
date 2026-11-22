@@ -1,0 +1,34 @@
+# Memory recall packing: dual relevance floors, pointer packing and compact subagent context (#356)
+
+Written 22 November 2026, before any measurement for this experiment was collected. Continues [MEMORY-ABSTENTION.md](MEMORY-ABSTENTION.md) and [MEMORY-CUTOFF.md](MEMORY-CUTOFF.md).
+
+## Why
+
+1. **Dual relevance floors (`cos_floor`, `inject_floor`):** [MEMORY-CUTOFF.md](MEMORY-CUTOFF.md) showed that a single threshold on query-relative `fusion_score` alone fails on held-out LongMemEval-S (any@3 fell from 31.80 % to 26.78 %). [MEMORY-ABSTENTION.md](MEMORY-ABSTENTION.md) showed a cross-encoder reranker (`mmarco-mMiniLMv2-L12-H384-v1`) also failed on dev (93.4 % no-answer injection at -4.8 pp any@3). Exposing the mean raw dense cosine (`dense_cosine`) alongside `fusion_score` costs zero extra model inference (it is already computed inside `Dense::blend` in `crates/search/src/semantic.rs`) and allows testing a dual-floor gate (`dense_cosine >= cos_floor` AND `fusion_score >= inject_floor`).
+2. **Pointer packing:** Today `src/hook.rs` injects up to `recall_limit` (4) memories at up to 200 characters each (~200 tokens). Rendering only the top-K (`K = 2`) hits at 200 characters and secondary hits as compact one-line pointers (60-character preview + `[id N]` for `footnote_get <id>`) inside a strict character budget (`600` chars ≈ 150 tokens) can trim per-prompt token overhead without dropping any recalled memory ID.
+3. **Compact `"binding"` subagent pack:** Delegated subagents currently inherit the full `SessionStart` pack (up to 3,000 chars ≈ 750 tokens, including facts, fixes, and session summaries) plus standing prose. A `"binding"` mode (`pack_binding`, preferences only, capped at 800 chars ≈ 200 tokens) gives delegated workers hard rules and constraints without redundant session prose.
+
+## Data and splits
+
+- **Dual relevance floors & pointer packing:** LongMemEval-S cleaned (`longmemeval_s_cleaned.json`), exact same deterministic question-family split (`sha256(family) % 2`: `dev` vs `heldout`), same positive + `_abs` + cross-database negative structure as [MEMORY-ABSTENTION.md](MEMORY-ABSTENTION.md) and [memory_cutoff_collect.py](memory_cutoff_collect.py), default model pair (`bekko-a8m` + `gte-small`), `recall_limit = 4`, built from this branch's release binary.
+- **Binding subagent pack:** Deterministic multi-kind memory fixture (global preferences, project preferences, project facts, fixes, and session summaries totaling > 3,000 chars) comparing `full` (`3,000` chars) vs `binding` (`800` chars).
+
+## Decision rule (fixed before any measurement)
+
+1. **Dual relevance floors (`cos_floor`, `inject_floor`):**
+   - **Dev only:** evaluate a deterministic grid of `(cos_floor, inject_floor)` pairs over dev hit quantiles (plus single-axis ablations) and select the pair that minimizes no-answer injection rate while keeping answerable `any@4` within **≤ 5.0 percentage points** of ungated hybrid `any@4` on dev.
+   - **Held-out, once, with `(cos_floor, inject_floor)` frozen:** passes ONLY if BOTH hold:
+     - no-answer injection rate ≤ **50.0 %** (`_abs` and cross-database negatives combined; each also reported separately);
+     - answerable `any@4` within **≤ 5.0 percentage points** of ungated hybrid `any@4` (paired bootstrap 95 % CI, 10,000 resamples, seed `20261122`, by question family).
+   - **Adoption rule:** default shipped hook settings (`cos_floor = None`, `inject_floor = None`) change ONLY if the held-out gate passes. Otherwise dual floors remain opt-in settings in `memory.json`, disabled by default.
+2. **Pointer packing (`top_k = 2` @ 200 chars, secondary @ 60 chars, cap 600 chars):**
+   - Measured on the same held-out hits (no tuning): reports mean injected chars and estimated tokens (`chars / 4`) per prompt vs flat 4×200 baseline, and `any@4` (whether a relevant memory ID remains present in the injected text).
+   - **Adoption rule:** opt-in setting (`pointer_packing: false` by default) unless it reduces injected tokens by ≥ 25 % on multi-hit prompts with 0.0 pp drop in `any@4`.
+3. **Binding subagent pack (`subagent_context: "binding"`, 800-char cap):**
+   - Must stay ≤ **250 estimated tokens** (≤ 1,000 rendered chars) while retaining 100 % of binding preferences that fit within the 800-char text budget and excluding session/fact prose.
+
+## Not in scope
+
+- Changing the embedding models or fusion formula (`ALPHA = 0.55`).
+- Enabling an abstention cutoff by default without passing the held-out gate.
+- LLM answer-quality grading or paid API benchmark runs.
