@@ -232,7 +232,7 @@ pub fn list(state: &Path) -> Result<Value> {
         })
         .collect();
     Ok(
-        json!({"models": rows, "memory_uses_from_elsewhere": elsewhere, "folder": models_dir(state)}),
+        json!({"models": rows, "memory_uses_from_elsewhere": elsewhere, "folder": models_dir(state), "llama": cfg!(feature = "llama")}),
     )
 }
 

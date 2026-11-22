@@ -15,8 +15,8 @@ import {
   Send,
   Sparkle,
 } from "lucide-react";
-import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, seen, shortDate } from "./data.js";
-import AddProject from "./Folders.jsx";
+import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, openReceipt, seen, shortDate } from "./data.js";
+import AddProject, { ImportGguf } from "./Folders.jsx";
 import { KindIcon } from "./Memory.jsx";
 import { PathPill, Tabs, Tip, clip, toast } from "./ui.jsx";
 
@@ -366,6 +366,8 @@ export function Models({ refresh }) {
   const defaultPairInstalled = ["bekko-a8m", "gte-small"].every((n) => data.models.some((m) => m.name === n && m.installed));
   const isDefaultPair = active.length === 2 && active.some((m) => m.name === "bekko-a8m") && active.some((m) => m.name === "gte-small");
   const onDisk = data.models.reduce((n, m) => n + (m.installed ? m.bytes ?? 0 : 0), 0);
+  const rank = (m) => (m.used_by_memory ? -1 : RANK.indexOf(m.name) < 0 ? RANK.length : RANK.indexOf(m.name));
+  const models = [...data.models].sort((a, b) => rank(a) - rank(b));
   return (
     <div className="body">
       <section className="hero solo lglass sq">
@@ -389,49 +391,111 @@ export function Models({ refresh }) {
         </div>
       </section>
       {switchNote && <p className={switchNote.startsWith("Error:") ? "warn small" : "ok small"} role="status">{switchNote}</p>}
-      <div className="models">
-        <div className="row-head" aria-hidden="true"><span>Model</span><span>Use</span><span>Licence</span><span>State</span><span className="num-r">Size</span></div>
-        <ul className="rows" aria-label="Models">
-          {data.models.map((m) => (
-            <li key={m.name} className="line-row surface sq lit">
-              <span className="cell-name mono">{m.name}</span>
-              <Tip tip={m.role.length > 40 ? m.role : null}><span className="cell-dim">{m.role}</span></Tip>
-              <span><License license={m.license} /></span>
-              <span>
+      {data.llama === false && (
+        <p className="dimmed small">This build of Footnote has no llama.cpp, so it cannot run GGUF models (marked below). Release builds include it.</p>
+      )}
+      <ul className="model-grid" aria-label="Models">
+        {models.map((m) => {
+          const blocked = (m.imported || GGUF.has(m.name)) && data.llama === false;
+          const facts = MEASURED[m.name];
+          return (
+            <li key={m.name} className={`model-card card sq lit${m.used_by_memory ? " on" : ""}`} aria-label={m.name}>
+              <header className="mc-head">
+                <h3 className="mono">{m.name}</h3>
                 {m.installed ? (
-                  m.used_by_memory ? (
-                    <span className="state-dot">Active</span>
-                  ) : (
-                    <span className="cell-end" style={{ justifySelf: "start" }}>
-                      <span className="state-dot idle">Installed</span>
-                      <button className="btn" type="button" disabled={!!switching} onClick={() => useModels([m.name])}>
-                        {switching === m.name ? "Switching…" : "Use"}
-                      </button>
-                    </span>
+                  m.used_by_memory ? <span className="state-dot">Active</span> : <span className="state-dot idle">Installed</span>
+                ) : <span className="dimmed small">Not installed</span>}
+              </header>
+              <p className="mc-role">{m.imported ? "Imported GGUF" : m.role}</p>
+              {facts?.verdict ? (
+                <p className="small dimmed">
+                  {facts.verdict}{" "}
+                  <button type="button" className="receipt" onClick={() => openReceipt(facts.receipt)}
+                    aria-label={`Open the measurement ${facts.receipt.split("/").pop()}`}>
+                    the measurement <span aria-hidden="true">↗</span>
+                  </button>
+                </p>
+              ) : facts ? (
+                <dl className="mc-stats">
+                  {facts.stats.map((st) => (
+                    <div key={st.label}>
+                      <dt>{st.label}</dt>
+                      <dd>
+                        <button type="button" className="receipt mono" onClick={() => openReceipt(st.receipt)}
+                          aria-label={`${st.label} ${st.value}, ${st.vs}: open the measurement`}>
+                          {st.value}
+                        </button>
+                        <span className={`small${st.good ? " ok" : " dimmed"}`}>{st.vs}</span>
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="small dimmed">Not measured by Footnote. No query or passage prefixes.</p>
+              )}
+              {blocked && <p className="warn small">Needs a build with llama.cpp.</p>}
+              {m.installed && !m.used_by_memory && !blocked && <p className="dimmed small">Use re-embeds your memories in the background.</p>}
+              <footer className="mc-foot">
+                {m.license ? <License license={m.license} />
+                  : <span className="dimmed small">Licence unknown: check the model card before use at work.</span>}
+                <span className="mono small dimmed mc-size">
+                  {m.installed && m.bytes ? mb(m.bytes) : m.download_bytes ? mb(m.download_bytes) : "–"}
+                </span>
+                {m.installed ? (
+                  !m.used_by_memory && (
+                    <button className="btn" type="button" disabled={!!switching || blocked} onClick={() => useModels([m.name])}
+                      aria-label={`Use ${m.name} for Memory`}>
+                      {switching === m.name ? "Switching…" : "Use"}
+                    </button>
                   )
                 ) : busy?.name === m.name ? (
                   <Download busy={busy} total={m.download_bytes} cancel={cancel} retry={() => install(m.name)} />
                 ) : (
-                  <button className="btn" type="button" disabled={!!busy && !busy.error && !busy.cancelled}
+                  <button className="btn" type="button" disabled={blocked || (!!busy && !busy.error && !busy.cancelled)}
                     onClick={() => install(m.name)} aria-label={`Install ${m.name}, ${m.download_bytes ? mb(m.download_bytes) : "size unknown"}`}>
                     Install
                   </button>
                 )}
-              </span>
-              <span className="num-r mono small">
-                {m.installed && m.bytes ? mb(m.bytes) : m.download_bytes ? <span className="dimmed">{mb(m.download_bytes)}</span> : "–"}
-              </span>
+              </footer>
             </li>
-          ))}
-        </ul>
-      </div>
+          );
+        })}
+      </ul>
       <div className="bar">
         <PathPill path={data.folder} keep={2} />
+        <ImportGguf disabled={data.llama === false} done={() => { setRound((r) => r + 1); refresh?.(); }} />
         {onDisk > 0 && <span className="dimmed small" style={{ marginLeft: "auto" }}>{mb(onDisk)} on disk</span>}
       </div>
     </div>
   );
 }
+
+// The Models screen's ranking (#556): what the benchmarks measured, each number opening its report. nDCG@10 on held-out
+// splits; search p95 is a whole search as an agent sees it, on an idle machine. Order: the active models, the default
+// pair, the best measured alternative, the earlier models, then imported ones.
+const RANK = ["bekko-a8m", "gte-small", "jina-v5-nano", "e5-small", "minilm"];
+const GGUF = new Set(["jina-v5-nano"]);
+const FINAL = "bench/experiments/FINAL-RANKING.md";
+const NANO = "bench/experiments/LLAMACPP-INPROCESS.md";
+const PAIR = {
+  stats: [
+    { label: "French or mixed", value: "0.489", vs: "nDCG@10, the reference", receipt: FINAL },
+    { label: "English", value: "0.747", vs: "nDCG@10, the reference", receipt: FINAL },
+    { label: "Search p95", value: "42 ms", vs: "the two together", receipt: NANO },
+  ],
+};
+const MEASURED = {
+  "bekko-a8m": PAIR,
+  "gte-small": PAIR,
+  "jina-v5-nano": {
+    stats: [
+      { label: "French or mixed", value: "0.572", vs: "+0.083 over the pair", good: true, receipt: NANO },
+      { label: "Search p95", value: "69 ms", vs: "pair 42 ms", receipt: NANO },
+    ],
+  },
+  "e5-small": { verdict: "Did not beat the default pair when added to it.", receipt: "bench/experiments/RESULTS.md" },
+  minilm: { verdict: "Did not beat the default pair when added to it.", receipt: "bench/experiments/RESULTS.md" },
+};
 
 /** One model's download: progress of the file being fetched, then the outcome. A cancelled or failed install leaves no model
  * behind (the engine renames each file only once it is complete and its hash checked). */

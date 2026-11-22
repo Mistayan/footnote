@@ -1,34 +1,62 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, Folder, FolderGit2, FolderPlus, HardDrive, House, X } from "lucide-react";
-import { browseFolders, footnote } from "./data.js";
+import { Box, ChevronRight, Folder, FolderGit2, FolderPlus, HardDrive, House, X } from "lucide-react";
+import { browseFolders, footnote, mb } from "./data.js";
 import { Scroll, Tip, clip, toast } from "./ui.jsx";
 
-// Add project (22 Nov 2026): the app's own folder browser instead of the Windows dialog. One level at a time: the drives,
-// then folders by name (a git repository is marked); the folder you are in is the one added.
+// The app's own folder browser instead of the Windows dialog (22 Nov 2026). One level at a time: the drives, then folders by
+// name (a git repository is marked). Add project picks the folder you are in; Load a GGUF model (#556) picks a `.gguf` file.
 
 export default function AddProject({ refresh }) {
+  return (
+    <Browser title="Add a project folder" opener={<><FolderPlus size={15} strokeWidth={2} /> Add project</>} openerClass="add-project"
+      action="Add this folder" acting="Adding…"
+      pick={async (path) => {
+        const r = await footnote("projects", "add", path);
+        toast(`Added ${r?.name ?? path}.`);
+        refresh?.();
+      }} />
+  );
+}
+
+/** Load a GGUF model (#556): the browser shows folders and `.gguf` files; the engine checks and copies the chosen one. */
+export function ImportGguf({ done, disabled }) {
+  return (
+    <Browser title="Load a GGUF model" opener="Load a GGUF model…" disabled={disabled} gguf
+      note="Footnote checks that the file is an embedding model and copies it into its models folder. The original stays where it is."
+      action="Load this model" acting="Checking and copying…"
+      pick={async (path) => {
+        const r = await footnote("models", "import", path);
+        toast(`Loaded ${r?.name ?? path}.`);
+        done?.(r);
+      }} />
+  );
+}
+
+/** The browser dialog. Without `gguf`, the folder you are in is the pick; with it, the `.gguf` file you select is. */
+function Browser({ title, opener, openerClass = "", disabled, gguf, note, action, acting, pick }) {
   const dialog = useRef(null);
-  const [at, setAt] = useState(null); // the listing shown: { path, parent, drives, folders, git }
+  const [at, setAt] = useState(null); // the listing shown: { path, parent, drives, folders, files, git }
+  const [chosen, setChosen] = useState(null); // with `gguf`: the selected file's path
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   const go = (path) => {
     setError(null);
-    browseFolders(path).then(setAt, (e) => setError(String(e)));
+    setChosen(null);
+    browseFolders(path, gguf).then(setAt, (e) => setError(String(e)));
   };
   const open = () => {
     dialog.current?.showModal();
-    browseFolders(null).then((root) => (root.home ? go(root.home) : setAt(root)), (e) => setError(String(e)));
+    browseFolders(null, gguf).then((root) => (root.home ? go(root.home) : setAt(root)), (e) => setError(String(e)));
   };
   const close = () => dialog.current?.close();
-  const add = async () => {
-    if (!at?.path) return;
+  const target = gguf ? chosen : at?.path;
+  const run = async () => {
+    if (!target) return;
     setBusy(true);
     try {
-      const r = await footnote("projects", "add", at.path);
+      await pick(target);
       close();
-      toast(`Added ${r?.name ?? at.path}.`);
-      refresh?.();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -37,7 +65,7 @@ export default function AddProject({ refresh }) {
   };
   useEffect(() => {
     const d = dialog.current;
-    const onClose = () => setAt(null);
+    const onClose = () => { setAt(null); setChosen(null); setError(null); };
     d?.addEventListener("close", onClose);
     return () => d?.removeEventListener("close", onClose);
   }, []);
@@ -50,15 +78,15 @@ export default function AddProject({ refresh }) {
         return acc;
       }, [])
     : [];
+  const files = at?.files ?? [];
+  const id = gguf ? "picker-title-gguf" : "picker-title";
 
   return (
     <>
-      <button type="button" className="btn add-project" onClick={open}>
-        <FolderPlus size={15} strokeWidth={2} /> Add project
-      </button>
-      <dialog ref={dialog} className="picker lglass sq" aria-labelledby="picker-title">
+      <button type="button" className={`btn ${openerClass}`.trim()} onClick={open} disabled={disabled}>{opener}</button>
+      <dialog ref={dialog} className="picker lglass sq" aria-labelledby={id}>
         <header className="picker-head">
-          <h2 id="picker-title">Add a project folder</h2>
+          <h2 id={id}>{title}</h2>
           <button type="button" className="mw-btn" onClick={close} aria-label="Close"><X size={14} strokeWidth={2} /></button>
         </header>
         <div className="picker-drives">
@@ -85,10 +113,11 @@ export default function AddProject({ refresh }) {
             </span>
           ))}
         </nav>
+        {note && <p className="dimmed small picker-note">{note}</p>}
         {error && <p className="warn small" role="alert">{error}</p>}
         <Scroll compact className="picker-list">
-          {!at ? <span className="skel" /> : at.folders.length === 0 ? (
-            <p className="dimmed small picker-empty">{at.path ? "No folders inside." : "Pick a drive."}</p>
+          {!at ? <span className="skel" /> : at.folders.length + files.length === 0 ? (
+            <p className="dimmed small picker-empty">{!at.path ? "Pick a drive." : gguf ? "No folders or .gguf files inside." : "No folders inside."}</p>
           ) : (
             <ul role="list">
               {at.folders.map((f) => (
@@ -100,17 +129,27 @@ export default function AddProject({ refresh }) {
                   </button>
                 </li>
               ))}
+              {files.map((f) => (
+                <li key={f.path}>
+                  <button type="button" className={`picker-row${chosen === f.path ? " on" : ""}`} aria-pressed={chosen === f.path}
+                    onClick={() => setChosen(f.path)}>
+                    <Box size={15} strokeWidth={1.9} className="git" />
+                    <span className="picker-name">{f.name}</span>
+                    <span className="dimmed small mono">{mb(f.bytes)}</span>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
         </Scroll>
         <footer className="picker-foot">
           <span className="picker-current mono small">
-            {at?.git && <FolderGit2 size={13} strokeWidth={1.9} className="git" />}
-            {at?.path ? clip(at.path, 52) : "–"}
+            {!gguf && at?.git && <FolderGit2 size={13} strokeWidth={1.9} className="git" />}
+            {target ? clip(target, 52) : gguf ? "Select a .gguf file" : "–"}
           </span>
           <button type="button" className="btn" onClick={close}>Cancel</button>
-          <button type="button" className="btn primary" onClick={add} disabled={!at?.path || busy}>
-            {busy ? "Adding…" : "Add this folder"}
+          <button type="button" className="btn primary" onClick={run} disabled={!target || busy}>
+            {busy ? acting : action}
           </button>
         </footer>
       </dialog>

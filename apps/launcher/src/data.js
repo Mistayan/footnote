@@ -43,10 +43,10 @@ export function openProjectFolder(path) {
   return inApp ? invoke("open_project_folder", { path }) : Promise.resolve();
 }
 
-/** One level of the Add project folder browser: `null` gives the drives and the user folder. */
-export function browseFolders(path) {
-  if (inApp) return invoke("browse_folders", { path });
-  return mockState ? Promise.resolve(mockFolders(path)) : Promise.reject("ENGINE_MISSING");
+/** One level of the app's folder browser: `null` gives the drives and the user folder; `gguf` also lists `.gguf` files. */
+export function browseFolders(path, gguf = false) {
+  if (inApp) return invoke("browse_folders", { path, gguf });
+  return mockState ? Promise.resolve(mockFolders(path, gguf)) : Promise.reject("ENGINE_MISSING");
 }
 
 /** Open a licence's text on the web: only the licences the app knows (`mit`, `apache-2.0`, `cc-by-nc-4.0`). */

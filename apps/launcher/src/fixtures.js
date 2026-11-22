@@ -2,11 +2,14 @@
 const models = {
   folder: "C:/Users/sample/AppData/Local/footnote/models",
   memory_uses_from_elsewhere: [],
+  llama: true,
   models: [
     { name: "bekko-a8m", installed: true, bytes: 164462521, license: "MIT", role: "default pair, multilingual half", used_by_memory: true },
     { name: "gte-small", installed: true, bytes: 34726087, license: "MIT", role: "default pair, English half", used_by_memory: true },
     { name: "e5-small", installed: false, download_bytes: 135390915, license: "MIT", role: "earlier model, tests and comparison", used_by_memory: false },
     { name: "jina-v5-nano", installed: false, download_bytes: 232883776, license: "CC-BY-NC-4.0 (no commercial use)", role: "French or mixed corpora, opt-in (llama build)", used_by_memory: false },
+    { name: "minilm", installed: false, download_bytes: 118000000, license: "Apache-2.0", role: "earlier model, tests and comparison", used_by_memory: false },
+    { name: "embeddinggemma-300m-q8_0", installed: true, imported: true, bytes: 328576000, license: null, role: "imported GGUF", used_by_memory: false },
   ],
 };
 
@@ -274,18 +277,19 @@ const tree = {
   "C:/Users/sample/source": ["playground", "tools"],
 };
 const repos = new Set(["atlas-api", "harbor-web", "ledger-sync", "shop-api", "playground"]);
-export function mockFolders(path) {
+export function mockFolders(path, gguf) {
   const drives = ["C:/", "D:/"];
   if (!path) return { path: null, parent: null, drives, home: "C:/Users/sample", folders: [] };
   const key = path.replace(/\/+$/, "") || path;
   const names = tree[key] ?? tree[`${key}/`] ?? [];
   const base = key.endsWith(":") ? `${key}/` : `${key}/`;
   return { path: key, parent: key.includes("/") ? key.slice(0, key.lastIndexOf("/")) || null : null, git: repos.has(key.split("/").pop()),
-    drives, folders: names.map((name) => ({ name, path: `${base}${name}`.replace("//", "/"), git: repos.has(name) })) };
+    drives, folders: names.map((name) => ({ name, path: `${base}${name}`.replace("//", "/"), git: repos.has(name) })),
+    files: gguf && key === "C:/Users/sample" ? [{ name: "embeddinggemma-300m-Q8_0.gguf", path: "C:/Users/sample/embeddinggemma-300m-Q8_0.gguf", bytes: 328_576_000 }] : [] };
 }
 
 export const fixtures = {
-  ok: { status, projects, activity, "models list": models, "code-map": codeMap, "code-map --root D:/work/atlas-api --block src": codeMapSrc, "code-impact": codeImpact, code, usage, "config set": {},
+  ok: { status, projects, activity, "models list": models, "models import": { imported: true, name: "embeddinggemma-300m-q8_0" }, "code-map": codeMap, "code-map --root D:/work/atlas-api --block src": codeMapSrc, "code-impact": codeImpact, code, usage, "config set": {},
     options: options(), "agent-ask": { queued: true }, "agent-commit": { agent: "claude", before: 4, uncommitted: 0, unpushed: 0, said: "Committed 2 commits (feat: sync retries; docs: README). Pushed main to origin. Left nothing." }, "projects add": { added: true, name: "shop-api", path: "D:/work/shop-api" }, "projects ignore": { ignored: true }, "projects unignore": { ignored: false }, "install --memory": { installed: true },
     "update --check": { installed: "0.1.0-alpha.3", latest: "0.1.0-alpha.4", newer: true, installer: "Footnote-Setup-0.1.0-alpha.4-x64.exe",
       published_at: new Date(Date.now() - 51 * 60000).toISOString(),

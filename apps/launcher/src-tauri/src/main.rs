@@ -19,13 +19,13 @@ fn plain(s: &str) -> bool {
     !s.is_empty() && s.len() <= 200 && !s.starts_with('-') && !s.chars().any(char::is_control)
 }
 
-/// A valid catalogue model name: lowercase ASCII, digits, dashes.
+/// A valid model name: a catalogue one (lowercase ASCII, digits, dashes) or an imported one (also `_` and `.`), never a path.
 fn model_name(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 64
-        && !s.starts_with('-')
+        && !s.starts_with(['-', '.'])
         && s.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'))
 }
 
 /// The engine commands the window may run: read-only ones and a few reversible writes: a product's on/off switch, the
@@ -57,6 +57,8 @@ fn allowed(args: &[String]) -> bool {
         // One model by its catalogue name; the engine refuses names it does not know.
         ["models", "install", name] => model_name(name),
         // Switch which installed models Memory uses (1 to 3 valid catalogue names).
+        // Load a GGUF model (#556): the file the user picked in the window's browser; the engine checks it is an embedding model.
+        ["models", "import", file] => plain(file) && file.to_ascii_lowercase().ends_with(".gguf"),
         ["models", "use", m1] => model_name(m1),
         ["models", "use", m1, m2] => model_name(m1) && model_name(m2),
         ["models", "use", m1, m2, m3] => model_name(m1) && model_name(m2) && model_name(m3),
@@ -371,10 +373,11 @@ fn run_installer(_: &std::path::Path) -> Result<(), String> {
     Err("in-app updates install the Windows installer; elsewhere run footnote-installer.sh".into())
 }
 
-/// One level of the Add project folder browser (22 Nov 2026): the drives, or a folder's subfolders by name with whether
-/// each is a git repository. Names only, nothing is read inside them; hidden and system folders are left out.
+/// One level of the app's folder browser (22 Nov 2026): the drives, or a folder's subfolders by name with whether each is
+/// a git repository, plus its `.gguf` files when `gguf` is set (Load a GGUF model, #556). Names and sizes only, nothing is
+/// read inside them; hidden and system entries are left out.
 #[tauri::command(async)]
-fn browse_folders(path: Option<String>) -> Result<Value, String> {
+fn browse_folders(path: Option<String>, gguf: Option<bool>) -> Result<Value, String> {
     let drives: Vec<String> = if cfg!(windows) {
         (b'A'..=b'Z')
             .map(|c| format!("{}:/", c as char))
@@ -388,14 +391,32 @@ fn browse_folders(path: Option<String>) -> Result<Value, String> {
         return Ok(serde_json::json!({"path": null, "parent": null, "drives": drives, "home": home, "folders": []}));
     };
     let dir = PathBuf::from(&path);
-    let entries = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let mut folders: Vec<Value> = entries
+    let entries: Vec<_> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?
         .flatten()
-        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .filter(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
             !name.starts_with('.') && !name.starts_with('$') && !hidden(e)
         })
+        .collect();
+    let mut files: Vec<Value> = entries
+        .iter()
+        .filter(|_| gguf == Some(true))
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .filter(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("gguf")))
+        .take(2000)
+        .map(|e| {
+            serde_json::json!({
+                "name": e.file_name().to_string_lossy(),
+                "path": e.path().to_string_lossy().replace('\\', "/"),
+                "bytes": e.metadata().map_or(0, |m| m.len()),
+            })
+        })
+        .collect();
+    files.sort_by_key(|f| f["name"].as_str().unwrap_or_default().to_lowercase());
+    let mut folders: Vec<Value> = entries
+        .iter()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .take(2000)
         .map(|e| {
             let p = e.path();
@@ -413,6 +434,7 @@ fn browse_folders(path: Option<String>) -> Result<Value, String> {
         "git": dir.join(".git").exists(),
         "drives": drives,
         "folders": folders,
+        "files": files,
     }))
 }
 

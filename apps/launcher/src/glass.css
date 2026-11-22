@@ -239,7 +239,23 @@ button.stat.ignore:hover:not(:disabled) .stat-ic { color: var(--warn); }
 .cell-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-dim { color: var(--mute); font-size: var(--t-s); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-end { justify-self: end; display: inline-flex; align-items: center; gap: 8px; }
-.models { --cols: minmax(130px, 1.1fr) minmax(160px, 2fr) minmax(100px, 1fr) minmax(190px, auto) 76px; }
+/* Models (#556): one card per model, the measured numbers in the middle, licence, size and action at the foot. */
+.model-grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.model-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.model-card.on { border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.mc-head { display: flex; align-items: center; gap: 10px; }
+.mc-head h3 { font-size: var(--t-m); font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-head > :last-child { margin-left: auto; flex: none; }
+.mc-role { color: var(--mute); font-size: var(--t-s); }
+.mc-stats { display: grid; gap: 6px; margin: 0; }
+.mc-stats > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 10px; }
+.mc-stats dt { color: var(--dim); font-size: var(--t-s); }
+.mc-stats dd { margin: 0; display: inline-flex; align-items: baseline; gap: 8px; justify-self: end; }
+.mc-stats .receipt { font-size: var(--t-m); font-variant-numeric: tabular-nums; }
+.mc-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 4px; flex-wrap: wrap; }
+.mc-size { margin-left: auto; }
+.picker-note { padding: 0 18px; }
+.picker-row.on { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--text); }
 .corpora { --cols: minmax(150px, 1.2fr) minmax(160px, 2fr) 96px 32px; }
 .docs { --cols: minmax(150px, 1.4fr) 90px minmax(120px, 1fr) 70px 80px 70px; }
 .rows .line-row, .row-head { grid-template-columns: var(--cols); }
@@ -562,7 +578,7 @@ html.mini-win, html.mini-win body { background: var(--bg); }
 .picker-path button[aria-current] { color: var(--text); }
 .picker-list { height: 320px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .picker-list ul { list-style: none; padding: 6px; display: grid; gap: 2px; }
-.picker-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 16px; align-items: center; gap: 10px; width: 100%;
+.picker-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%;
   padding: 7px 10px; border-radius: 10px; color: var(--mute); font-size: var(--t-m); transition: background-color var(--fast) var(--ease), color var(--fast) var(--ease); }
 .picker-row:hover, .picker-row:focus-visible { background: color-mix(in srgb, var(--acc) 12%, transparent); color: var(--text); outline: none; }
 .picker-row .git, .picker-current .git { color: var(--acc); }
