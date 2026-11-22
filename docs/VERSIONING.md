@@ -5,11 +5,10 @@ always carry the same number, and CI checks it (`python scripts/next-version.py 
 
 ## The number
 
-`MAJOR.MINOR.PATCH`, following [Semantic Versioning 2.0](https://semver.org). A release has no suffix: `0.2.0`, never
-`0.2.0-alpha.1`.
+`MAJOR.MINOR.PATCH`, following [Semantic Versioning 2.0](https://semver.org), and nothing else: `0.2.0`, never
+`0.2.0-alpha.1`, `0.2.0-rc.1` or a stage name. The app has shown it works; the number alone says how far it has come.
 
-- **Stage.** Every `0.x` release is **Alpha**: the window shows `0.2.0 Alpha` and the release title is
-  `Footnote 0.2.0 (Alpha)`. Anything can still change between two minor versions, and the changelog says how to move.
+- **Before 1.0** a MINOR release can still break things; the changelog says how to move.
 - **1.0** is the first **stable** release, the maintainer's call once all of these hold:
   1. the command line's JSON output and the MCP tools' names and input schemas are documented, covered by contract tests, and
      change only after a deprecation period;
@@ -49,8 +48,8 @@ Nothing else moves the number: not the size of a change, not the time since the 
   it is merged.
 - The tag is `v<version>` (`v0.2.0`). Its CHANGELOG.md section is the release notes; the in-app update shows its top-level
   bullets as "what's new".
-- `-rc.N` (`v0.2.0-rc.1`) is only for a test build before a release. GitHub marks it a pre-release, and the in-app update,
-  which reads GitHub's latest release, never offers it. Tags with any other suffix are not used any more.
+- No pre-release tags: a build to try before releasing is the CI artifact of its pull request, not a GitHub release. (A tag
+  with a suffix would also be marked a pre-release, which GitHub's latest release, and so the in-app update, skips.)
 - Versions before this rule keep their names: `0.1.0-alpha.1` to `0.1.0-alpha.3`. The first release under it is `0.2.0`.
 
 ## Cutting a release

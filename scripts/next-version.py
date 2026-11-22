@@ -2,11 +2,11 @@
 every manifest.
 
     python scripts/next-version.py              the next version, and the commits that decide it
-    python scripts/next-version.py --set X.Y.Z  write X.Y.Z into every manifest and lock file
+    python scripts/next-version.py --set X.Y.Z  write X.Y.Z into every manifest and lock file (no suffix)
     python scripts/next-version.py --check      every manifest carries the workspace version (CI)
 
 Breaking (`type!:` or a `BREAKING CHANGE:` line) bumps MINOR before 1.0 and MAJOR from 1.0; `feat` bumps MINOR; any other
-type bumps PATCH. A release version has no suffix; `-rc.N` is for test builds only.
+type bumps PATCH. A version is X.Y.Z and nothing else.
 """
 import json
 import re
@@ -68,10 +68,8 @@ def manifests() -> dict[str, str]:
 
 
 def set_version(new: str) -> None:
-    if not VERSION.match(new):
-        sys.exit(f"{new}: not a version")
-    if not re.fullmatch(r"\d+\.\d+\.\d+(-rc\.\d+)?", new):
-        print(f"note: {new} is not a release version (X.Y.Z, or X.Y.Z-rc.N for a test build); see docs/VERSIONING.md")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", new):
+        sys.exit(f"{new}: a version is X.Y.Z, with no suffix (docs/VERSIONING.md)")
 
     def edit(path: str, change) -> None:
         p = ROOT / path
