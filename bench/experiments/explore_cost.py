@@ -13,9 +13,11 @@ SHELL_READ = re.compile(r"\s*(cat|head|tail|less|sed -n|grep|rg|find|ls|tree|wc|
 
 
 def explore(path):
-    """{read_calls, read_tokens, turns_before_edit, edited}: turns are distinct model calls before the one that edits."""
+    """{read_calls, read_tokens, turns_before_edit, edited, fixed_overhead}: turns are distinct model calls before the one
+    that edits."""
     turns, seen, reads = 0, set(), set()
-    out = {"read_calls": 0, "read_tokens": 0, "turns_before_edit": 0, "edited": False}
+    # fixed_overhead (#242): the first call's whole prompt (system, tools, CLAUDE.md, injections, first message)
+    out = {"read_calls": 0, "read_tokens": 0, "turns_before_edit": 0, "edited": False, "fixed_overhead": 0}
     for line in open(path, encoding="utf-8", errors="replace"):
         try:
             v = json.loads(line)
@@ -27,6 +29,9 @@ def explore(path):
             if m.get("id") not in seen:
                 seen.add(m.get("id"))
                 turns += 1
+                u = m.get("usage") or {}
+                if turns == 1:
+                    out["fixed_overhead"] = sum(u.get(k, 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
             for b in content:
                 if b.get("type") != "tool_use":
                     continue

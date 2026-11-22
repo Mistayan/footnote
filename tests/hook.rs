@@ -1279,3 +1279,24 @@ fn binding_subagent_pack_and_pointer_packing_stay_compact_without_leaking_text()
         );
     }
 }
+
+/// Cache-stable injections (#242): the same memories and the same prompt give byte-identical context in two sessions, so
+/// the provider's prompt cache keeps hitting. No timestamps, no random order.
+#[test]
+fn two_runs_on_the_same_input_inject_byte_identical_context() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    seed(state, &[]);
+    let pack = |s: &str| hook(state, event_in(s, "SessionStart", ""));
+    assert!(pack("a").contains("relative % gaps"));
+    assert_eq!(pack("a2"), pack("b"));
+    let recall = |s: &str| {
+        hook(
+            state,
+            event_in(s, "UserPromptSubmit", "- benchmark tables gaps"),
+        )
+    };
+    let first = recall("c");
+    assert!(first.contains("relative % gaps"), "{first}");
+    assert_eq!(first, recall("d"));
+}
