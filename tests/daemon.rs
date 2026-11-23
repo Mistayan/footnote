@@ -40,6 +40,117 @@ fn fixture(t: &tempfile::TempDir) -> PathBuf {
     db
 }
 
+/// A daemon a test started, stopped when dropped: also when an assertion fails half-way.
+#[cfg(unix)]
+struct Started(std::process::Child);
+#[cfg(unix)]
+impl Drop for Started {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A daemon that a test did not start itself (the memory hook did), stopped by pid when dropped.
+#[cfg(unix)]
+struct StartedElsewhere(String);
+#[cfg(unix)]
+impl Drop for StartedElsewhere {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("kill")
+            .arg(self.0.trim())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
+/// A state folder holding a memory database with one memory, for the tests that start daemons.
+#[cfg(unix)]
+fn memory_state(t: &tempfile::TempDir) -> (PathBuf, PathBuf) {
+    let state = t.path().join("state");
+    fs::create_dir_all(&state).unwrap();
+    let db = state.join("memory.db");
+    let memory = serde_json::json!([{"text": "Always show relative % gaps in every benchmark table.", "kind": "preference",
+                                     "scope": "global", "observed_at": "2026-11-23"}]);
+    bin()
+        .env("FOOTNOTE_STATE_DIR", &state)
+        .arg("--db")
+        .arg(&db)
+        .arg("remember")
+        .write_stdin(memory.to_string())
+        .assert()
+        .success();
+    (state, db)
+}
+
+/// Resident recall on, through a model folder the hook itself never loads.
+#[cfg(unix)]
+fn resident_settings(t: &tempfile::TempDir, state: &std::path::Path, idle_seconds: u64) {
+    fs::write(
+        state.join("memory.json"),
+        serde_json::json!({"models": [t.path().join("model")], "resident": true, "idle_seconds": idle_seconds})
+            .to_string(),
+    )
+    .unwrap();
+}
+
+/// `serve --mcp --daemon` with an idle limit, as the memory hook starts one on demand, or without, as a service or the
+/// logon task starts one on purpose.
+#[cfg(unix)]
+fn start_daemon(state: &std::path::Path, db: &std::path::Path, idle: Option<u64>) -> Started {
+    use std::process::Stdio;
+    let mut c = std::process::Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+    c.env("FOOTNOTE_STATE_DIR", state)
+        .arg("--db")
+        .arg(db)
+        .args(["serve", "--mcp", "--daemon", "--no-audit"]);
+    if let Some(idle) = idle {
+        c.args(["--idle-seconds", &idle.to_string()]);
+    }
+    Started(
+        c.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    )
+}
+
+/// The pid in `daemon.pid`: the daemon that bound the socket last.
+#[cfg(unix)]
+fn daemon_pid(state: &std::path::Path) -> String {
+    fs::read_to_string(state.join("daemon.pid"))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// The daemon's socket path once a daemon made it.
+#[cfg(unix)]
+fn socket_of(state: &std::path::Path) -> Option<PathBuf> {
+    fs::read_dir(state)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|x| x == "sock"))
+}
+
+/// Wait up to `secs` for `done`, else fail with `what`.
+#[cfg(unix)]
+fn wait_for(secs: u64, what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "{what}");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// A daemon serves the socket: a connection to the path is accepted.
+#[cfg(unix)]
+fn serves(state: &std::path::Path) -> bool {
+    socket_of(state).is_some_and(|s| std::os::unix::net::UnixStream::connect(s).is_ok())
+}
+
 #[test]
 fn an_agent_gets_working_tools_and_automatic_security_state() {
     let t = tmp();
@@ -366,91 +477,62 @@ fn an_agent_keeps_its_tools_when_the_daemon_stops() {
     );
 }
 
-/// The memory hook starts a daemon only when none is there. A daemon that is there but slow to answer (still loading its
-/// models after a start, or busy) keeps its socket and the hook answers that prompt by keyword: a second daemon would take
-/// the socket over (on Unix a new listener replaces the socket file) and leave the first one holding its models with no new
-/// connection.
+/// One `UserPromptSubmit` event, as an agent sends it.
+#[cfg(unix)]
+fn prompt_event(session: &str) -> String {
+    serde_json::json!({"hook_event_name": "UserPromptSubmit", "session_id": session,
+                       "cwd": env!("CARGO_MANIFEST_DIR"), "prompt": "benchmark table gaps"})
+    .to_string()
+}
+
+/// The memory hook on one prompt; what it answers.
+#[cfg(unix)]
+fn run_hook(state: &std::path::Path, session: &str) -> String {
+    let out = bin()
+        .env("FOOTNOTE_STATE_DIR", state)
+        .arg("hook")
+        .write_stdin(prompt_event(session))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8(out.stdout).unwrap()
+}
+
+/// The process runs and is not a zombie. `ps` asks nothing of the daemon: a connection to its socket would count as a
+/// session and push its idle exit back.
+#[cfg(unix)]
+fn running(pid: &str) -> bool {
+    std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", pid])
+        .output()
+        .is_ok_and(|o| {
+            let stat = String::from_utf8_lossy(&o.stdout);
+            o.status.success() && !stat.trim().is_empty() && !stat.trim().starts_with('Z')
+        })
+}
+
+/// The memory hook starts a daemon only when none is there (#647). A daemon that is there but slow to answer (still
+/// loading its models after a start, or busy) keeps its socket and the hook answers that prompt by keyword: a second daemon
+/// would take the socket over (on Unix a new listener replaces the socket file) and leave the first one holding its models
+/// with no new connection.
 #[cfg(unix)]
 #[test]
 fn the_hook_starts_a_daemon_only_when_none_is_there() {
     use std::os::unix::net::{UnixListener, UnixStream};
-    use std::process::{Command as Std, Stdio};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
-    use std::time::{Duration, Instant};
-    /// A daemon this test started, stopped when dropped: also when an assertion fails half-way.
-    struct Started(std::process::Child);
-    impl Drop for Started {
-        fn drop(&mut self) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
     let t = tmp();
-    let state = t.path().join("state");
-    fs::create_dir_all(&state).unwrap();
-    let db = state.join("memory.db");
-    let memory = serde_json::json!([{"text": "Always show relative % gaps in every benchmark table.", "kind": "preference",
-                                     "scope": "global", "observed_at": "2026-11-23"}]);
-    bin()
-        .env("FOOTNOTE_STATE_DIR", &state)
-        .arg("--db")
-        .arg(&db)
-        .arg("remember")
-        .write_stdin(memory.to_string())
-        .assert()
-        .success();
-    // A model folder makes the hook recall through the resident daemon; the hook itself never loads it.
-    fs::write(
-        state.join("memory.json"),
-        serde_json::json!({"models": [t.path().join("model")], "resident": true, "idle_seconds": 2}).to_string(),
-    )
-    .unwrap();
-    let hook = |session: &str| {
-        let event = serde_json::json!({"hook_event_name": "UserPromptSubmit", "session_id": session,
-                                       "cwd": env!("CARGO_MANIFEST_DIR"), "prompt": "benchmark table gaps"});
-        let out = bin()
-            .env("FOOTNOTE_STATE_DIR", &state)
-            .arg("hook")
-            .write_stdin(event.to_string())
-            .output()
-            .unwrap();
-        assert!(out.status.success(), "{out:?}");
-        String::from_utf8(out.stdout).unwrap()
-    };
-    let pid = || fs::read_to_string(state.join("daemon.pid")).unwrap_or_default();
-    let start_daemon = || {
-        Started(
-            Std::new(assert_cmd::cargo::cargo_bin!("footnote"))
-                .env("FOOTNOTE_STATE_DIR", &state)
-                .arg("--db")
-                .arg(&db)
-                .args(["serve", "--mcp", "--daemon", "--no-audit"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap(),
-        )
-    };
+    let (state, db) = memory_state(&t);
+    resident_settings(&t, &state, 2);
 
-    // The daemon's socket path, from a daemon started and killed (the socket file stays behind).
-    let daemon = start_daemon();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let sock = loop {
-        let found = fs::read_dir(&state)
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .find(|p| p.extension().is_some_and(|x| x == "sock"));
-        if let Some(sock) = found {
-            break sock;
-        }
-        assert!(Instant::now() < deadline, "the daemon made no socket");
-        std::thread::sleep(Duration::from_millis(50));
-    };
+    // The daemon's socket path, from a daemon started and stopped (the socket file stays behind).
+    let daemon = start_daemon(&state, &db, None);
+    wait_for(10, "the daemon made no socket", || {
+        socket_of(&state).is_some()
+    });
+    let sock = socket_of(&state).unwrap();
     drop(daemon);
     let _ = fs::remove_file(&sock);
 
@@ -465,69 +547,221 @@ fn the_hook_starts_a_daemon_only_when_none_is_there() {
             held.push(stream);
         }
     });
-    let before = pid();
-    assert!(hook("slow").contains("relative % gaps"), "keyword answer");
-    std::thread::sleep(Duration::from_millis(1500)); // a daemon the hook started would have bound the socket by now
-    let seen = accepted.load(Ordering::SeqCst);
-    assert!(seen >= 1, "the hook did not try the daemon");
-    let _probe = UnixStream::connect(&sock).unwrap();
-    std::thread::sleep(Duration::from_millis(200));
+    let before = daemon_pid(&state);
+    assert!(
+        run_hook(&state, "slow").contains("relative % gaps"),
+        "keyword answer"
+    );
+    // Time for a daemon the hook started to bind the socket, or to find it served and leave: either connects here first.
+    std::thread::sleep(std::time::Duration::from_millis(1500));
     assert_eq!(
         accepted.load(Ordering::SeqCst),
-        seen + 1,
-        "another daemon took the socket over"
+        1,
+        "the hook connected more than once, or started a daemon"
     );
-    assert_eq!(pid(), before, "the hook started a second daemon");
+    let _probe = UnixStream::connect(&sock).unwrap();
+    wait_for(5, "another daemon took the socket over", || {
+        accepted.load(Ordering::SeqCst) == 2
+    });
+    assert_eq!(
+        daemon_pid(&state),
+        before,
+        "the hook started a second daemon"
+    );
 
     // A real daemon that answers in time but fails this call (the model folder does not exist): it keeps its socket too.
     fs::remove_file(&sock).unwrap();
-    let mut daemon = start_daemon();
+    let mut daemon = start_daemon(&state, &db, None);
     let serving = daemon.0.id().to_string();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !(pid() == serving && UnixStream::connect(&sock).is_ok()) {
-        assert!(Instant::now() < deadline, "the daemon did not start");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_for(10, "the daemon did not start", || {
+        daemon_pid(&state) == serving && serves(&state)
+    });
     assert!(
-        hook("failing").contains("relative % gaps"),
+        run_hook(&state, "failing").contains("relative % gaps"),
         "keyword answer"
     );
-    std::thread::sleep(Duration::from_millis(1500));
-    assert_eq!(pid(), serving, "the hook started a second daemon");
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    assert_eq!(
+        daemon_pid(&state),
+        serving,
+        "the hook started a second daemon"
+    );
     assert!(daemon.0.try_wait().unwrap().is_none(), "the daemon stopped");
     drop(daemon);
 
     // No daemon at all: the hook starts one for the next prompts, which leaves after its idle time.
     let _ = fs::remove_file(&sock);
-    let before = pid();
-    assert!(hook("none").contains("relative % gaps"), "keyword answer");
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let started = loop {
-        let now = pid();
-        if now != before && UnixStream::connect(&sock).is_ok() {
-            break now;
+    let before = daemon_pid(&state);
+    assert!(
+        run_hook(&state, "none").contains("relative % gaps"),
+        "keyword answer"
+    );
+    wait_for(10, "no daemon started when none was there", || {
+        daemon_pid(&state) != before && serves(&state)
+    });
+    let started = StartedElsewhere(daemon_pid(&state));
+    wait_for(
+        20,
+        "the daemon the hook started did not leave after its idle time",
+        || !running(&started.0),
+    );
+}
+
+/// A daemon started on demand (an idle limit, as the memory hook starts one) leaves at once when a daemon already serves
+/// the socket, instead of taking the socket over from it.
+#[cfg(unix)]
+#[test]
+fn a_daemon_started_on_demand_leaves_when_one_already_serves() {
+    let t = tmp();
+    let (state, db) = memory_state(&t);
+    let mut serving = start_daemon(&state, &db, None);
+    let pid = serving.0.id().to_string();
+    wait_for(10, "the first daemon did not start", || {
+        daemon_pid(&state) == pid && serves(&state)
+    });
+    let mut late = start_daemon(&state, &db, Some(30));
+    let mut left = None;
+    wait_for(
+        10,
+        "a daemon started on demand stayed beside the running one",
+        || {
+            left = late.0.try_wait().unwrap();
+            left.is_some()
+        },
+    );
+    assert!(left.unwrap().success(), "{left:?}");
+    assert_eq!(
+        daemon_pid(&state),
+        pid,
+        "the daemon started on demand bound the socket"
+    );
+    assert!(
+        serves(&state),
+        "the socket no longer reaches the running daemon"
+    );
+    assert!(
+        serving.0.try_wait().unwrap().is_none(),
+        "the running daemon stopped"
+    );
+}
+
+/// Daemons started on demand at the same moment take turns: one binds the socket, the others find it served and leave.
+#[cfg(unix)]
+#[test]
+fn daemons_started_on_demand_together_leave_one_serving() {
+    let t = tmp();
+    let (state, db) = memory_state(&t);
+    let mut daemons: Vec<Started> = (0..4)
+        .map(|_| start_daemon(&state, &db, Some(30)))
+        .collect();
+    wait_for(10, "more than one daemon kept running", || {
+        daemons
+            .iter_mut()
+            .map(|d| d.0.try_wait().unwrap().is_none())
+            .filter(|running| *running)
+            .count()
+            == 1
+    });
+    let mut survivor = None;
+    for d in &mut daemons {
+        match d.0.try_wait().unwrap() {
+            None => survivor = Some(d.0.id().to_string()),
+            Some(status) => assert!(status.success(), "{status:?}"),
         }
-        assert!(
-            Instant::now() < deadline,
-            "no daemon started when none was there"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    };
-    let alive = || {
-        Std::new("kill")
-            .args(["-0", started.trim()])
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-    };
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while alive() {
-        if Instant::now() > deadline {
-            let _ = Std::new("kill").arg(started.trim()).status();
-            panic!("the daemon the hook started did not leave after its idle time");
-        }
-        std::thread::sleep(Duration::from_millis(200));
     }
+    assert_eq!(
+        Some(daemon_pid(&state)),
+        survivor,
+        "the daemon left running is not the one serving"
+    );
+    assert!(serves(&state));
+}
+
+/// Hooks that fire together with no daemon running start one daemon between them, not one each.
+#[cfg(unix)]
+#[test]
+fn hooks_that_fire_together_start_one_daemon() {
+    use std::io::Write;
+    use std::process::{Command as Std, Stdio};
+    let t = tmp();
+    let (state, db) = memory_state(&t);
+    resident_settings(&t, &state, 30);
+    let mut hooks: Vec<_> = (0..4)
+        .map(|_| {
+            Std::new(assert_cmd::cargo::cargo_bin!("footnote"))
+                .env("FOOTNOTE_STATE_DIR", &state)
+                .arg("hook")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for (i, hook) in hooks.iter_mut().enumerate() {
+        let mut stdin = hook.stdin.take().unwrap();
+        stdin
+            .write_all(prompt_event(&format!("together-{i}")).as_bytes())
+            .unwrap();
+    }
+    for mut hook in hooks {
+        assert!(hook.wait().unwrap().success());
+    }
+    // The daemons the hooks started, by their command line (the hook passes this database path).
+    let pattern = format!("{} serve --mcp --daemon", db.display());
+    let daemons = || -> Vec<String> {
+        let out = Std::new("pgrep").args(["-f", &pattern]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect()
+    };
+    wait_for(10, "no daemon started", || serves(&state));
+    let _stop: Vec<StartedElsewhere> = daemons().into_iter().map(StartedElsewhere).collect();
+    wait_for(10, "more than one daemon kept running", || {
+        daemons().len() == 1
+    });
+    assert_eq!(
+        daemons(),
+        vec![daemon_pid(&state)],
+        "the daemon left running is not the one serving"
+    );
+}
+
+/// A daemon started on purpose (no idle limit: a service, the logon task) still takes the socket over from one started on
+/// demand, which then leaves once idle: a service that starts after a hook already started a daemon serves all the same.
+#[cfg(unix)]
+#[test]
+fn a_daemon_started_on_purpose_takes_the_socket_from_one_started_on_demand() {
+    let t = tmp();
+    let (state, db) = memory_state(&t);
+    let mut on_demand = start_daemon(&state, &db, Some(2));
+    let first = on_demand.0.id().to_string();
+    wait_for(10, "the daemon started on demand did not start", || {
+        daemon_pid(&state) == first && serves(&state)
+    });
+    let mut service = start_daemon(&state, &db, None);
+    let second = service.0.id().to_string();
+    wait_for(
+        10,
+        "the daemon started on purpose did not take the socket",
+        || daemon_pid(&state) == second,
+    );
+    assert!(serves(&state));
+    let mut left = None;
+    wait_for(
+        20,
+        "the daemon started on demand did not leave once idle",
+        || {
+            left = on_demand.0.try_wait().unwrap();
+            left.is_some()
+        },
+    );
+    assert!(
+        service.0.try_wait().unwrap().is_none(),
+        "the daemon started on purpose stopped"
+    );
+    assert!(serves(&state));
 }
 
 /// Each product's switch (goal 12): off removes its tools from the agent's list and refuses calls at once, on a server

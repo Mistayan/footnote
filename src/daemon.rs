@@ -64,8 +64,23 @@ fn name_of(endpoint: &str) -> Result<Name<'static>> {
 /// Run the daemon: accept many concurrent agents, one thread each.
 pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
     let endpoint = endpoint_of(&shared.db);
+    // Starts take turns (#647). On Unix a new listener replaces the socket file even while a live daemon listens on it
+    // (`try_overwrite` below). So, under a lock held until the socket is bound, a daemon started on demand (an idle limit:
+    // the memory hook's) leaves when a live daemon already accepts connections: hooks that fire together start one daemon
+    // between them, and none displaces a running one. A daemon started on purpose (no idle limit: a service, the logon
+    // task) still takes the socket over. Windows needs neither: a second daemon cannot create the pipe there.
+    #[cfg(not(windows))]
+    let turn = start_turn(&endpoint)?;
+    #[cfg(not(windows))]
+    if idle.is_some() && connect(&shared.db).is_ok() {
+        eprintln!(
+            "footnote daemon: another daemon already serves {}; leaving",
+            shared.db.display()
+        );
+        return Ok(());
+    }
     let options = ListenerOptions::new().name(name_of(&endpoint)?);
-    // A crashed daemon leaves its socket file behind; replace it (the client connects first, so a live daemon is found).
+    // A crashed daemon leaves its socket file behind; replace it.
     #[cfg(not(windows))]
     let options = options.try_overwrite(true);
     // Owner and SYSTEM only (#208): Windows' default pipe access also lets Everyone and Anonymous open it read-only.
@@ -83,6 +98,8 @@ pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
             shared.db.display()
         )
     })?;
+    #[cfg(not(windows))]
+    drop(turn); // bound: the next daemon to start finds this one
     // Record the pid so operators (and tests) can stop an owned daemon without
     // killing every other footnote process on the machine.
     if let Ok(state) = crate::state::state_dir() {
@@ -158,6 +175,22 @@ pub fn run(shared: Shared, idle: Option<Duration>) -> Result<()> {
         });
     }
     Ok(())
+}
+
+/// The start lock beside the socket, held while a daemon looks for a live one and binds (see `run`). Waiting on it is the
+/// queue: daemons that start together bind one after another. The lock goes with the process, also when it crashes.
+#[cfg(not(windows))]
+fn start_turn(endpoint: &str) -> Result<std::fs::File> {
+    let dir = crate::state::state_dir()?;
+    crate::state::ensure_private_dir(&dir)?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(format!("{endpoint}.lock")))
+        .context("open the daemon start lock")?;
+    file.lock().context("wait for the daemon start lock")?;
+    Ok(file)
 }
 
 /// Size and write time of the binary: a different build at the same path changes at least one of them.

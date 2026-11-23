@@ -1599,7 +1599,9 @@ fn recall(s: &Settings, db: &Path, project: &str, query: &str, limit: usize) -> 
             )?,
             // A daemon is there but late (still loading its models after a start, or busy) or it failed this call: answer
             // by keyword and leave it alone. Another daemon would take its socket over (on Unix the new listener replaces
-            // the socket file) and leave this one holding its models with no new connection.
+            // the socket file) and leave this one holding its models with no new connection. The cost: a daemon that
+            // fails every call (one whose token no longer matches `daemon.token`, say) keeps answering this way until it is
+            // restarted; a daemon started on demand beside it would find it serving and leave anyway (`daemon::run`).
             Ok(Some(Err(_))) | Err(_) => {}
         }
     }
