@@ -622,6 +622,9 @@ enum Action {
         /// Override automatic command-family detection (`cargo-test`, `cargo-build`, `tests`, `git`, `search`, `linter`, `generic`).
         #[arg(long, value_parser = ["cargo-test", "cargo-build", "tests", "git", "search", "linter", "generic"])]
         family: Option<String>,
+        /// Leave out the closing `[footnote: …]` line, for output piped into `tail` (the hook adds it there).
+        #[arg(long)]
+        no_footer: bool,
         /// Command and arguments to execute (after `--`).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
@@ -1930,6 +1933,7 @@ pub fn run() {
         stdin,
         rewrite,
         family,
+        no_footer,
         command,
     } = &cli.command
     {
@@ -1941,6 +1945,7 @@ pub fn run() {
             family_override: family
                 .as_deref()
                 .and_then(crate::run::CommandFamily::parse_override),
+            no_footer: *no_footer,
             command: command.clone(),
         });
         if code != 0 {

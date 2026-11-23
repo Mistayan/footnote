@@ -90,11 +90,7 @@ pub fn classify_command(cmd: &[String]) -> CommandFamily {
         .and_then(|s| s.to_str())
         .unwrap_or(first.as_str())
         .to_ascii_lowercase();
-    let sub = cmd
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with('-'))
-        .map(|s| s.to_ascii_lowercase());
+    let sub = subcommand_of(cmd).map(str::to_ascii_lowercase);
 
     match bin.as_str() {
         "cargo" => match sub.as_deref() {
@@ -143,6 +139,41 @@ pub fn classify_command(cmd: &[String]) -> CommandFamily {
     }
 }
 
+/// The subcommand of `cmd`: its first argument that is not an option, skipping the values of the global options that
+/// take one, so `git -C <dir> status` is `status` and `cargo +nightly test` is `test`.
+#[must_use]
+pub fn subcommand_of(cmd: &[String]) -> Option<&str> {
+    let bin = Path::new(cmd.first()?)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let takes_value: &[&str] = match bin.as_str() {
+        "git" => &[
+            "-C",
+            "-c",
+            "--git-dir",
+            "--work-tree",
+            "--namespace",
+            "--config-env",
+        ],
+        "cargo" => &["-C", "--config", "-Z"],
+        _ => &[],
+    };
+    let mut args = cmd.iter().skip(1);
+    while let Some(a) = args.next() {
+        if takes_value.contains(&a.as_str()) {
+            args.next();
+            continue;
+        }
+        if a.starts_with('-') || (bin == "cargo" && a.starts_with('+')) {
+            continue;
+        }
+        return Some(a);
+    }
+    None
+}
+
 /// Check whether `footnote` (or `footnote.exe` on Windows) is resolvable on the current `PATH`.
 #[must_use]
 pub fn footnote_on_path() -> bool {
@@ -189,19 +220,23 @@ pub fn rewrite_command_with_bin(cmd: &str, bin_cmd: &str) -> Option<String> {
     if cmd.trim().is_empty() {
         return None;
     }
-    let inserts: Vec<usize> = line_parts(cmd)?
+    let inserts: Vec<(usize, bool)> = line_parts(cmd)?
         .iter()
         .filter_map(|part| part_rewrite_point(cmd, part))
         .collect();
     if inserts.is_empty() {
         return None;
     }
-    let prefix = format!("{bin_cmd} run -- ");
-    let mut out = String::with_capacity(cmd.len() + inserts.len() * prefix.len());
+    let mut out = String::with_capacity(cmd.len() + inserts.len() * 40);
     let mut last = 0;
-    for at in inserts {
+    for (at, no_footer) in inserts {
         out.push_str(&cmd[last..at]);
-        out.push_str(&prefix);
+        out.push_str(bin_cmd);
+        out.push_str(if no_footer {
+            " run --no-footer -- "
+        } else {
+            " run -- "
+        });
         last = at;
     }
     out.push_str(&cmd[last..]);
@@ -357,17 +392,20 @@ fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
     Some(parts)
 }
 
-/// Where `footnote run -- ` goes in this part (the byte offset of the program that starts its pipeline), or `None`
-/// when the part runs nothing Footnote Lean filters, or its output goes somewhere a filter would change.
-fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<usize> {
+/// Where `footnote run -- ` goes in this part (the byte offset of the program that starts its pipeline) and whether
+/// its closing note must be left out, or `None` when the part runs nothing Footnote Lean filters, or its output goes
+/// somewhere a filter would change.
+fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<(usize, bool)> {
     if part.redirects {
         return None;
     }
     // Every later pipeline stage must only keep the first or last lines, which a filtered stream does not change.
+    // Before `tail` or `-Last` the note line is left out, or it would take one of the last lines the agent asked for.
     let mut bounds = part.pipes.clone();
     bounds.push(part.end);
-    if !bounds.windows(2).all(|w| trims_lines(&cmd[w[0] + 1..w[1]])) {
-        return None;
+    let mut no_footer = false;
+    for w in bounds.windows(2) {
+        no_footer |= trims_lines(&cmd[w[0] + 1..w[1]])?;
     }
     let producer = &cmd[part.start..bounds[0]];
     let words = word_spans(producer)?;
@@ -392,29 +430,33 @@ fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<usize> {
     if classify_command(&argv) == CommandFamily::Generic {
         return None;
     }
-    Some(part.start + words[first].0)
+    Some((part.start + words[first].0, no_footer))
 }
 
-/// `head` with at most a line count, or PowerShell `Select-Object -First N`.
-fn trims_lines(stage: &str) -> bool {
-    let Some(words) = split_simple_words(stage.trim()) else {
-        return false;
-    };
+/// Whether a pipeline stage only keeps the first or last lines: `head`/`tail` with at most a line count, or PowerShell
+/// `Select-Object -First/-Last N`. `Some(true)` when it keeps the last ones, `None` for any other stage.
+fn trims_lines(stage: &str) -> Option<bool> {
+    let words = split_simple_words(stage.trim())?;
     let count = |w: &str| !w.is_empty() && w.chars().all(|c| c.is_ascii_digit());
     match words[0].to_ascii_lowercase().as_str() {
-        // Not `tail` or `-Last`: `footnote run` ends with a one-line note on where the full output is, which would take
-        // one of the last lines the agent asked for.
-        "head" => words[1..].iter().all(|w| {
-            w == "-n"
-                || count(w)
-                || w.strip_prefix("-n").is_some_and(count)
-                || w.strip_prefix('-').is_some_and(count)
-                || w.strip_prefix("--lines=").is_some_and(count)
-        }),
-        "select-object" | "select" => {
-            words.len() == 3 && words[1].eq_ignore_ascii_case("-first") && count(&words[2])
+        name @ ("head" | "tail") => words[1..]
+            .iter()
+            .all(|w| {
+                w == "-n"
+                    || count(w)
+                    || w.strip_prefix("-n").is_some_and(count)
+                    || w.strip_prefix('-').is_some_and(count)
+                    || w.strip_prefix("--lines=").is_some_and(count)
+            })
+            .then_some(name == "tail"),
+        "select-object" | "select" if words.len() == 3 && count(&words[2]) => {
+            match words[1].to_ascii_lowercase().as_str() {
+                "-first" => Some(false),
+                "-last" => Some(true),
+                _ => None,
+            }
         }
-        _ => false,
+        _ => None,
     }
 }
 
@@ -516,6 +558,8 @@ pub struct RunOptions {
     pub stdin_mode: bool,
     pub rewrite: Option<String>,
     pub family_override: Option<CommandFamily>,
+    /// Leave out the closing `[footnote: …]` line: the hook sets it when the output is piped into `tail`.
+    pub no_footer: bool,
     pub command: Vec<String>,
 }
 
@@ -578,12 +622,7 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
 
     let raw_bytes = raw_output.len();
     let has_secrets = contains_secrets(&raw_output);
-    let family_sub = opts
-        .command
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with('-'))
-        .map(String::as_str);
+    let family_sub = subcommand_of(&opts.command);
 
     // Track whether uniform JSON-array compaction fired so `footnote gain` attributes it cleanly (#381).
     let (effective_family, filtered_body) =
@@ -682,7 +721,9 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
     };
 
     // Estimate footer length before deciding whether to persist a handle.
-    let provisional_footer = if has_secrets {
+    let provisional_footer = if opts.no_footer {
+        "\n".to_string()
+    } else if has_secrets {
         format!(
             "\n[footnote: {} {}B -> {}B | full output not stored: potential credentials detected]\n",
             effective_family.as_str(),
@@ -733,6 +774,7 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
             .unwrap_or(100),
     );
     let footer = match &handle_id {
+        _ if opts.no_footer => "\n".to_string(),
         Some(id) => format!(
             "\n[footnote: {} {}B -> {}B (-{}%) | full: footnote output {} [--grep pat]]\n",
             effective_family.as_str(),
@@ -1667,11 +1709,13 @@ fn filter_git_status(raw: &str) -> String {
             out.push(format!("R  {}", rest.trim()));
         } else if let Some(rest) = trimmed.strip_prefix("both modified:") {
             out.push(format!("UU {}", rest.trim()));
-        } else if section == "untracked" {
-            out.push(format!("?? {trimmed}"));
-        } else if !trimmed.starts_with("no changes added")
-            && !trimmed.starts_with("nothing added to commit")
+        } else if trimmed.starts_with("no changes added")
+            || trimmed.starts_with("nothing added to commit")
         {
+            // git's closing hint: dropped, and never read as an untracked file.
+        } else if section == "untracked" && line.starts_with(char::is_whitespace) {
+            out.push(format!("?? {trimmed}"));
+        } else {
             out.push(trimmed.to_string());
         }
     }
@@ -2562,8 +2606,26 @@ mod tests {
             ("cargo test &> log.txt", None),
             ("git log | wc -l", None),
             // `footnote run` ends with a note line, which `tail` and `-Last` would return instead of the program's.
-            ("cargo test 2>&1 | tail -5", None),
-            ("git log --oneline | Select-Object -Last 3", None),
+            (
+                "cargo test 2>&1 | tail -5",
+                Some("footnote run --no-footer -- cargo test 2>&1 | tail -5"),
+            ),
+            (
+                "git log --oneline | Select-Object -Last 3",
+                Some("footnote run --no-footer -- git log --oneline | Select-Object -Last 3"),
+            ),
+            ("cargo test 2>&1 | tail -n +5", None),
+            ("cargo test 2>&1 | tail -f", None),
+            // Global options before the subcommand.
+            (
+                "git -C D:/x status --short",
+                Some("footnote run -- git -C D:/x status --short"),
+            ),
+            (
+                "cargo +nightly test -p core",
+                Some("footnote run -- cargo +nightly test -p core"),
+            ),
+            ("git -C D:/x fetch -q origin", None),
             // `footnote run` prints the program's stderr, so hiding it must keep working.
             ("git diff --nope 2>/dev/null && echo ok", None),
             ("git status 2>$null", None),
@@ -2584,7 +2646,10 @@ mod tests {
             assert_eq!(rewrite_command(cmd).as_deref(), *want, "{cmd:?}");
             // Only insertions: removing every `footnote run -- ` gives back the original line.
             if let Some(w) = want {
-                assert_eq!(w.replace("footnote run -- ", ""), cmd.trim(), "{cmd:?}");
+                let back = w
+                    .replace("footnote run --no-footer -- ", "")
+                    .replace("footnote run -- ", "");
+                assert_eq!(back, cmd.trim(), "{cmd:?}");
             }
         }
     }
@@ -2637,6 +2702,29 @@ mod tests {
         assert!(out.contains("left: 1"));
         assert!(out.contains("right: 2"));
         assert!(out.contains("29 passed; 1 failed"));
+    }
+
+    #[test]
+    fn git_status_keeps_untracked_files_and_drops_the_closing_hint() {
+        let raw = "On branch main
+Changes not staged for commit:
+  (use \"git add <file>...\" to update what will be committed)
+	modified:   src/run.rs
+
+Untracked files:
+  (use \"git add <file>...\" to include in what will be committed)
+	notes.md
+
+no changes added to commit (use \"git add\" and/or \"git commit -a\")
+";
+        let out = filter_output(CommandFamily::Git, Some("status"), raw);
+        assert_eq!(
+            out,
+            "On branch main
+ M src/run.rs
+?? notes.md",
+            "{out}"
+        );
     }
 
     #[test]
