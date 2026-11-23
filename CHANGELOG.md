@@ -5,6 +5,11 @@ Notable changes to Footnote, newest first. Versions follow semantic versioning, 
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
+## 0.6.1 - 2026-11-23
+
+- Codex Lean hooks call Footnote by its full path. Install and status tell you when Codex needs you to trust its hooks.
+- `footnote install --remove-rtk --dry-run` reports the old mandatory Codex RTK rule. Run without `--dry-run` to back up the rules file and remove that entry.
+
 ## 0.6.0 - 2026-11-23
 
 Footnote Lean now rewrites about half of what agents run, up from a third, and fixes a Windows bug that broke the `npx`
