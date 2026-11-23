@@ -8,8 +8,9 @@ use std::{
 
 fn command(state: &Path) -> Command {
     let mut c = Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+    // A hang guard, not a speed check: at 15 s the first parallel batch of launches timed out on loaded Windows machines.
     c.env("FOOTNOTE_STATE_DIR", state)
-        .timeout(Duration::from_secs(15));
+        .timeout(Duration::from_secs(60));
     c
 }
 fn read(path: &Path) -> Value {
