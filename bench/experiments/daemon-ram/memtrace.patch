@@ -1,0 +1,100 @@
+diff --git a/crates/search/src/encoder.rs b/crates/search/src/encoder.rs
+index 7eaf2e7..0757cb5 100644
+--- a/crates/search/src/encoder.rs
++++ b/crates/search/src/encoder.rs
+@@ -14,6 +14,12 @@ use serde::Deserialize;
+ use std::{borrow::Cow, collections::HashMap, path::Path, sync::OnceLock};
+ use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
+ 
++pub fn diag(stage: &str) {
++    if std::env::var_os("FOOTNOTE_MEMTRACE").is_some() {
++        eprintln!("MEMTRACE {stage}");
++        std::thread::sleep(std::time::Duration::from_millis(1500));
++    }
++}
+ pub const DIM: usize = 384;
+ const MAX_TEXT_BYTES: usize = 64_000;
+ const MAX_TEXTS: usize = 10_000;
+@@ -110,7 +116,9 @@ impl Encoder {
+         {
+             bail!("unsupported embedding recipe");
+         }
++        diag("onnx.start");
+         let verified = verified(model, &m)?;
++        diag("onnx.bytes_read");
+         let mut tokenizer = Tokenizer::from_bytes(&verified["tokenizer.json"]).map_err(err)?;
+         tokenizer
+             .with_truncation(Some(TruncationParams {
+@@ -127,6 +135,7 @@ impl Encoder {
+             pad_token,
+             ..Default::default()
+         }));
++        diag("onnx.tokenizer");
+         let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
+         // ONNX Runtime allows one environment per process, shared by every model.
+         static ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
+@@ -149,11 +158,17 @@ impl Encoder {
+                 .commit_from_memory(&verified["model.onnx"])
+                 .map_err(err)
+         };
++        let query = session(2)?;
++        diag("onnx.query_session");
++        let bulk = session((cpus / 2).max(2))?;
++        diag("onnx.bulk_session");
++        drop(verified);
++        diag("onnx.bytes_dropped");
+         Ok(Self {
+             model_sha256: footnote_core::hash(&manifest_bytes),
+             backend: Backend::Onnx {
+-                query: session(2)?,
+-                bulk: session((cpus / 2).max(2))?,
++                query,
++                bulk,
+                 tokenizer: Box::new(tokenizer),
+             },
+             m,
+diff --git a/crates/search/src/llama.rs b/crates/search/src/llama.rs
+index 5e44cfb..77b4976 100644
+--- a/crates/search/src/llama.rs
++++ b/crates/search/src/llama.rs
+@@ -44,7 +44,9 @@ fn backend() -> Result<&'static LlamaBackend> {
+     static B: OnceLock<Result<LlamaBackend, String>> = OnceLock::new();
+     B.get_or_init(|| {
+         let mut b = LlamaBackend::init().map_err(|e| e.to_string())?;
+-        b.void_logs(); // llama.cpp would otherwise print to stderr on every call
++        if std::env::var_os("FOOTNOTE_MEMTRACE").is_none() {
++            b.void_logs();
++        }
+         Ok(b)
+     })
+     .as_ref()
+@@ -106,6 +108,7 @@ impl Gguf {
+             LlamaModel::load_from_file(b, path, &LlamaModelParams::default().with_n_gpu_layers(0))
+                 .map_err(|e| anyhow!("load GGUF model: {e}"))?,
+         );
++        crate::encoder::diag("gguf.model_loaded");
+         let ptr = NonNull::from(Box::leak(owned));
+         // SAFETY: the model lives until `Gguf::drop`, which frees the context first; on an error below it is freed here.
+         let model: &'static LlamaModel = unsafe { ptr.as_ref() };
+@@ -137,6 +140,7 @@ impl Gguf {
+                 bail!("llama.cpp context: {e}");
+             }
+         };
++        crate::encoder::diag("gguf.context");
+         Ok(Self {
+             ctx: ManuallyDrop::new(ctx),
+             model: ptr,
+diff --git a/crates/search/src/semantic.rs b/crates/search/src/semantic.rs
+index f9996db..44cb00b 100644
+--- a/crates/search/src/semantic.rs
++++ b/crates/search/src/semantic.rs
+@@ -110,6 +110,9 @@ fn encode_batch(model: &Path, expected: &str, texts: &[String], kind: &str) -> R
+         },
+         encoder.encode(texts, kind)
+     )?;
++    drop(encoder);
++    crate::encoder::diag(&format!("encoded.{kind}"));
++    let encoder = one.lock().map_err(|_| anyhow::anyhow!("encoder poisoned"))?;
+     Ok(Encoded {
+         vectors: e.vectors,
+         model_sha256: encoder.model_sha256.clone(),

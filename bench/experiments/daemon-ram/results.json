@@ -1,0 +1,919 @@
+{
+ "date": "2026-11-23",
+ "machine": "Intel Core Ultra 7 270K Plus, 24 logical CPUs, Windows 11; not idle (other agents)",
+ "builds": {
+  "base": "origin/main e0a13be",
+  "b2": "ae5f8e0 (spans, configured models, GGUF freed)",
+  "b3": "df18b20 (+ lazy ONNX sessions)"
+ },
+ "runs": {
+  "jina-base-1": {
+   "cpu_percent_before": 55,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.0,
+     "peak_ws_mb": 55.9
+    },
+    "lexical": {
+     "ws_mb": 17.1,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.9
+    },
+    "hook": {
+     "ws_mb": 200.6,
+     "private_mb": 147.4,
+     "peak_ws_mb": 239.5
+    },
+    "agents": {
+     "ws_mb": 631.3,
+     "private_mb": 572.9,
+     "peak_ws_mb": 785.9
+    },
+    "idle": {
+     "ws_mb": 221.9,
+     "private_mb": 91.6,
+     "peak_ws_mb": 785.9
+    },
+    "reload": {
+     "ws_mb": 400.1,
+     "private_mb": 232.2,
+     "peak_ws_mb": 785.9
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 27.7,
+     "p95": 34.6
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 15.2,
+     "p95": 16.9
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 0
+  },
+  "jina-base-2": {
+   "cpu_percent_before": 45,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.1,
+     "peak_ws_mb": 55.2
+    },
+    "lexical": {
+     "ws_mb": 17.0,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.2
+    },
+    "hook": {
+     "ws_mb": 200.9,
+     "private_mb": 147.7,
+     "peak_ws_mb": 239.6
+    },
+    "agents": {
+     "ws_mb": 633.1,
+     "private_mb": 574.8,
+     "peak_ws_mb": 786.3
+    },
+    "idle": {
+     "ws_mb": 222.1,
+     "private_mb": 91.2,
+     "peak_ws_mb": 786.3
+    },
+    "reload": {
+     "ws_mb": 399.9,
+     "private_mb": 230.8,
+     "peak_ws_mb": 786.3
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 29.7,
+     "p95": 54.1
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 16.2,
+     "p95": 18.8
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 0
+  },
+  "jina-b3-1": {
+   "cpu_percent_before": 34,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.0,
+     "peak_ws_mb": 55.8
+    },
+    "lexical": {
+     "ws_mb": 17.2,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.8
+    },
+    "hook": {
+     "ws_mb": 201.1,
+     "private_mb": 147.7,
+     "peak_ws_mb": 239.7
+    },
+    "agents": {
+     "ws_mb": 201.3,
+     "private_mb": 147.8,
+     "peak_ws_mb": 239.7
+    },
+    "idle": {
+     "ws_mb": 23.9,
+     "private_mb": 10.6,
+     "peak_ws_mb": 239.7
+    },
+    "reload": {
+     "ws_mb": 202.9,
+     "private_mb": 149.8,
+     "peak_ws_mb": 246.2
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 26.9,
+     "p95": 30.3
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 10.1,
+     "p95": 11.5
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 2
+  },
+  "jina-b3-2": {
+   "cpu_percent_before": 24,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.1,
+     "peak_ws_mb": 55.7
+    },
+    "lexical": {
+     "ws_mb": 17.1,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.7
+    },
+    "hook": {
+     "ws_mb": 200.8,
+     "private_mb": 147.5,
+     "peak_ws_mb": 239.6
+    },
+    "agents": {
+     "ws_mb": 201.1,
+     "private_mb": 147.6,
+     "peak_ws_mb": 239.6
+    },
+    "idle": {
+     "ws_mb": 23.7,
+     "private_mb": 10.6,
+     "peak_ws_mb": 239.6
+    },
+    "reload": {
+     "ws_mb": 203.1,
+     "private_mb": 149.9,
+     "peak_ws_mb": 245.9
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 28.0,
+     "p95": 31.5
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 10.0,
+     "p95": 11.8
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 2
+  },
+  "pair-base-1": {
+   "cpu_percent_before": 37,
+   "phases": {
+    "started": {
+     "ws_mb": 16.7,
+     "private_mb": 5.2,
+     "peak_ws_mb": 56.8
+    },
+    "lexical": {
+     "ws_mb": 17.2,
+     "private_mb": 5.5,
+     "peak_ws_mb": 56.8
+    },
+    "hook": {
+     "ws_mb": 449.6,
+     "private_mb": 432.3,
+     "peak_ws_mb": 603.9
+    },
+    "agents": {
+     "ws_mb": 624.8,
+     "private_mb": 566.1,
+     "peak_ws_mb": 671.9
+    },
+    "idle": {
+     "ws_mb": 221.1,
+     "private_mb": 85.6,
+     "peak_ws_mb": 671.9
+    },
+    "reload": {
+     "ws_mb": 633.1,
+     "private_mb": 504.0,
+     "peak_ws_mb": 787.0
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 27.4,
+     "p95": 33.3
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 16.2,
+     "p95": 18.2
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 0
+  },
+  "pair-base-2": {
+   "cpu_percent_before": 27,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.0,
+     "peak_ws_mb": 55.6
+    },
+    "lexical": {
+     "ws_mb": 17.1,
+     "private_mb": 5.4,
+     "peak_ws_mb": 55.6
+    },
+    "hook": {
+     "ws_mb": 449.5,
+     "private_mb": 432.4,
+     "peak_ws_mb": 603.9
+    },
+    "agents": {
+     "ws_mb": 624.3,
+     "private_mb": 566.1,
+     "peak_ws_mb": 671.8
+    },
+    "idle": {
+     "ws_mb": 224.6,
+     "private_mb": 99.7,
+     "peak_ws_mb": 671.8
+    },
+    "reload": {
+     "ws_mb": 634.4,
+     "private_mb": 505.1,
+     "peak_ws_mb": 786.9
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 27.2,
+     "p95": 50.2
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 15.7,
+     "p95": 18.1
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 0
+  },
+  "pair-base-3": {
+   "cpu_percent_before": 30,
+   "phases": {
+    "started": {
+     "ws_mb": 16.9,
+     "private_mb": 5.5,
+     "peak_ws_mb": 55.3
+    },
+    "lexical": {
+     "ws_mb": 17.2,
+     "private_mb": 5.5,
+     "peak_ws_mb": 55.3
+    },
+    "hook": {
+     "ws_mb": 447.8,
+     "private_mb": 430.5,
+     "peak_ws_mb": 604.0
+    },
+    "agents": {
+     "ws_mb": 623.9,
+     "private_mb": 565.7,
+     "peak_ws_mb": 670.1
+    },
+    "idle": {
+     "ws_mb": 221.4,
+     "private_mb": 86.7,
+     "peak_ws_mb": 670.1
+    },
+    "reload": {
+     "ws_mb": 637.2,
+     "private_mb": 507.9,
+     "peak_ws_mb": 786.8
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 48.6,
+     "p95": 179.5
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 17.7,
+     "p95": 21.5
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 0
+  },
+  "pair-base-4": {
+   "cpu_percent_before": 60,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.2,
+     "peak_ws_mb": 55.6
+    },
+    "lexical": {
+     "ws_mb": 17.1,
+     "private_mb": 5.5,
+     "peak_ws_mb": 55.6
+    },
+    "hook": {
+     "ws_mb": 452.7,
+     "private_mb": 435.4,
+     "peak_ws_mb": 603.3
+    },
+    "agents": {
+     "ws_mb": 624.5,
+     "private_mb": 566.0,
+     "peak_ws_mb": 675.0
+    },
+    "idle": {
+     "ws_mb": 222.2,
+     "private_mb": 91.7,
+     "peak_ws_mb": 675.0
+    },
+    "reload": {
+     "ws_mb": 634.0,
+     "private_mb": 505.2,
+     "peak_ws_mb": 786.6
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 27.1,
+     "p95": 28.4
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 16.2,
+     "p95": 18.0
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 0
+  },
+  "pair-b3-1": {
+   "cpu_percent_before": 97,
+   "phases": {
+    "started": {
+     "ws_mb": 16.8,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.8
+    },
+    "lexical": {
+     "ws_mb": 17.2,
+     "private_mb": 5.4,
+     "peak_ws_mb": 55.8
+    },
+    "hook": {
+     "ws_mb": 287.6,
+     "private_mb": 270.2,
+     "peak_ws_mb": 442.0
+    },
+    "agents": {
+     "ws_mb": 288.1,
+     "private_mb": 270.3,
+     "peak_ws_mb": 442.0
+    },
+    "idle": {
+     "ws_mb": 44.3,
+     "private_mb": 24.8,
+     "peak_ws_mb": 442.0
+    },
+    "reload": {
+     "ws_mb": 297.4,
+     "private_mb": 285.4,
+     "peak_ws_mb": 450.5
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 47.0,
+     "p95": 82.5
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 11.9,
+     "p95": 13.6
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 4
+  },
+  "pair-b3-2": {
+   "cpu_percent_before": 56,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.2,
+     "peak_ws_mb": 55.8
+    },
+    "lexical": {
+     "ws_mb": 17.2,
+     "private_mb": 5.4,
+     "peak_ws_mb": 55.8
+    },
+    "hook": {
+     "ws_mb": 286.7,
+     "private_mb": 269.1,
+     "peak_ws_mb": 441.7
+    },
+    "agents": {
+     "ws_mb": 287.1,
+     "private_mb": 269.2,
+     "peak_ws_mb": 441.7
+    },
+    "idle": {
+     "ws_mb": 44.8,
+     "private_mb": 27.4,
+     "peak_ws_mb": 441.7
+    },
+    "reload": {
+     "ws_mb": 292.5,
+     "private_mb": 278.8,
+     "peak_ws_mb": 449.6
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 243.1,
+     "p95": 1078.3
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 11.7,
+     "p95": 13.3
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 4
+  },
+  "pair-b3-3": {
+   "cpu_percent_before": 30,
+   "phases": {
+    "started": {
+     "ws_mb": 16.6,
+     "private_mb": 5.4,
+     "peak_ws_mb": 55.3
+    },
+    "lexical": {
+     "ws_mb": 17.2,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.3
+    },
+    "hook": {
+     "ws_mb": 289.3,
+     "private_mb": 271.6,
+     "peak_ws_mb": 441.8
+    },
+    "agents": {
+     "ws_mb": 289.6,
+     "private_mb": 271.7,
+     "peak_ws_mb": 441.8
+    },
+    "idle": {
+     "ws_mb": 44.8,
+     "private_mb": 27.0,
+     "peak_ws_mb": 441.8
+    },
+    "reload": {
+     "ws_mb": 301.5,
+     "private_mb": 289.8,
+     "peak_ws_mb": 450.7
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 157.3,
+     "p95": 1630.7
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 12.3,
+     "p95": 14.8
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 4
+  },
+  "pair-b3-4": {
+   "cpu_percent_before": 99,
+   "phases": {
+    "started": {
+     "ws_mb": 16.9,
+     "private_mb": 5.3,
+     "peak_ws_mb": 55.5
+    },
+    "lexical": {
+     "ws_mb": 17.4,
+     "private_mb": 5.6,
+     "peak_ws_mb": 55.5
+    },
+    "hook": {
+     "ws_mb": 287.7,
+     "private_mb": 270.5,
+     "peak_ws_mb": 442.1
+    },
+    "agents": {
+     "ws_mb": 287.9,
+     "private_mb": 270.6,
+     "peak_ws_mb": 442.1
+    },
+    "idle": {
+     "ws_mb": 45.0,
+     "private_mb": 24.7,
+     "peak_ws_mb": 442.1
+    },
+    "reload": {
+     "ws_mb": 296.5,
+     "private_mb": 281.1,
+     "peak_ws_mb": 450.3
+    }
+   },
+   "latency_ms": {
+    "hook_recall_process": {
+     "calls": 40,
+     "p50": 40.2,
+     "p95": 124.5
+    },
+    "agent_recall_in_session": {
+     "calls": 40,
+     "p50": 11.9,
+     "p95": 13.5
+    }
+   },
+   "reload_same_rankings": true,
+   "encoder_loads": 4
+  }
+ },
+ "ranking_identity": {
+  "jina-1": {
+   "hook_rankings_identical": true,
+   "agent_rankings_identical": false
+  },
+  "jina-2": {
+   "hook_rankings_identical": true,
+   "agent_rankings_identical": false
+  },
+  "pair-1": {
+   "hook_rankings_identical": true,
+   "agent_rankings_identical": false
+  },
+  "pair-2": {
+   "hook_rankings_identical": true,
+   "agent_rankings_identical": false
+  }
+ },
+ "vectors_base_vs_b3": {
+  "bekko-a8m/query": {
+   "texts": 20,
+   "identical": true,
+   "max_abs_diff": 0.0
+  },
+  "bekko-a8m/passage": {
+   "texts": 20,
+   "identical": true,
+   "max_abs_diff": 0.0
+  },
+  "gte-small/query": {
+   "texts": 20,
+   "identical": true,
+   "max_abs_diff": 0.0
+  },
+  "gte-small/passage": {
+   "texts": 20,
+   "identical": true,
+   "max_abs_diff": 0.0
+  },
+  "jina-v5-nano/query": {
+   "texts": 20,
+   "identical": true,
+   "max_abs_diff": 0.0
+  },
+  "jina-v5-nano/passage": {
+   "texts": 20,
+   "identical": true,
+   "max_abs_diff": 0.0
+  }
+ },
+ "components_b2_memtrace": {
+  "bekko-a8m": {
+   "query": {
+    "steps": [
+     {
+      "step": "onnx.start",
+      "ws_mb": 12.0,
+      "private_mb": 4.0,
+      "peak_ws_mb": 12.0
+     },
+     {
+      "step": "onnx.bytes_read",
+      "ws_mb": 168.9,
+      "private_mb": 161.1,
+      "peak_ws_mb": 168.9
+     },
+     {
+      "step": "onnx.tokenizer",
+      "ws_mb": 232.8,
+      "private_mb": 227.0,
+      "peak_ws_mb": 509.5
+     },
+     {
+      "step": "onnx.query_session",
+      "ws_mb": 381.9,
+      "private_mb": 368.0,
+      "peak_ws_mb": 509.5
+     },
+     {
+      "step": "onnx.bulk_session",
+      "ws_mb": 509.1,
+      "private_mb": 496.8,
+      "peak_ws_mb": 599.5
+     },
+     {
+      "step": "onnx.bytes_dropped",
+      "ws_mb": 352.3,
+      "private_mb": 339.6,
+      "peak_ws_mb": 599.5
+     },
+     {
+      "step": "encoded.query",
+      "ws_mb": 357.1,
+      "private_mb": 343.9,
+      "peak_ws_mb": 599.5
+     }
+    ],
+    "llama_log": []
+   },
+   "passage": {
+    "steps": [
+     {
+      "step": "onnx.start",
+      "ws_mb": 11.3,
+      "private_mb": 4.0,
+      "peak_ws_mb": 11.3
+     },
+     {
+      "step": "onnx.bytes_read",
+      "ws_mb": 168.2,
+      "private_mb": 161.1,
+      "peak_ws_mb": 168.2
+     },
+     {
+      "step": "onnx.tokenizer",
+      "ws_mb": 232.0,
+      "private_mb": 227.2,
+      "peak_ws_mb": 509.5
+     },
+     {
+      "step": "onnx.query_session",
+      "ws_mb": 381.1,
+      "private_mb": 366.4,
+      "peak_ws_mb": 509.5
+     },
+     {
+      "step": "onnx.bulk_session",
+      "ws_mb": 508.3,
+      "private_mb": 494.2,
+      "peak_ws_mb": 598.6
+     },
+     {
+      "step": "onnx.bytes_dropped",
+      "ws_mb": 351.4,
+      "private_mb": 337.1,
+      "peak_ws_mb": 598.6
+     },
+     {
+      "step": "encoded.passage",
+      "ws_mb": 356.4,
+      "private_mb": 342.0,
+      "peak_ws_mb": 598.6
+     }
+    ],
+    "llama_log": []
+   },
+   "files_mb": {
+    "manifest.json": 0.0,
+    "model.onnx": 124.1,
+    "tokenizer.json": 32.8
+   }
+  },
+  "gte-small": {
+   "query": {
+    "steps": [
+     {
+      "step": "onnx.start",
+      "ws_mb": 11.3,
+      "private_mb": 4.0,
+      "peak_ws_mb": 11.3
+     },
+     {
+      "step": "onnx.bytes_read",
+      "ws_mb": 44.5,
+      "private_mb": 37.2,
+      "peak_ws_mb": 44.5
+     },
+     {
+      "step": "onnx.tokenizer",
+      "ws_mb": 50.6,
+      "private_mb": 43.1,
+      "peak_ws_mb": 51.6
+     },
+     {
+      "step": "onnx.query_session",
+      "ws_mb": 116.4,
+      "private_mb": 100.1,
+      "peak_ws_mb": 120.1
+     },
+     {
+      "step": "onnx.bulk_session",
+      "ws_mb": 154.5,
+      "private_mb": 138.5,
+      "peak_ws_mb": 160.1
+     },
+     {
+      "step": "onnx.bytes_dropped",
+      "ws_mb": 122.1,
+      "private_mb": 106.0,
+      "peak_ws_mb": 160.1
+     },
+     {
+      "step": "encoded.query",
+      "ws_mb": 125.0,
+      "private_mb": 110.3,
+      "peak_ws_mb": 160.1
+     }
+    ],
+    "llama_log": []
+   },
+   "passage": {
+    "steps": [
+     {
+      "step": "onnx.start",
+      "ws_mb": 11.3,
+      "private_mb": 3.9,
+      "peak_ws_mb": 11.3
+     },
+     {
+      "step": "onnx.bytes_read",
+      "ws_mb": 44.5,
+      "private_mb": 37.1,
+      "peak_ws_mb": 44.5
+     },
+     {
+      "step": "onnx.tokenizer",
+      "ws_mb": 50.6,
+      "private_mb": 43.0,
+      "peak_ws_mb": 51.6
+     },
+     {
+      "step": "onnx.query_session",
+      "ws_mb": 116.0,
+      "private_mb": 99.5,
+      "peak_ws_mb": 119.8
+     },
+     {
+      "step": "onnx.bulk_session",
+      "ws_mb": 155.4,
+      "private_mb": 139.2,
+      "peak_ws_mb": 160.8
+     },
+     {
+      "step": "onnx.bytes_dropped",
+      "ws_mb": 123.0,
+      "private_mb": 106.7,
+      "peak_ws_mb": 160.8
+     },
+     {
+      "step": "encoded.passage",
+      "ws_mb": 126.5,
+      "private_mb": 111.5,
+      "peak_ws_mb": 160.8
+     }
+    ],
+    "llama_log": []
+   },
+   "files_mb": {
+    "manifest.json": 0.0,
+    "model.onnx": 32.4,
+    "tokenizer.json": 0.7
+   }
+  },
+  "jina-v5-nano": {
+   "query": {
+    "steps": [
+     {
+      "step": "gguf.model_loaded",
+      "ws_mb": 72.1,
+      "private_mb": 64.9,
+      "peak_ws_mb": 233.4
+     },
+     {
+      "step": "gguf.context",
+      "ws_mb": 74.0,
+      "private_mb": 139.6,
+      "peak_ws_mb": 233.4
+     },
+     {
+      "step": "encoded.query",
+      "ws_mb": 194.8,
+      "private_mb": 145.5,
+      "peak_ws_mb": 233.4
+     }
+    ],
+    "llama_log": [
+     "llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.",
+     "print_info: file size   = 214.63 MiB (8.50 BPW)",
+     "done_getting_tensors: tensor 'token_embd.weight' (q8_0) (and 109 others) cannot be used with preferred buffer type CPU_REPACK, using CPU instead",
+     "load_tensors:   CPU_Mapped model buffer size =   214.63 MiB",
+     "llama_context:        CPU  output buffer size =     0.49 MiB",
+     "sched_reserve:        CPU compute buffer size =    53.02 MiB"
+    ]
+   },
+   "passage": {
+    "steps": [
+     {
+      "step": "gguf.model_loaded",
+      "ws_mb": 72.1,
+      "private_mb": 65.0,
+      "peak_ws_mb": 233.4
+     },
+     {
+      "step": "gguf.context",
+      "ws_mb": 74.0,
+      "private_mb": 139.5,
+      "peak_ws_mb": 233.4
+     },
+     {
+      "step": "encoded.passage",
+      "ws_mb": 195.2,
+      "private_mb": 145.5,
+      "peak_ws_mb": 233.4
+     }
+    ],
+    "llama_log": [
+     "llama_model_loader: Dumping metadata keys/values. Note: KV overrides do not apply in this output.",
+     "print_info: file size   = 214.63 MiB (8.50 BPW)",
+     "done_getting_tensors: tensor 'token_embd.weight' (q8_0) (and 109 others) cannot be used with preferred buffer type CPU_REPACK, using CPU instead",
+     "load_tensors:   CPU_Mapped model buffer size =   214.63 MiB",
+     "llama_context:        CPU  output buffer size =     0.49 MiB",
+     "sched_reserve:        CPU compute buffer size =    53.02 MiB"
+    ]
+   },
+   "files_mb": {
+    "manifest.json": 0.0,
+    "model.gguf": 222.1
+   }
+  }
+ }
+}

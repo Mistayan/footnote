@@ -184,13 +184,32 @@ pub fn session_loop<R: BufRead, W: Write>(
             }
         };
         IN_FLIGHT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // One span per request (#517): `daemon.<method>` on the shared daemon, `serve.<method>` in-process. A tool call also
+        // writes `mcp.<tool>`; this one adds the transport and the JSON-RPC envelope around it.
+        let span = crate::metrics::Span::begin(|| {
+            let method = request["method"].as_str().unwrap_or("invalid");
+            let method = if method.starts_with("notifications/") {
+                "notification"
+            } else {
+                method
+            };
+            format!("{}.{method}", if authenticate { "daemon" } else { "serve" })
+        });
         let response = handle(shared, &request, &session);
+        if let Some(span) = span {
+            span.finish(response.as_ref().is_none_or(response_ok));
+        }
         let sent = response.map_or(Ok(()), |r| emit(out, &r));
         IN_FLIGHT.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
         LAST_REQUEST.store(unix_secs(), std::sync::atomic::Ordering::SeqCst);
         sent?;
     }
     Ok(())
+}
+
+/// A JSON-RPC response that is neither a protocol error nor a tool error.
+fn response_ok(response: &Value) -> bool {
+    response.get("error").is_none() && response["result"]["isError"] != true
 }
 
 /// Longest handshake line accepted before authentication (they are ~150 bytes).

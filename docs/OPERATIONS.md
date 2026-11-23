@@ -38,11 +38,17 @@ The ordinary binary ingestion path snapshots one source into scratch, removes th
 
 The project is licensed Apache-2.0 and the shipped extraction path is permissive (PDFium via `pypdfium2`, RapidOCR). Dependency versions are pinned in `Cargo.lock` and `requirements-extract.lock`. Keep the binary and its source/helper repository together or rebuild after relocation.
 
-## Metrics (opt-in builds only)
+## Metrics (opt-in)
 
-A build with `cargo build --release --features metrics` records every important step to `<state dir>/metrics.jsonl` (`%LOCALAPPDATA%/footnote` on Windows): its duration, whether it succeeded, and a start mark for long steps. A normal build compiles all of this out: no clock read, no allocation, no write. Releases are built without the feature.
+With the option `memory.metrics` on (`footnote config set memory.metrics true`, or `FOOTNOTE_METRICS=1` for one process),
+every important step is recorded to `<state dir>/metrics.jsonl` (`%LOCALAPPDATA%/footnote` on Windows): its duration, whether it
+succeeded (`"ok":false` when it returned an error or panicked), and a start mark for long steps. Off (the default), a step
+costs one cached flag read: no clock read, no allocation, no write. A running daemon re-reads the option at most once a minute.
+A build with `--features metrics` records always. Until #517 the steps outside the hook were compiled only into such builds, so
+release builds wrote nothing but the hook's own timings.
 
-- `footnote metrics [--top 30]`: per step, count, failures, p50, p95, max and total time, slowest first; then steps that started and never recorded an end in the same process (killed, hung, crashed, or still running, such as an open `serve`).
-- Steps: `cli.<command>`, `mcp.<tool>`, `index.extract`, `lexical.sync`, `search.keywords`, `search.query_vector`, `search.vectors`, `helper.start`, `helper.query`, `helper.passages`, `model.identity`.
-- The memory hook writes `hook.extract`, `hook.llm.<route>` and `hook.recall` to the same file when its settings contain `"metrics": true`.
+- `footnote metrics [--top 30]`: per step, count, failures, p50, p95, max and total time, slowest first; then steps that started and never recorded an end in the same process (killed, hung, crashed, or still running, such as an open `serve`); then `failing`, below.
+- `footnote status` lists under `failing` every step that failed at least 3 times in the last 24 hours, with a one-line summary, so a silent breakage (#515: every embed failed for a day) shows up. Only the last 2 MB of the file are read.
+- Steps: `cli.<command>`, `mcp.<tool>`, `daemon.<method>` (each request to the shared daemon, e.g. `daemon.tools/call`), `serve.<method>` (the same in-process), `encoder.load`, `encoder.query`, `encoder.passages`, `model.identity`, `index.extract`, `lexical.sync`, `search.keywords`, `search.query_vector`, `search.vectors`.
+- The memory hook writes `hook.recall` and `hook.embed` to the same file under the same option.
 - Processes started by `cargo test` without their own `FOOTNOTE_STATE_DIR` never write to the real file.

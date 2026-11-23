@@ -10,17 +10,34 @@ use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::LlamaModel;
 use llama_cpp_2::model::params::LlamaModelParams;
-use std::{num::NonZeroU32, path::Path, sync::OnceLock};
+use std::{mem::ManuallyDrop, num::NonZeroU32, path::Path, ptr::NonNull, sync::OnceLock};
 
 const CTX: u32 = 1024;
 
+/// A loaded GGUF model and its context. It owns both: the context borrows the model, so the model is kept behind a pointer and
+/// freed after the context in `Drop`. A resident daemon drops encoders after `idle_seconds` unused (#515); the model was leaked
+/// before, which kept its weights (about 200 MB for Jina v5 nano) resident for the life of the process (#517).
 pub struct Gguf {
-    // shortcut: the model is leaked so the context can borrow it for 'static; an encoder lives for the process, so this leaks only
-    // when a model directory is replaced while the process runs. Upgrade to an owning wrapper if models are swapped often.
-    model: &'static LlamaModel,
-    ctx: LlamaContext<'static>,
+    /// Borrows `*model`; dropped first.
+    ctx: ManuallyDrop<LlamaContext<'static>>,
+    /// From `Box::into_raw` in `load`, freed once in `Drop`.
+    model: NonNull<LlamaModel>,
     max_len: usize,
     pub dimension: usize,
+}
+
+// SAFETY: `LlamaModel` is Send and Sync and `LlamaContext` is Send (llama-cpp-2); the model pointer is owned by this value alone.
+unsafe impl Send for Gguf {}
+
+impl Drop for Gguf {
+    fn drop(&mut self) {
+        // SAFETY: the context is the model's only borrower and goes first; the pointer came from `Box::into_raw` and is freed
+        // only here.
+        unsafe {
+            ManuallyDrop::drop(&mut self.ctx);
+            drop(Box::from_raw(self.model.as_ptr()));
+        }
+    }
 }
 
 fn backend() -> Result<&'static LlamaBackend> {
@@ -85,10 +102,17 @@ impl Gguf {
             bail!("unsupported max_length for a GGUF model");
         }
         let b = backend()?;
-        let model: &'static LlamaModel = Box::leak(Box::new(
+        let owned = Box::new(
             LlamaModel::load_from_file(b, path, &LlamaModelParams::default().with_n_gpu_layers(0))
                 .map_err(|e| anyhow!("load GGUF model: {e}"))?,
-        ));
+        );
+        let ptr = NonNull::from(Box::leak(owned));
+        // SAFETY: the model lives until `Gguf::drop`, which frees the context first; on an error below it is freed here.
+        let model: &'static LlamaModel = unsafe { ptr.as_ref() };
+        let free = || {
+            // SAFETY: nothing borrows the model yet (no context was made); the pointer came from `Box::leak` above.
+            drop(unsafe { Box::from_raw(ptr.as_ptr()) });
+        };
         let threads =
             (std::thread::available_parallelism().map_or(4, |n| n.get()) / 2).max(1) as i32;
         let params = LlamaContextParams::default()
@@ -99,21 +123,36 @@ impl Gguf {
             .with_n_threads_batch(threads)
             .with_embeddings(true)
             .with_pooling_type(pooling);
-        let ctx = model
-            .new_context(b, params)
-            .map_err(|e| anyhow!("llama.cpp context: {e}"))?;
-        let dimension = usize::try_from(model.n_embd_out()).context("embedding width")?;
+        let dimension = match usize::try_from(model.n_embd_out()) {
+            Ok(d) => d,
+            Err(e) => {
+                free();
+                return Err(e).context("embedding width");
+            }
+        };
+        let ctx = match model.new_context(b, params) {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                free();
+                bail!("llama.cpp context: {e}");
+            }
+        };
         Ok(Self {
-            model,
-            ctx,
+            ctx: ManuallyDrop::new(ctx),
+            model: ptr,
             max_len,
             dimension,
         })
     }
 
+    fn model(&self) -> &LlamaModel {
+        // SAFETY: owned by `self` and freed only in `drop`.
+        unsafe { self.model.as_ref() }
+    }
+
     /// One unit vector per text (`text` already carries its prefix) and whether it was cut at `max_length`.
     pub fn embed(&mut self, text: &str) -> Result<(Vec<f64>, bool)> {
-        let vocab = self.model.vocab();
+        let vocab = self.model().vocab();
         let mut cut = false;
         let mut text = text.as_bytes().to_vec();
         if text.len() >= self.max_len - 4 {

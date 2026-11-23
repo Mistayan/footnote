@@ -168,6 +168,7 @@ Do not quote: L9, L10, L11, M3, M5, C5, T3, T6, T7 (ledger grade N) and anything
 | INF-11 | 2026-11-18 | Security audit, 18 Nov | **Verdict:** no critical, high or medium issue open. Two medium issues found in the first pass are fixed. | CURRENT | [AUDIT-2026-11-18.md:6](../docs/security/AUDIT-2026-11-18.md#L6) |
 | INF-15 | 2026-11-20 | Raw timestamps for DOC-13 | # pass 1, 8 libraries (run dir stackrun-20261120-0810) | CURRENT | [STACK-INGEST-TIMING-2026-11-20.log.txt:1](archive/STACK-INGEST-TIMING-2026-11-20.log.txt#L1) |
 | INF-16 | 2026-11-20 | Raw timestamps for DOC-14 | 10:33:01 flow: cpu% before 2,2490529190745 1,48461811544321 5,39074080792665 | CURRENT | [STACK-INGEST-TIMING-2026-11-20-B.log.txt:1](archive/STACK-INGEST-TIMING-2026-11-20-B.log.txt#L1) |
+| INF-17 | 2026-11-23 | What holds the memory daemon's working set, and can it shrink without slower or different recall? (#517) | Measured 23 November 2026: the daemon's idle working set falls from 222 MB to 24 MB with the configured jina-v5-nano, and from 223 MB to 45 MB with the default pair; recall rankings are unchanged. | CURRENT | [DAEMON-RAM-2026-11-23.md:3](experiments/DAEMON-RAM-2026-11-23.md#L3) |
 
 ## Sealed docs sets: single-use
 

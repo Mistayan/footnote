@@ -1459,3 +1459,69 @@ fn path_map_translates_windows_host_paths_for_hook_and_mcp_code() {
         replies[1]
     );
 }
+
+/// The agents' recall on the memory database loads only the models Memory is configured with (#517), not every installed
+/// model that once gave it vectors: in the shared daemon each loaded model stays in RAM. The installed model here cannot
+/// load (unknown runtime), so trying it shows up as a lexical fallback note.
+#[cfg(feature = "memory")]
+#[test]
+fn memory_recall_loads_only_configured_models() {
+    use sha2::Digest;
+    let t = tmp();
+    let state = t.path().join("state");
+    let model = state.join("models/old-model");
+    fs::create_dir_all(&model).unwrap();
+    let manifest = json!({"runtime": "unsupported-test-runtime", "files": {}, "pooling": "attention-mask-mean-l2",
+        "query_prefix": "", "passage_prefix": "", "max_length": 512, "dimension": 384})
+    .to_string();
+    fs::write(model.join("manifest.json"), &manifest).unwrap();
+    for file in ["model.onnx", "tokenizer.json"] {
+        fs::write(model.join(file), "").unwrap();
+    }
+    memory_session(&state, &[three_memories()]);
+    // Vectors from that model, as an earlier configuration would have left them.
+    let identity = format!("{:x}", sha2::Sha256::digest(manifest.as_bytes()));
+    let c = rusqlite::Connection::open(state.join("memory.db")).unwrap();
+    c.execute(
+        "INSERT INTO embedding_models(identity,manifest,helper_sha256,dimension) VALUES(?1,?2,?3,384)",
+        // The embedding recipe id (`semantic::RECIPE`): another one would only ask for a rebuild.
+        [
+            identity.as_str(),
+            &manifest,
+            "d69ec768e02c6700472d7d8fed979fa67f576b276f939eee792a9d392ecfcccb",
+        ],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO embeddings(model,kind,id,signature,vector) VALUES(?1,'chunk',1,'s','[]')",
+        [&identity],
+    )
+    .unwrap();
+    drop(c);
+    let recall = || {
+        let r = memory_session(
+            &state,
+            &[(
+                "footnote_recall",
+                json!({"query": "Connection pool", "verbose": true}),
+            )],
+        );
+        assert_eq!(r[0]["isError"], json!(false), "{r:?}");
+        let v: Value = serde_json::from_str(r[0]["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert!(!v["results"].as_array().unwrap().is_empty(), "{v}");
+        v["note"].as_str().unwrap_or_default().to_string()
+    };
+    // Not configured: never loaded, plain keyword recall.
+    fs::write(state.join("memory.json"), json!({"models": []}).to_string()).unwrap();
+    assert_eq!(recall(), "");
+    // Configured: it is the one tried.
+    fs::write(
+        state.join("memory.json"),
+        json!({"models": [model]}).to_string(),
+    )
+    .unwrap();
+    assert!(
+        recall().contains("unsupported embedding runtime"),
+        "configured model not tried"
+    );
+}

@@ -18,7 +18,29 @@ pub fn status() -> Result<Value> {
             "code": code(&state),
         },
         "models": crate::models::list(&state)?,
+        // Steps that failed again and again in the last 24 hours (#517), from metrics.jsonl when `memory.metrics` is on.
+        "failing": failing(&state),
     }))
+}
+
+/// Repeated recent failures with a one-line verdict, so a silent breakage (#515: every embed failed for a day) shows up.
+fn failing(state: &Path) -> Value {
+    let steps = footnote_core::metrics::recent_failures(state);
+    let summary = match steps.as_slice() {
+        [] => Value::Null,
+        [one] => json!(format!(
+            "{} failed {} of {} times in the last 24 hours",
+            one["step"].as_str().unwrap_or("?"),
+            one["failed"],
+            one["runs"]
+        )),
+        many => json!(format!(
+            "{} steps failed repeatedly in the last 24 hours, most often {}",
+            many.len(),
+            many[0]["step"].as_str().unwrap_or("?")
+        )),
+    };
+    json!({"summary": summary, "steps": steps})
 }
 
 /// Footnote Code: built in or not, how many project graphs exist, and which precise indexers are on PATH (#345).

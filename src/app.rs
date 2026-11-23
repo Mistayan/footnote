@@ -335,8 +335,7 @@ enum Action {
         #[arg(long, value_parser = ["query", "passage"])]
         kind: String,
     },
-    /// Summarize the metrics file: time per step, failures, steps that never finished (builds with --features metrics only).
-    #[cfg(feature = "metrics")]
+    /// Summarize the metrics file: time per step, failures, steps that never finished (option memory.metrics).
     Metrics {
         #[arg(long, default_value_t = 30)]
         top: usize,
@@ -1461,7 +1460,6 @@ fn execute(cli: Cli) -> Result<Value> {
             let texts: Vec<String> = serde_json::from_str(&input)?;
             return crate::semantic::embed(model, &texts, kind);
         }
-        #[cfg(feature = "metrics")]
         Action::Metrics { top } => return crate::metrics::summary(*top),
         _ => {}
     }
@@ -1672,7 +1670,6 @@ fn execute(cli: Cli) -> Result<Value> {
         | Action::Output { .. } => {
             unreachable!("dispatched before the database is opened")
         }
-        #[cfg(feature = "metrics")]
         Action::Metrics { .. } => {
             unreachable!("metrics is dispatched before the database is opened")
         }
@@ -1776,7 +1773,6 @@ pub(crate) fn code_db(root: &Path) -> Result<PathBuf> {
 }
 
 /// Step name of a command in the metrics file.
-#[cfg(feature = "metrics")]
 fn action_name(a: &Action) -> &'static str {
     match a {
         #[cfg(all(feature = "encryption", windows))]
@@ -1864,6 +1860,8 @@ fn action_name(a: &Action) -> &'static str {
         Action::Rollback => "rollback",
         Action::Embed { .. } => "embed",
         Action::Metrics { .. } => "metrics",
+        Action::Grep { .. } => "grep",
+        Action::AuditPrefix { .. } => "audit-prefix",
     }
 }
 /// Models for a search; empty means lexical. Hybrid is the default whenever the corpus has vectors from installed models
@@ -1874,6 +1872,21 @@ pub fn search_models(
     model: Vec<PathBuf>,
 ) -> Result<Vec<PathBuf>> {
     let installed = || -> Vec<PathBuf> {
+        // A memory database is searched with the models Memory is configured with (`footnote models use`, as the hook does),
+        // not with every installed model that once gave it vectors: in the daemon each one stays in RAM (#517).
+        #[cfg(feature = "memory")]
+        if footnote_search::store::is_memory_db(c).unwrap_or(false) {
+            let configured = crate::state::state_dir()
+                .and_then(|s| crate::models::in_use(&s))
+                .unwrap_or_default();
+            return crate::semantic::embedded_with(
+                c,
+                configured
+                    .into_iter()
+                    .map(PathBuf::from)
+                    .filter(|p| p.join("manifest.json").is_file()),
+            );
+        }
         let dir = crate::state::state_dir().map(|s| crate::models::models_dir(&s));
         let mut dirs: Vec<PathBuf> = dir
             .ok()

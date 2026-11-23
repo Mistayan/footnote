@@ -157,6 +157,9 @@ fn the_hook_recalls_through_a_resident_daemon_that_leaves_when_idle() {
     let t = tmp();
     let db = t.path().join("memory.db");
     let state = t.path().join("state");
+    // Metrics on (#517): every daemon request writes a span with its outcome.
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("memory.json"), r#"{"metrics": true}"#).unwrap();
     let memory = serde_json::json!([{"text": "Always show relative % gaps in every benchmark table.", "kind": "preference",
                                      "scope": "global", "observed_at": "2026-11-15"}]);
     bin()
@@ -222,6 +225,18 @@ fn the_hook_recalls_through_a_resident_daemon_that_leaves_when_idle() {
     if gone.is_none() {
         daemon.kill().unwrap();
         panic!("daemon still running after its idle time");
+    }
+    let spans: Vec<Value> = std::fs::read_to_string(state.join("metrics.jsonl"))
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .filter(|v: &Value| v["span"].is_string())
+        .collect();
+    for name in ["daemon.tools/call", "mcp.footnote_memory_recall"] {
+        assert!(
+            spans.iter().any(|v| v["span"] == name && v["ok"] == true),
+            "{name} missing: {spans:?}"
+        );
     }
 }
 

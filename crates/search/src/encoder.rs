@@ -5,13 +5,20 @@
 //! prefix, truncation at `max_length`, padding to the longest text of a batch of 8 in the given order, attention-mask mean pooling,
 //! L2 normalization. Queries run on a 2-thread session (one short text, low steady latency); documents on a second session with half
 //! the logical CPUs. Same graph and batches, so both give the same vectors (bench/experiments/BUILD-SPEED.md, tests 1b and 4).
+//! Each session holds its own copy of the weights, so it is made on first use (#517): a daemon that only answers queries never
+//! pays for the passage session, and a process that only embeds passages never pays for the query one.
 //!
 //! A manifest with `"runtime": "llama.cpp"` holds `model.gguf` instead (llama.rs, builds with `--features llama` only).
 use anyhow::{Context, Result, anyhow, bail};
 use ort::session::{Session, SessionInputValue};
 use ort::value::Tensor;
 use serde::Deserialize;
-use std::{borrow::Cow, collections::HashMap, path::Path, sync::OnceLock};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+};
 use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
 
 pub const DIM: usize = 384;
@@ -54,8 +61,10 @@ pub struct Encoder {
 enum Backend {
     Onnx {
         tokenizer: Box<Tokenizer>,
-        query: Session,
-        bulk: Session,
+        /// The model folder: a session is made from `model.onnx`, hashed again, when first needed.
+        dir: PathBuf,
+        query: Option<Session>,
+        bulk: Option<Session>,
     },
     #[cfg(feature = "llama")]
     Llama(crate::llama::Gguf),
@@ -70,24 +79,44 @@ pub fn files(runtime: &str) -> &'static [&'static str] {
     }
 }
 
-/// Hash every model file against the manifest; returns the verified bytes.
-fn verified(model: &Path, m: &Manifest) -> Result<HashMap<&'static str, Vec<u8>>> {
-    let mut out = HashMap::new();
-    for &name in files(&m.runtime) {
-        let path = model.join(name);
-        footnote_core::no_links(&path)?;
-        let bytes = std::fs::read(&path).with_context(|| format!("read {name}"))?;
-        let expected = &m
-            .files
-            .get(name)
-            .context("manifest lists no hash for a model file")?
-            .sha256;
-        if &footnote_core::hash(&bytes) != expected {
-            bail!("model artifact hash mismatch: {name}");
-        }
-        out.insert(name, bytes);
+/// One model file, hashed against the manifest; the bytes that were hashed.
+fn verified_file(model: &Path, m: &Manifest, name: &str) -> Result<Vec<u8>> {
+    let path = model.join(name);
+    footnote_core::no_links(&path)?;
+    let bytes = std::fs::read(&path).with_context(|| format!("read {name}"))?;
+    let expected = &m
+        .files
+        .get(name)
+        .context("manifest lists no hash for a model file")?
+        .sha256;
+    if &footnote_core::hash(&bytes) != expected {
+        bail!("model artifact hash mismatch: {name}");
     }
-    Ok(out)
+    Ok(bytes)
+}
+
+/// An ONNX session over `model.onnx`, loaded from the very bytes that were hashed (no window to swap the file).
+fn onnx_session(model: &Path, m: &Manifest, threads: usize) -> Result<Session> {
+    // ONNX Runtime allows one environment per process, shared by every model.
+    static ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
+    let env = ENV
+        .get_or_init(|| {
+            ort::init()
+                .with_telemetry(false)
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(err)?;
+    let bytes = verified_file(model, m, "model.onnx")?;
+    Session::builder(env)
+        .map_err(err)?
+        .with_intra_threads(threads)
+        .map_err(err)?
+        .with_inter_threads(1)
+        .map_err(err)?
+        .commit_from_memory(&bytes)
+        .map_err(err)
 }
 
 fn err(e: impl std::fmt::Display) -> anyhow::Error {
@@ -110,8 +139,8 @@ impl Encoder {
         {
             bail!("unsupported embedding recipe");
         }
-        let verified = verified(model, &m)?;
-        let mut tokenizer = Tokenizer::from_bytes(&verified["tokenizer.json"]).map_err(err)?;
+        let mut tokenizer =
+            Tokenizer::from_bytes(verified_file(model, &m, "tokenizer.json")?).map_err(err)?;
         tokenizer
             .with_truncation(Some(TruncationParams {
                 max_length: m.max_length,
@@ -127,34 +156,13 @@ impl Encoder {
             pad_token,
             ..Default::default()
         }));
-        let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
-        // ONNX Runtime allows one environment per process, shared by every model.
-        static ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
-        let env = ENV
-            .get_or_init(|| {
-                ort::init()
-                    .with_telemetry(false)
-                    .build()
-                    .map_err(|e| e.to_string())
-            })
-            .as_ref()
-            .map_err(err)?;
-        let session = |threads: usize| -> Result<Session> {
-            Session::builder(env)
-                .map_err(err)?
-                .with_intra_threads(threads)
-                .map_err(err)?
-                .with_inter_threads(1)
-                .map_err(err)?
-                .commit_from_memory(&verified["model.onnx"])
-                .map_err(err)
-        };
         Ok(Self {
             model_sha256: footnote_core::hash(&manifest_bytes),
             backend: Backend::Onnx {
-                query: session(2)?,
-                bulk: session((cpus / 2).max(2))?,
                 tokenizer: Box::new(tokenizer),
+                dir: model.to_path_buf(),
+                query: None,
+                bulk: None,
             },
             m,
         })
@@ -162,7 +170,7 @@ impl Encoder {
 
     #[cfg(feature = "llama")]
     fn load_gguf(model: &Path, m: Manifest, manifest_bytes: &[u8]) -> Result<Self> {
-        drop(verified(model, &m)?);
+        drop(verified_file(model, &m, "model.gguf")?);
         // shortcut: llama.cpp reads the file again after the hash check (it takes a path, not bytes), so a file swapped in that
         // window is not caught; the model directory is the user's own. Upgrade by loading from a verified copy if that changes.
         let g = crate::llama::Gguf::load(&model.join("model.gguf"), &m.pooling, m.max_length)?;
@@ -196,12 +204,13 @@ impl Encoder {
         {
             bail!("embedding input bound exceeded");
         }
-        let (tokenizer, query, bulk) = match &mut self.backend {
+        let (tokenizer, dir, query, bulk) = match &mut self.backend {
             Backend::Onnx {
                 tokenizer,
+                dir,
                 query,
                 bulk,
-            } => (tokenizer, query, bulk),
+            } => (tokenizer, dir, query, bulk),
             #[cfg(feature = "llama")]
             Backend::Llama(g) => {
                 let (mut vectors, mut truncated) = (Vec::with_capacity(texts.len()), 0);
@@ -216,7 +225,16 @@ impl Encoder {
                 });
             }
         };
-        let session = if kind == "passage" { bulk } else { query };
+        let (slot, threads) = if kind == "passage" {
+            let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
+            (bulk, (cpus / 2).max(2))
+        } else {
+            (query, 2)
+        };
+        let session = match slot {
+            Some(session) => session,
+            None => slot.insert(onnx_session(dir, &self.m, threads)?),
+        };
         let names: Vec<String> = session
             .inputs()
             .iter()
