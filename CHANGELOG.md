@@ -5,6 +5,55 @@ Notable changes to Footnote, newest first. Versions follow semantic versioning, 
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
+## 0.6.0 - 2026-11-23
+
+Footnote Lean now rewrites about half of what agents run, up from a third, and fixes a Windows bug that broke the `npx`
+and `npm` commands it rewrote. Footnote also runs in Docker as one person's long-lived daemon, and the MCP memory tools
+work on the memory database the hooks use.
+
+### New
+
+- **Docker daemon for one person's agents** (#426, by Mistayan): a hardened image (non-root user, pinned base images, an
+  allowlist `.dockerignore`) and a Compose daemon that keeps the models loaded and serves both the MCP server and the
+  memory hooks through `docker exec`. `scripts/docker-agents.ps1` and `.sh` register both with Claude Code, Codex, Gemini
+  CLI and Antigravity, add no double hooks, and `--remove` takes out only the Docker entries. `FOOTNOTE_PATH_MAP` turns
+  Windows host paths into container paths and refuses `..`. Git queries no longer run a repository's `core.fsmonitor`
+  program or filter driver, which a mounted repository could use to run code. Hook latency through Docker Desktop:
+  210 ms median. See `DOCKER.md`.
+- **MCP memory tools on the memory database** (#440, by Mistayan): `footnote_recall`'s `project` is now the memory scope
+  (that project's memories plus the global ones), so a project-scoped recall finds memories. `footnote_wake_up` returns
+  the session-start memory pack, `footnote_remember` embeds with the models `footnote models use` configured, and MCP
+  recalls count in the activity log (ids only, never the query). Before the first memory, the read tools answer empty
+  instead of "database not found".
+
+- **Compound lines with groups** (#582): a line with a subshell, script block, `$(…)` or input redirect is no longer
+  skipped as a whole. Only the part holding it is left alone, and the parts around it are still rewritten: after
+  `if ($LASTEXITCODE -eq 0) { cargo test }`, a `git push` line is wrapped. Bash keywords that start a part (`then`, `do`,
+  `else`, `time`) are skipped when finding the program.
+- **Stderr redirects** (#582): a part that sends stderr elsewhere (`2>/dev/null`, `2>$null`, `2>err.txt`) runs as
+  `footnote run --raw-stderr`, a new flag that keeps the program's stderr out of the filtered output so the redirect still
+  applies.
+- **More commands** (#582): git fetch, pull, push, checkout, switch, add, commit, worktree, stash, ls-files and other
+  subcommands; `npm ci/install`, `npx` and `npm run` builds, tests and deploys, `uv sync/lock`, `gh`, `cargo fmt/install`,
+  `make`, `docker build/logs`, `kubectl get/logs`, `find`, and `ls` in bash. Commands that wait on the user or keep
+  running are left alone: `git commit` without a message, `git rebase -i`, `git add -p`, dev servers and followed logs.
+- **Shorter `ls -l` and git output** (#583): `ls -l` keeps each entry's name, size and kind (`dir/`, `tool*`,
+  `link -> target`) and drops the permission, owner, group and date columns, 72-76% smaller on real listings; dates stay
+  for `-t` and `--time-style`. git push, pull, fetch and clone drop progress lines, `remote:` banners and hints, and the
+  one-per-file Windows line-ending warnings become one line.
+
+Coverage of sampled agent commands: Claude Code 49.8% (0.5.0: 35.2%), Antigravity 56.5% (35.8%).
+
+### Fixed
+
+- **Windows: `npx`, `npm` and `find` under `footnote run`** (#582): `footnote run` could not start `.cmd` shims, so
+  rewritten `npm test` and `npx vitest` commands failed with "program not found", and `find` started
+  `C:\Windows\System32\find.exe`. Programs are now found on `PATH` the way the shell finds them.
+- **In-app update with an older launcher** (#585): the update check compared only the engine's version, so after an
+  engine-only update (`footnote update --from`, a release zip) the launcher's update button said "up to date" while the
+  launcher itself stayed behind. The check now counts the older of the engine and the launcher beside it, so the
+  installer, which replaces both, is offered.
+
 ## 0.5.0 - 2026-11-23
 
 Footnote now reaches Claude Code profiles kept with `CLAUDE_CONFIG_DIR`, which had no hooks or MCP server at all, and
