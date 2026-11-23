@@ -11,9 +11,12 @@ use std::{
 };
 use walkdir::WalkDir;
 
+pub mod clean;
 pub mod crawl;
 pub mod extract;
 pub mod miss;
+/// Extractor of `.md` and `.txt` files; v3 cleans Markdown for search (#634), so v2 sources re-index once.
+pub const UTF8_EXTRACTOR: &str = "utf8-v3";
 #[cfg(test)]
 mod scan_tests;
 
@@ -260,7 +263,7 @@ pub fn index_with(
             .optional()?;
         let current = |ex: &str| {
             if ["md", "txt"].contains(&ext.as_str()) {
-                ex == "utf8-v2"
+                ex == UTF8_EXTRACTOR
             } else {
                 ex.contains(extract::helper_hash()) && ex.contains("chunker-v2")
             }
@@ -313,12 +316,19 @@ pub fn index_with(
                         "indexed"
                     }
                     .into(),
-                    extractor: "utf8-v2".into(),
-                    pages: vec![crate::extract::Page { page: 0, text }],
+                    extractor: UTF8_EXTRACTOR.into(),
+                    pages: vec![crate::extract::Page {
+                        page: 0,
+                        text: if ext == "md" {
+                            clean::search_markdown(&text)
+                        } else {
+                            text
+                        },
+                    }],
                 },
                 _ => crate::extract::Extraction {
                     status: "failed".into(),
-                    extractor: "utf8-v2".into(),
+                    extractor: UTF8_EXTRACTOR.into(),
                     pages: vec![],
                 },
             }

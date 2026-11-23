@@ -68,7 +68,7 @@ fn seed(share: &Path, db: &Path) -> Result<serde_json::Value> {
         let data = std::fs::read(&p)?;
         bytes += data.len() as u64;
         let ex = if ["md", "txt"].contains(&ext_of(&p).as_str()) {
-            "utf8-v2"
+            footnote_library::UTF8_EXTRACTOR
         } else {
             helper.as_str()
         };
