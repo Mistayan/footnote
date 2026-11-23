@@ -482,27 +482,276 @@ fn changed_hint(status: &str) -> String {
     )
 }
 
-/// Resolve the agent's scope from the origin name, primary checkout, or working directory.
-pub(crate) fn project_of(cwd: &str) -> String {
-    let remote = git(cwd, &["remote", "get-url", "origin"]);
-    let name = remote
+/// What `project_of` and `primary_root` need from a repository.
+#[cfg_attr(not(unix), allow(dead_code))]
+struct RepoFacts {
+    /// The primary checkout: the repository's folder, or for a linked worktree the folder holding the shared `.git`.
+    main_root: PathBuf,
+    /// The first `remote.origin.url`, when the repository has one.
+    origin: Option<String>,
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+enum Repo {
+    Read(RepoFacts),
+    /// No repository at or above the folder.
+    Absent,
+    /// Anything out of the ordinary: git answers, as it did for every folder before.
+    AskGit,
+}
+
+/// The repository around `cwd`, read from its files instead of starting `git` on every hook event. A `git` start costs
+/// a few milliseconds on a local disk and tens of milliseconds on a folder shared into a container or WSL.
+///
+/// Only the two plain layouts are read here: a folder with a `.git` directory, and a linked worktree of one. The search
+/// walks up like git's and stops where it does, at the end of `cwd`'s filesystem. Everything else is left to git
+/// (`Repo::AskGit`): a git environment variable that moves the repository or adds config, a bare repository, a submodule
+/// or separate git directory, a `.git` that git itself would not accept, and a config that includes other files, rewrites
+/// URLs or moves the work tree. The config is only read as text: nothing it names is run. Two known differences from git
+/// remain. A repository git refuses for its owner (`safe.directory`) gets its origin's name here, its folder's name from
+/// git. A `url.<base>.insteadOf` in the user's own config is not applied, which changes the name only when it rewrites
+/// the repository part of the URL.
+#[cfg(unix)]
+fn read_repo(cwd: &str) -> Repo {
+    use std::os::unix::fs::MetadataExt;
+    const MOVES_THE_ANSWER: [&str; 7] = [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+    ];
+    if MOVES_THE_ANSWER
+        .iter()
+        .any(|key| std::env::var_os(key).is_some())
+    {
+        return Repo::AskGit;
+    }
+    let Ok(start) = fs::canonicalize(cwd) else {
+        return Repo::AskGit;
+    };
+    let Ok(device) = fs::metadata(&start).map(|m| m.dev()) else {
+        return Repo::AskGit;
+    };
+    // What git requires of a git directory, apart from its HEAD.
+    let holds_objects = |dir: &Path| dir.join("objects").is_dir() && dir.join("refs").is_dir();
+    let head_is_valid = |git_dir: &Path| {
+        let head = git_dir.join("HEAD");
+        fs::symlink_metadata(&head).is_ok_and(|m| m.is_file())
+            && small_text(&head, 256).is_some_and(|text| {
+                let text = text.trim();
+                text.strip_prefix("ref:")
+                    .is_some_and(|target| target.trim_start().starts_with("refs/"))
+                    || (text.len() >= 40 && text.bytes().all(|b| b.is_ascii_hexdigit()))
+            })
+    };
+    for dir in start.ancestors() {
+        // Git stops looking where the filesystem `cwd` is on ends (a mount point, `/mnt/c` in WSL).
+        match fs::metadata(dir).map(|m| m.dev()) {
+            Ok(d) if d == device => {}
+            Ok(_) => return Repo::Absent,
+            Err(_) => return Repo::AskGit,
+        }
+        let dot_git = dir.join(".git");
+        let entry = match fs::symlink_metadata(&dot_git) {
+            Ok(entry) => entry,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // A bare repository has no `.git` entry: it is the folder itself.
+                if dir.join("HEAD").exists() && holds_objects(dir) {
+                    return Repo::AskGit;
+                }
+                continue;
+            }
+            Err(_) => return Repo::AskGit,
+        };
+        let (common, main_root) = if entry.is_dir() {
+            if !head_is_valid(&dot_git)
+                || !holds_objects(&dot_git)
+                || dot_git.join("commondir").exists()
+            {
+                return Repo::AskGit;
+            }
+            (dot_git, dir.to_path_buf())
+        } else if entry.is_file() {
+            // A linked worktree: `.git` names its own git directory, whose `commondir` names the shared one. Without a
+            // `commondir` it is a submodule or a separate git directory, whose work tree only its config knows.
+            let Some(git_dir) = small_text(&dot_git, 4096).and_then(|text| {
+                let target = text.trim().strip_prefix("gitdir:")?.trim();
+                fs::canonicalize(dir.join(target)).ok()
+            }) else {
+                return Repo::AskGit;
+            };
+            let Some(common) = small_text(&git_dir.join("commondir"), 4096)
+                .and_then(|text| fs::canonicalize(git_dir.join(text.trim())).ok())
+            else {
+                return Repo::AskGit;
+            };
+            let main_root = common.parent().map(Path::to_path_buf);
+            match main_root {
+                Some(main_root)
+                    if common.file_name().is_some_and(|name| name == ".git")
+                        && head_is_valid(&git_dir)
+                        && holds_objects(&common) =>
+                {
+                    (common, main_root)
+                }
+                _ => return Repo::AskGit,
+            }
+        } else {
+            return Repo::AskGit;
+        };
+        return match small_text(&common.join("config"), 64 * 1024)
+            .as_deref()
+            .and_then(origin_in_config)
+        {
+            Some(origin) => Repo::Read(RepoFacts { main_root, origin }),
+            None => Repo::AskGit,
+        };
+    }
+    Repo::Absent
+}
+
+/// Windows keeps asking git: its answers there depend on reparse points, drive letters and owner checks, and the slow
+/// case this avoids is a folder shared into Linux.
+#[cfg(not(unix))]
+fn read_repo(_cwd: &str) -> Repo {
+    Repo::AskGit
+}
+
+/// A small text file, or `None` when it is missing, larger than `limit` bytes or not UTF-8.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn small_text(path: &Path, limit: u64) -> Option<String> {
+    let mut text = String::new();
+    fs::File::open(path)
+        .ok()?
+        .take(limit + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    (text.len() as u64 <= limit).then_some(text)
+}
+
+/// The first `remote.origin.url` of a repository's `config`: `Some(None)` when it has none, and `None` when only git can
+/// tell. That is a config that includes other files, rewrites URLs (`url.<base>.insteadOf`), moves the work tree, or is
+/// written in a form this reader does not follow (quotes, escapes, continued lines, a key beside its section header).
+#[cfg_attr(not(unix), allow(dead_code))]
+fn origin_in_config(config: &str) -> Option<Option<String>> {
+    #[derive(PartialEq)]
+    enum Section {
+        Origin,
+        Core,
+        Extensions,
+        Other,
+    }
+    let mut section = Section::Other;
+    let mut origin = None;
+    for line in config.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with(['#', ';']) {
+            continue;
+        }
+        if line.ends_with('\\') {
+            return None;
+        }
+        if let Some(rest) = line.strip_prefix('[') {
+            let (header, after) = rest.split_once(']')?;
+            let after = after.trim();
+            if !after.is_empty() && !after.starts_with(['#', ';']) {
+                return None;
+            }
+            let (name, subsection) = header
+                .trim()
+                .split_once(char::is_whitespace)
+                .unwrap_or((header.trim(), ""));
+            section = match name.to_ascii_lowercase().as_str() {
+                "include" | "includeif" | "url" => return None,
+                // The older `[section.subsection]` spelling.
+                name if name.contains('.') => return None,
+                "remote" if subsection.trim() == "\"origin\"" => Section::Origin,
+                "core" => Section::Core,
+                "extensions" => Section::Extensions,
+                _ => Section::Other,
+            };
+            continue;
+        }
+        let (key, value) = match line.split_once('=') {
+            Some((key, value)) => (key.trim().to_ascii_lowercase(), Some(value.trim())),
+            None => (line.to_ascii_lowercase(), None),
+        };
+        let moves_the_work_tree = match section {
+            Section::Core => key == "worktree" || (key == "bare" && value != Some("false")),
+            Section::Extensions => key == "worktreeconfig",
+            _ => false,
+        };
+        if moves_the_work_tree {
+            return None;
+        }
+        if section == Section::Origin && key == "url" {
+            let value = value?;
+            if value.contains(['"', '\\']) {
+                return None;
+            }
+            let url = value.split(['#', ';']).next().unwrap_or_default().trim();
+            if url.is_empty() {
+                return None;
+            }
+            // `git remote get-url` prints the first of several.
+            origin.get_or_insert_with(|| url.to_owned());
+        }
+    }
+    Some(origin)
+}
+
+/// The repository name a remote URL ends with, lowercased: `git@host:org/Repo.git` is `repo`.
+fn name_in_remote(remote: &str) -> String {
+    remote
         .trim_end_matches('/')
         .rsplit(['/', ':'])
         .next()
         .unwrap_or_default()
-        .trim_end_matches(".git");
-    if !name.is_empty() {
-        return name.to_lowercase();
-    }
-    Path::new(&primary_root(cwd))
-        .file_name()
+        .trim_end_matches(".git")
+        .to_lowercase()
+}
+
+fn folder_name(path: &Path) -> String {
+    path.file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_lowercase()
 }
 
-/// Map a linked worktree to its primary checkout. The first entry is the primary worktree.
+/// Resolve the agent's scope from the origin name, primary checkout, or working directory.
+pub(crate) fn project_of(cwd: &str) -> String {
+    match read_repo(cwd) {
+        Repo::Read(repo) => {
+            let name = repo.origin.as_deref().map(name_in_remote);
+            name.filter(|name| !name.is_empty())
+                .unwrap_or_else(|| folder_name(&repo.main_root))
+        }
+        Repo::Absent => folder_name(Path::new(cwd)),
+        Repo::AskGit => project_from_git(cwd),
+    }
+}
+
+fn project_from_git(cwd: &str) -> String {
+    let name = name_in_remote(&git(cwd, &["remote", "get-url", "origin"]));
+    if !name.is_empty() {
+        return name;
+    }
+    folder_name(Path::new(&primary_root_from_git(cwd)))
+}
+
+/// Map a linked worktree to its primary checkout.
 fn primary_root(cwd: &str) -> String {
+    match read_repo(cwd) {
+        Repo::Read(repo) => repo.main_root.to_string_lossy().into_owned(),
+        Repo::Absent => cwd.to_owned(),
+        Repo::AskGit => primary_root_from_git(cwd),
+    }
+}
+
+/// The first entry of `git worktree list` is the primary worktree.
+fn primary_root_from_git(cwd: &str) -> String {
     let top = git(cwd, &["rev-parse", "--show-toplevel"]);
     if top.is_empty() {
         return cwd.to_owned();
@@ -2209,6 +2458,178 @@ mod tests {
             "took {:?}",
             started.elapsed()
         );
+    }
+
+    /// The hook reads a repository's layout and origin from its files instead of starting git. Wherever it does, the
+    /// answer must be git's, and wherever git could answer otherwise, git is asked.
+    #[cfg(unix)]
+    #[test]
+    fn reading_the_repository_files_gives_the_answers_git_gives() {
+        let t = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(t.path()).unwrap();
+        let hooks = root.join("empty-hooks");
+        fs::create_dir(&hooks).unwrap();
+        let run = |cwd: &Path, args: &[&str]| {
+            let out = Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
+                .arg("-c")
+                .arg(format!("core.hooksPath={}", hooks.display()))
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "git {args:?}: {out:?}");
+        };
+        let repo = |name: &str| {
+            let dir = root.join(name);
+            fs::create_dir_all(dir.join("crates/core")).unwrap();
+            run(&dir, &["init", "-q"]);
+            run(
+                &dir,
+                &["commit", "--no-gpg-sign", "--allow-empty", "-qm", "init"],
+            );
+            dir
+        };
+        let path = |p: &Path| p.to_str().unwrap().to_owned();
+        let same_as_git = |cwd: &str| {
+            assert_eq!(project_of(cwd), project_from_git(cwd), "{cwd}");
+            assert_eq!(primary_root(cwd), primary_root_from_git(cwd), "{cwd}");
+        };
+
+        let with_origin = repo("Main-Repo");
+        run(
+            &with_origin,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "git@github.com:Org/Custom-App.git",
+            ],
+        );
+        // `git remote get-url` prints the first of several.
+        run(
+            &with_origin,
+            &[
+                "config",
+                "--add",
+                "remote.origin.url",
+                "https://example.invalid/second.git",
+            ],
+        );
+        let linked_origin = root.join("linked-origin");
+        run(
+            &with_origin,
+            &["worktree", "add", "-q", "--detach", &path(&linked_origin)],
+        );
+        let no_origin = repo("Plain Repo");
+        let linked_plain = root.join("linked-plain");
+        run(
+            &no_origin,
+            &["worktree", "add", "-q", "--detach", &path(&linked_plain)],
+        );
+        for (cwd, project) in [
+            (with_origin.join("crates/core"), "custom-app"),
+            (linked_origin, "custom-app"),
+            (no_origin.join("crates"), "plain repo"),
+            (linked_plain, "plain repo"),
+        ] {
+            let cwd = path(&cwd);
+            assert!(matches!(read_repo(&cwd), Repo::Read(_)), "{cwd}");
+            assert_eq!(project_of(&cwd), project, "{cwd}");
+            same_as_git(&cwd);
+        }
+
+        // Outside any repository (unless the temporary folder itself is in one): no git needed either.
+        let folder = root.join("Not-A-Repo/inner");
+        fs::create_dir_all(&folder).unwrap();
+        assert!(!matches!(read_repo(&path(&folder)), Repo::AskGit));
+        same_as_git(&path(&folder));
+
+        // Layouts and configs where the files alone could give another answer than git: git is asked.
+        let included = repo("Included");
+        fs::write(
+            root.join("extra.cfg"),
+            "[remote \"origin\"]\n\turl = https://example.invalid/from-include.git\n",
+        )
+        .unwrap();
+        run(
+            &included,
+            &["config", "include.path", &path(&root.join("extra.cfg"))],
+        );
+        let rewritten = repo("Rewritten");
+        run(
+            &rewritten,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "git@github.com:Org/Custom-App.git",
+            ],
+        );
+        run(
+            &rewritten,
+            &[
+                "config",
+                "url.https://example.invalid/other.git.insteadOf",
+                "git@github.com:Org/Custom-App.git",
+            ],
+        );
+        let moved = repo("Moved");
+        run(&moved, &["config", "core.worktree", &path(&moved)]);
+        let separate = root.join("Separate");
+        run(
+            &root,
+            &[
+                "init",
+                "-q",
+                "--separate-git-dir",
+                &path(&root.join("separate.git")),
+                &path(&separate),
+            ],
+        );
+        for (cwd, project) in [
+            (included, Some("from-include")),
+            (rewritten, Some("other")),
+            (moved, None),
+            (separate, None),
+        ] {
+            let cwd = path(&cwd);
+            assert!(matches!(read_repo(&cwd), Repo::AskGit), "{cwd}");
+            if let Some(project) = project {
+                assert_eq!(project_of(&cwd), project, "{cwd}");
+            }
+            same_as_git(&cwd);
+        }
+    }
+
+    #[test]
+    fn the_config_reader_leaves_every_unusual_form_to_git() {
+        let read = |text: &str| origin_in_config(text).map(|o| o.unwrap_or_default());
+        assert_eq!(
+            read(
+                "[core]\n\tbare = false\n[Remote \"origin\"]\n\tURL = git@host:Org/App.git ; note\r\n"
+            ),
+            Some("git@host:Org/App.git".into())
+        );
+        assert_eq!(
+            read("[remote \"upstream\"]\n\turl = x\n[remote \"Origin\"]\n\turl = y\n"),
+            Some(String::new()),
+            "subsection names are case-sensitive"
+        );
+        for unusual in [
+            "[remote \"origin\"]\n\turl = \"quoted\"\n",
+            "[remote \"origin\"]\n\turl = a\\\n b\n",
+            "[remote.origin]\n\turl = x\n",
+            "[remote \"origin\"] url = x\n",
+            "[remote \"origin\"]\n\turl\n",
+            "[includeIf \"gitdir:~/\"]\n\tpath = x\n",
+            "[url \"a\"]\n\tinsteadOf = b\n",
+            "[core]\n\tworktree = /elsewhere\n",
+            "[core]\n\tbare\n",
+            "[extensions]\n\tworktreeConfig = true\n",
+        ] {
+            assert_eq!(read(unusual), None, "{unusual:?}");
+        }
     }
 
     #[test]
