@@ -537,3 +537,75 @@ fn bare_install_wires_both_memory_and_lean_by_default() {
     let t3_mcp = read(&t3_cfg.join("mcp_config.json"));
     assert_eq!(t3_mcp["mcpServers"]["footnote-memory"]["args"][2], "mcp");
 }
+
+/// #578: a Claude Code profile kept with `CLAUDE_CONFIG_DIR` (`~/.claude-2`) gets the same hooks and MCP server as the
+/// default one, found even when the installer runs without the variable; a `~/.claude*` folder with no sessions is left
+/// alone, and uninstall clears both profiles.
+#[test]
+fn claude_code_profiles_beside_the_default_are_installed_and_uninstalled() {
+    let t = tempfile::tempdir().unwrap();
+    let (home, state) = (t.path().join("home"), t.path().join("state"));
+    for d in [".claude", ".claude-2/projects", ".claude-old"] {
+        fs::create_dir_all(home.join(d)).unwrap();
+    }
+    fs::write(home.join(".claude-2/.claude.json"), "{}").unwrap();
+    fs::write(home.join(".claude-old/.claude.json"), "{}").unwrap();
+    let run = |args: &[&str]| -> Value {
+        let out = Command::new(assert_cmd::cargo::cargo_bin!("footnote"))
+            .args(args)
+            .env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        serde_json::from_slice(&out).unwrap()
+    };
+    let installed = run(&["install", "--memory", "--lean"]);
+    let profile = home.join(".claude-2");
+    let mcp = read(&profile.join(".claude.json"));
+    assert_eq!(
+        mcp["mcpServers"]["footnote-memory"]["args"][2], "mcp",
+        "{installed}"
+    );
+    let settings = read(&profile.join("settings.json"));
+    for event in ["SessionStart", "UserPromptSubmit", "Stop"] {
+        assert!(
+            settings["hooks"][event].to_string().contains(" hook\""),
+            "{event}: {settings}"
+        );
+    }
+    let lean = settings["hooks"]["PreToolUse"][0].clone();
+    assert_eq!(lean["matcher"], "Bash|PowerShell|Read", "{settings}");
+    assert!(
+        lean["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .ends_with(" hook lean")
+    );
+    assert!(profile.join("commands/remember.md").is_file());
+    // No sessions in it: not a profile Claude Code uses.
+    assert!(!home.join(".claude-old/settings.json").exists());
+    assert_eq!(read(&home.join(".claude-old/.claude.json")), json!({}));
+
+    let status = run(&["status"]);
+    assert!(
+        status.to_string().contains("claude-code (.claude-2)"),
+        "{status}"
+    );
+
+    run(&["uninstall", "--memory", "--lean"]);
+    let settings = read(&profile.join("settings.json"));
+    assert!(
+        !settings.to_string().contains("footnote"),
+        "hooks left: {settings}"
+    );
+    assert!(
+        read(&profile.join(".claude.json"))["mcpServers"]
+            .get("footnote-memory")
+            .is_none()
+    );
+}
