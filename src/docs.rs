@@ -383,8 +383,111 @@ fn add_keyword(state: &Path, a: &Add) -> Result<Value> {
     Ok(json!({"site": site, "version": version, "db": db, "reused": false, "index": report}))
 }
 
+type ProjectLibs = Vec<(String, Vec<(String, String)>)>;
+
+/// Each registered project's name and manifest libraries, read in parallel.
+#[cfg(all(feature = "memory", feature = "code"))]
+fn project_libs(state: &Path) -> Option<ProjectLibs> {
+    let list = crate::projects::list(state, true).ok()?;
+    let roots: Vec<(String, PathBuf)> = list["projects"]
+        .as_array()?
+        .iter()
+        .filter_map(|p| {
+            Some((
+                p["name"].as_str()?.to_string(),
+                PathBuf::from(p["path"].as_str()?),
+            ))
+        })
+        .collect();
+    Some(std::thread::scope(|s| {
+        let runs: Vec<_> = roots
+            .iter()
+            .map(|(name, root)| s.spawn(move || (name.clone(), crate::stack::manifest_libs(root))))
+            .collect();
+        runs.into_iter().filter_map(|h| h.join().ok()).collect()
+    }))
+}
+
+#[cfg(not(all(feature = "memory", feature = "code")))]
+fn project_libs(_: &Path) -> Option<ProjectLibs> {
+    None
+}
+
+/// A docs site's ecosystem (`cargo`, `npm`, `pypi`, `go`) and the projects whose manifests name it. Language docs
+/// (`rust-book`, `python`) count as used by every project in that language. shortcut: matched on name tokens, not on
+/// the site's URL; upgrade when #305 stores the URL per library.
+fn usage(
+    site: &str,
+    projects: &[(String, Vec<(String, String)>)],
+) -> (Option<String>, Vec<String>) {
+    const GENERIC: &[&str] = &[
+        "book",
+        "perf",
+        "style",
+        "google",
+        "guide",
+        "std",
+        "docs",
+        "reference",
+        "tutorial",
+    ];
+    fn tokens(s: &str) -> Vec<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|t| !t.is_empty() && *t != "docsrs")
+            .map(|t| {
+                if t.len() > 4 {
+                    t.strip_suffix("js").unwrap_or(t)
+                } else {
+                    t
+                }
+                .to_string()
+            }) // nextjs ~ next
+            .collect()
+    }
+    let lang = |t: &str| match t {
+        "rust" => Some("cargo"),
+        "python" => Some("pypi"),
+        "go" | "golang" => Some("go"),
+        "node" | "javascript" | "typescript" => Some("npm"),
+        _ => None,
+    };
+    let site_t = tokens(site);
+    let keyword = if site.starts_with("docsrs-") {
+        Some("cargo")
+    } else {
+        site_t.iter().find_map(|t| lang(t))
+    };
+    let within = |a: &[String], b: &[String]| !a.is_empty() && a.iter().all(|t| b.contains(t));
+    let (mut eco, mut users) = (keyword.map(str::to_string), Vec::new());
+    for (name, libs) in projects {
+        let hit = libs.iter().find(|(e, n)| {
+            let lib_t = tokens(n);
+            keyword.is_none_or(|k| k == e) && (within(&lib_t, &site_t) || within(&site_t, &lib_t))
+        });
+        if let Some((e, _)) = hit {
+            eco.get_or_insert_with(|| e.clone());
+            users.push(name.clone());
+        }
+    }
+    if users.is_empty()
+        && let Some(k) = keyword
+        && site_t
+            .iter()
+            .all(|t| lang(t).is_some() || GENERIC.contains(&t.as_str()))
+    {
+        users = projects
+            .iter()
+            .filter(|(_, libs)| libs.iter().any(|(e, _)| e == k))
+            .map(|(n, _)| n.clone())
+            .collect();
+    }
+    (eco, users)
+}
+
 pub fn list(state: &Path) -> Result<Value> {
     let jobs = jobs_now(state);
+    let projects = project_libs(state);
     let rows: Vec<Value> = entries(state)
         .into_iter()
         .map(|(site, version, db)| {
@@ -398,11 +501,23 @@ pub fn list(state: &Path) -> Result<Value> {
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs());
-            let state_text = match status(&db, &jobs) {
+            let progress = status(&db, &jobs);
+            let state_text = match progress {
                 (s, Some((d, t))) => format!("{s} {d}/{t}"),
                 (s, None) => s.to_string(),
             };
-            json!({"site": site, "version": version, "state": state_text, "pages": pages, "bytes": meta.map(|m| m.len()), "modified_unix": date, "db": db})
+            let mut v = json!({"site": site, "version": version, "state": state_text, "pages": pages, "bytes": meta.map(|m| m.len()), "modified_unix": date, "db": db});
+            if let Some((d, t)) = progress.1 {
+                v["done"] = json!(d);
+                v["total"] = json!(t);
+            }
+            // Absent, not empty, when the build cannot read projects: the launcher then shows no usage at all.
+            if let Some(p) = &projects {
+                let (eco, users) = usage(&site, p);
+                v["ecosystem"] = json!(eco);
+                v["used_by"] = json!(users);
+            }
+            v
         })
         .collect();
     Ok(json!({"docs": rows}))
@@ -431,6 +546,46 @@ pub fn prune(state: &Path) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docs_sites_map_to_the_projects_that_use_them() {
+        let lib = |e: &str, n: &str| (e.to_string(), n.to_string());
+        let projects = vec![
+            (
+                "web".to_string(),
+                vec![lib("npm", "next"), lib("npm", "@tanstack/react-table")],
+            ),
+            (
+                "tool".to_string(),
+                vec![lib("cargo", "pyo3"), lib("cargo", "serde")],
+            ),
+            (
+                "data".to_string(),
+                vec![lib("pypi", "numpy"), lib("pypi", "pandas")],
+            ),
+        ];
+        let u = |site: &str| usage(site, &projects);
+        assert_eq!(u("nextjs"), (Some("npm".into()), vec!["web".into()]));
+        assert_eq!(
+            u("tanstack-table"),
+            (Some("npm".into()), vec!["web".into()])
+        );
+        assert_eq!(u("pyo3-guide"), (Some("cargo".into()), vec!["tool".into()]));
+        assert_eq!(
+            u("docsrs-pyo3"),
+            (Some("cargo".into()), vec!["tool".into()])
+        );
+        // The Rust numpy crate's docs are not the Python project's numpy.
+        assert_eq!(u("docsrs-numpy"), (Some("cargo".into()), vec![]));
+        assert_eq!(
+            u("rust-perf-book"),
+            (Some("cargo".into()), vec!["tool".into()])
+        );
+        assert_eq!(u("python"), (Some("pypi".into()), vec!["data".into()]));
+        // A library named with its language is not every project's docs in that language.
+        assert_eq!(u("polars-python"), (Some("pypi".into()), vec![]));
+        assert_eq!(u("duckdb"), (None, vec![]));
+    }
 
     #[test]
     fn libraries_rank_by_how_often_the_project_imports_them() {

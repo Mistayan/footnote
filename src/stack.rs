@@ -735,6 +735,12 @@ pub(crate) fn detected(root: &Path) -> Result<Vec<Value>> {
     Ok(detect(root, &[])?.values().map(Lib::json).collect())
 }
 
+/// Each `(ecosystem, name)` the project's manifests and lockfiles name; never reads source, so it stays cheap.
+#[cfg(all(feature = "library", feature = "memory"))]
+pub(crate) fn manifest_libs(root: &Path) -> Vec<(String, String)> {
+    from_manifests(root).into_keys().collect()
+}
+
 /// `footnote stack`. `record`: write the result to Footnote Memory (the CLI); the MCP tool only reads.
 pub fn run(root: &Path, user: &[String], record: bool) -> Result<Value> {
     let root = std::path::absolute(root)?;

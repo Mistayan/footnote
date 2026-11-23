@@ -310,8 +310,20 @@ export const fixtures = {
       { id: 70, kind: "preference", scope: "global", observed_at: "2026-11-19", text: "Wants dates written as 22 Nov 2026 in every user-facing text, never 11/22.", tags: [] },
       { id: 74, kind: "fact", scope: "atlas-api", observed_at: "2026-11-21", text: "The staging database is reset every Monday at 06:00 UTC.", tags: ["ops"] }] },
     "docs list": { docs: [
-      { site: "react.dev", version: "19", state: "ready", pages: 412, bytes: 38_400_000, modified_unix: 1763337600 },
-      { site: "docs.pydantic.dev", version: "2.12", state: "embedding 140/388", pages: 388, bytes: 21_000_000, modified_unix: 1763683200 }] }, "skills diff release-checklist": diff2, "skills diff": diff,
+      ["react", "19", "npm", ["harbor-web", "docs-portal"], 412, 38],
+      ["nextjs", "15", "npm", ["harbor-web"], 371, 9, [576, 2775]],
+      ["tailwindcss", "3.4", "npm", ["harbor-web"], 120, 6],
+      ["pandas", "3.1", "pypi", ["data-pipeline"], 1879, 39, [448, 7097]],
+      ["pydantic", "2.14", "pypi", ["atlas-api", "data-pipeline"], 93, 7],
+      ["python", "3.13", "pypi", ["atlas-api", "data-pipeline"], 540, 65],
+      ["pyo3-guide", "0.22.6", "cargo", ["ledger-sync"], 41, 5],
+      ["rust-perf-book", "latest", "cargo", ["ledger-sync", "infra"], 28, 7],
+      ["jiff-guide", "1.0", "cargo", ["ledger-sync"], 1, 0],
+      ["docsrs-numpy", "0.22.1", "cargo", [], 319, 12, [1576, 3621], "keyword-only"],
+      ["duckdb", "1.5", null, [], 441, 18]].map(([site, version, ecosystem, used_by, pages, mbs, prog, idle]) => ({
+      site, version, ecosystem, used_by, pages, bytes: mbs * 1e6, modified_unix: 1763683200,
+      db: `C:/Users/sample/AppData/Local/footnote/docs/${site}/${version}.db`,
+      ...(prog ? { state: idle ?? "embedding", done: prog[0], total: prog[1] } : { state: "ready" }) })) }, "skills diff release-checklist": diff2, "skills diff": diff,
     "find --": { query: "pagination", products: [
       { product: "memory", state: "ok", results: [
         { id: 17, title: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident.", detail: "fact · atlas-api · 2026-11-12" },

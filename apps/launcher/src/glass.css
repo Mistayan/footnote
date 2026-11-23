@@ -261,6 +261,18 @@ button.stat.ignore:hover:not(:disabled) .stat-ic { color: var(--warn); }
 .picker-row.on { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--text); }
 .corpora { --cols: minmax(150px, 1.2fr) minmax(160px, 2fr) 96px 32px; }
 .docs { --cols: minmax(150px, 1.4fr) 90px minmax(120px, 1fr) 70px 80px 70px; }
+.docs.used { --cols: minmax(150px, 1.4fr) 90px minmax(130px, 1fr) 90px 70px 80px 70px; }
+/* Library: compact rows capped to a readable width, grouped by language. */
+.library .lib-group { max-width: 1100px; }
+.library .docs .line-row { min-height: 34px; padding-block: 4px; }
+.library .docs .rows { gap: 4px; }
+.library .lib-group ~ .lib-group .docs .row-head { display: none; } /* one column header for all the groups */
+.lib-group > summary { cursor: pointer; list-style: none; }
+.lib-group > summary::-webkit-details-marker { display: none; }
+.lib-group > summary::before { content: "›"; color: var(--dim); transition: transform var(--fast) var(--ease); }
+.lib-group[open] > summary::before { transform: rotate(90deg); }
+.doc-progress { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-s); font-variant-numeric: tabular-nums; }
+.doc-progress progress { width: 64px; height: 4px; accent-color: var(--acc); }
 .rows .line-row, .row-head { grid-template-columns: var(--cols); }
 .row-head { display: grid; gap: 14px; padding: 0 10px 0 15px; color: var(--dim); font-size: var(--t-xs); text-transform: uppercase;
   letter-spacing: 0.06em; }
