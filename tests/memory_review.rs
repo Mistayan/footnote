@@ -47,7 +47,8 @@ fn review_lists_candidates_and_every_choice_is_reversible() {
     assert_eq!(run(&["memory-review"])["counts"]["memories"], 4);
 
     // Forget the older copy: it leaves the review and recall, and is kept as history.
-    run(&["--db", db.to_str().unwrap(), "forget", &older.to_string()]);
+    // The launcher calls forget and memory-restore without --db: both use the memory database.
+    run(&["forget", &older.to_string()]);
     let v = run(&["memory-review"]);
     assert_eq!(
         (
@@ -59,12 +60,7 @@ fn review_lists_candidates_and_every_choice_is_reversible() {
     );
 
     // Restore undoes it.
-    let r = run(&[
-        "--db",
-        db.to_str().unwrap(),
-        "memory-restore",
-        &older.to_string(),
-    ]);
+    let r = run(&["memory-restore", &older.to_string()]);
     assert_eq!(r["was"], "deleted", "{r}");
     assert_eq!(run(&["memory-review"])["counts"]["memories"], 4);
     let found = run(&[

@@ -1469,7 +1469,7 @@ fn execute(cli: Cli) -> Result<Value> {
         Some(p) => p.as_path(),
         None => match &cli.command {
             #[cfg(feature = "memory")]
-            Action::MemoryList { .. } | Action::Forget { .. } => {
+            Action::MemoryList { .. } | Action::Forget { .. } | Action::MemoryRestore { .. } => {
                 default_mem_db = crate::status::memory_db(&crate::state::state_dir()?)?;
                 default_mem_db.as_path()
             }
