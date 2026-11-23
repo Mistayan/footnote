@@ -16,6 +16,63 @@ fn home() -> Result<PathBuf> {
         .context("cannot determine the home directory")
 }
 
+/// Claude Code profiles besides the default one (#578). Claude Code reads `<dir>/settings.json` and `<dir>/.claude.json`
+/// when started with `CLAUDE_CONFIG_DIR=<dir>`, so a profile kept that way never saw Footnote's hooks or MCP server.
+/// Found from `CLAUDE_CONFIG_DIR` and from any other `~/.claude*` folder holding both `projects/` (its sessions) and
+/// `.claude.json`, since the installer often runs without the variable. Only folders inside the home folder count.
+/// Each is returned with its label, e.g. `claude-code (.claude-2)`.
+fn claude_profiles(home: &Path) -> Vec<(String, PathBuf)> {
+    let canon = |p: &Path| std::fs::canonicalize(p).ok();
+    let default = canon(&home.join(".claude"));
+    let home_canon = canon(home);
+    let mut found: Vec<PathBuf> = Vec::new();
+    let mut consider = |dir: PathBuf| {
+        let Some(c) = canon(&dir) else { return };
+        let inside = home_canon
+            .as_ref()
+            .is_some_and(|h| c.starts_with(h) && &c != h);
+        if inside
+            && Some(&c) != default.as_ref()
+            && !found.iter().any(|f| canon(f).as_ref() == Some(&c))
+        {
+            found.push(dir);
+        }
+    };
+    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        let dir = PathBuf::from(dir);
+        if dir.join("projects").is_dir() || dir.join("settings.json").is_file() {
+            consider(dir);
+        }
+    }
+    let mut entries: Vec<PathBuf> = std::fs::read_dir(home)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with(".claude") && n != ".claude")
+                && p.join("projects").is_dir()
+                && p.join(".claude.json").is_file()
+        })
+        .collect();
+    entries.sort();
+    for dir in entries {
+        consider(dir);
+    }
+    found
+        .into_iter()
+        .map(|dir| {
+            let name = dir.file_name().map_or_else(
+                || dir.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            (format!("claude-code ({name})"), dir)
+        })
+        .collect()
+}
+
 /// Normalise for config files: forward slashes avoid TOML/JSON escaping traps.
 fn portable(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
@@ -277,6 +334,9 @@ pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
             home.join(".grok").exists(),
         ),
     ];
+    for (agent, dir) in claude_profiles(&home) {
+        targets.push((agent, dir.join(".claude.json"), true));
+    }
     let agy_dirs = antigravity_config_dirs(&home);
     if agy_dirs.is_empty() {
         targets.push((
@@ -683,6 +743,22 @@ fn remove_rtk_entries(home: &Path, dry_run: bool) -> Result<Vec<Value>> {
         &claude_mcp,
         remove_mcp_entry(&claude_mcp, "rtk", dry_run),
     )?;
+    for (agent, dir) in claude_profiles(home) {
+        let settings = dir.join("settings.json");
+        push(
+            &agent,
+            "rtk hook",
+            &settings,
+            remove_matching_hooks(&settings, is_rtk_hook, dry_run),
+        )?;
+        let mcp = dir.join(".claude.json");
+        push(
+            &agent,
+            "rtk mcp server",
+            &mcp,
+            remove_mcp_entry(&mcp, "rtk", dry_run),
+        )?;
+    }
     let codex_hooks = home.join(".codex/hooks.json");
     push(
         "codex",
@@ -777,7 +853,24 @@ pub fn lean(dry_run: bool, remove_rtk: bool) -> Result<Value> {
             add_matcher_hook(
                 &hooks,
                 "PreToolUse",
-                "Bash|Read",
+                "Bash|PowerShell|Read",
+                5,
+                &command,
+                is_lean_hook,
+                dry_run,
+            ),
+        )?;
+    }
+    for (agent, dir) in claude_profiles(&home) {
+        let hooks = dir.join("settings.json");
+        add(
+            &agent,
+            "lean PreToolUse hook",
+            &hooks,
+            add_matcher_hook(
+                &hooks,
+                "PreToolUse",
+                "Bash|PowerShell|Read",
                 5,
                 &command,
                 is_lean_hook,
@@ -1002,6 +1095,15 @@ pub fn uninstall_lean(dry_run: bool) -> Result<Value> {
         &claude,
         remove_matching_hooks(&claude, is_lean_hook, dry_run),
     )?;
+    for (agent, dir) in claude_profiles(&home) {
+        let hooks = dir.join("settings.json");
+        add(
+            &agent,
+            "lean PreToolUse hook",
+            &hooks,
+            remove_matching_hooks(&hooks, is_lean_hook, dry_run),
+        )?;
+    }
     let codex = home.join(".codex/hooks.json");
     add(
         "codex",
@@ -1117,6 +1219,29 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         let cmd = claude.join("commands").join("remember.md");
         add(
             agent,
+            "/remember",
+            &cmd,
+            append_once(&cmd, "Footnote", remember, dry_run),
+        )?;
+    }
+    for (agent, dir) in claude_profiles(&home) {
+        let mcp = dir.join(".claude.json");
+        add(
+            &agent,
+            "mcp server",
+            &mcp,
+            add_server(&mcp, MEMORY_SERVER, &entry, dry_run),
+        )?;
+        let hooks = dir.join("settings.json");
+        add(
+            &agent,
+            "hooks",
+            &hooks,
+            add_hooks(&hooks, &events, &command, dry_run),
+        )?;
+        let cmd = dir.join("commands").join("remember.md");
+        add(
+            &agent,
             "/remember",
             &cmd,
             append_once(&cmd, "Footnote", remember, dry_run),
@@ -1367,6 +1492,14 @@ pub fn uninstall_memory(dry_run: bool) -> Result<Value> {
             remove_remember(&cmd),
         )?;
     }
+    for (agent, dir) in claude_profiles(&home) {
+        let mcp = dir.join(".claude.json");
+        add(&agent, "mcp server", &mcp, remove_server(&mcp))?;
+        let hooks = dir.join("settings.json");
+        add(&agent, "hooks", &hooks, remove_hooks(&hooks))?;
+        let cmd = dir.join("commands").join("remember.md");
+        add(&agent, "/remember", &cmd, remove_remember(&cmd))?;
+    }
     for (agent, dir) in [("grok", &grok), ("codex", &codex)] {
         let config = dir.join("config.toml");
         let status = edit_text(&config, dry_run, |t| without_toml_table(t, MEMORY_SERVER));
@@ -1461,6 +1594,12 @@ pub fn memory_registrations() -> Result<Value> {
         out.push(
             json!({"agent": "claude-code", "mcp_server": has_server(&home.join(".claude.json")),
             "hooks": has_hooks(&home.join(".claude/settings.json"))}),
+        );
+    }
+    for (agent, dir) in claude_profiles(&home) {
+        out.push(
+            json!({"agent": agent, "mcp_server": has_server(&dir.join(".claude.json")),
+            "hooks": has_hooks(&dir.join("settings.json"))}),
         );
     }
     if home.join(".codex").exists() {

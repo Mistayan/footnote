@@ -620,8 +620,15 @@ enum Action {
         #[arg(long)]
         rewrite: Option<String>,
         /// Override automatic command-family detection (`cargo-test`, `cargo-build`, `tests`, `git`, `search`, `linter`, `generic`).
-        #[arg(long, value_parser = ["cargo-test", "cargo-build", "tests", "git", "search", "linter", "generic"])]
+        #[arg(long, value_parser = ["cargo-test", "cargo-build", "tests", "git", "search", "linter", "listing", "generic"])]
         family: Option<String>,
+        /// Leave out the closing `[footnote: …]` line, for output piped into `tail` (the hook adds it there).
+        #[arg(long)]
+        no_footer: bool,
+        /// Leave the program's stderr on stderr instead of merging it into the filtered output (the hook adds it when
+        /// the agent sent stderr elsewhere, as in `2>/dev/null`).
+        #[arg(long)]
+        raw_stderr: bool,
         /// Command and arguments to execute (after `--`).
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
@@ -1930,6 +1937,8 @@ pub fn run() {
         stdin,
         rewrite,
         family,
+        no_footer,
+        raw_stderr,
         command,
     } = &cli.command
     {
@@ -1941,6 +1950,8 @@ pub fn run() {
             family_override: family
                 .as_deref()
                 .and_then(crate::run::CommandFamily::parse_override),
+            no_footer: *no_footer,
+            raw_stderr: *raw_stderr,
             command: command.clone(),
         });
         if code != 0 {

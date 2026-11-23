@@ -117,7 +117,7 @@ Always preview first with `--dry-run`, then apply without `--dry-run`.
 
 ### A. Footnote Memory (Persistent Cross-Session Agent Memory)
 
-Registers `footnote-memory` MCP server, session/prompt hooks (`footnote hook`), and `/remember` across detected agents (Claude Code, Codex CLI, Gemini CLI, Antigravity `agy`, Grok, DeepSeek Harness). On each prompt, recall also checks code-anchored memories for any file paths or symbols named in the prompt (prioritizing past `fix` records), and logs recall hits, misses, and skips in `memory-hook/activity.jsonl` (ids and reasons only, never prompt text) while `memory.activity` is on.
+Registers `footnote-memory` MCP server, session/prompt hooks (`footnote hook`), and `/remember` across detected agents (Claude Code, Codex CLI, Gemini CLI, Antigravity `agy`, Grok, DeepSeek Harness). Claude Code profiles kept with `CLAUDE_CONFIG_DIR` get the same setup in their own `settings.json` and `.claude.json`: the variable's folder, and any other `~/.claude*` folder holding both `projects/` and `.claude.json`, so a profile is found even when the installer runs without the variable. `footnote status` lists each one as `claude-code (<folder>)`. On each prompt, recall also checks code-anchored memories for any file paths or symbols named in the prompt (prioritizing past `fix` records), and logs recall hits, misses, and skips in `memory-hook/activity.jsonl` (ids and reasons only, never prompt text) while `memory.activity` is on.
 
 ```bash
 footnote install --memory --dry-run
@@ -181,7 +181,7 @@ What one request costs:
 
 ### B. Footnote Lean (Shell Compaction, Token Accounting & Prefix Audit)
 
-Installs the fast `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh ... --json`) automatically run through `footnote run` with reversible handles. In Claude Code it also sees `Read`: a whole-file read of a file over 500 lines that `footnote code-index` indexed is answered with the file's outline (definitions and line ranges), and the agent then reads only the part it needs with `offset` and `limit`:
+Installs the fast `PreToolUse` hook (`footnote hook lean`) so eligible shell commands (`cargo`, `git`, `pytest`, `jest/vitest`, `rg/grep`, linters, `gh`, and builds and listings such as `npm ci`, `npx tauri build`, `uv sync`, `make`, `ls` and `find`) automatically run through `footnote run` with reversible handles. Agents rarely send one bare command, so each part of a compound line is handled on its own: `cd x && cargo test 2>&1 | head -40` becomes `cd x && footnote run -- cargo test 2>&1 | head -40`, and `Set-Location x; git status && git diff` gets both `git` parts wrapped. Every other byte is kept, so `&&`, `||` and `;` behave as before. A part is left alone when its output goes to a file or it pipes into anything but `head`, `tail` or `Select-Object -First/-Last` with a line count. Before `tail` and `-Last` it runs as `footnote run --no-footer`, so the closing `[footnote: …]` note does not take one of the last lines. When the part sends stderr elsewhere (`2>/dev/null`, `2>$null`, `2>err.txt`) it runs as `footnote run --raw-stderr`, which leaves the program's stderr out of the filtered output so the redirect still applies. Global options such as `git -C <dir>` and `cargo +nightly` are skipped when finding the subcommand, and so are the bash keywords that can start a part (`then`, `do`, `else`, `time`). A part holding a subshell, script block, `$(…)` or input redirect is left alone, and the parts around it are still rewritten: in `if ($LASTEXITCODE -eq 0) { cargo test }` followed by `git push`, only the `git push` line is wrapped. Commands that wait on the user or keep running are never wrapped: `git commit` without a message, `git rebase -i`, `git add -p`, dev servers (`npm run dev`, `npx vite`) and followed logs (`docker logs -f`). A line with a heredoc, here-string or backtick is left whole, and so is a loop whose output is piped or redirected (`done | grep x`). In PowerShell `ls` is `Get-ChildItem`, so it is wrapped only in bash. On Windows `footnote run` finds the program on `PATH` the way the shell does, so `npx` and `npm` (`.cmd` shims) start, and `find` is the shell's `find`, not `C:\Windows\System32\find.exe`. Claude Code's `Bash` and `PowerShell` tools, Codex and Antigravity get the same rules. In Claude Code it also sees `Read`: a whole-file read of a file over 500 lines that `footnote code-index` indexed is answered with the file's outline (definitions and line ranges), and the agent then reads only the part it needs with `offset` and `limit`:
 
 ```bash
 # Preview, then wire Memory + Lean + User PATH in one command:
@@ -314,9 +314,9 @@ footnote grep "enclosing_symbols" . --glob "*.rs"
 footnote run -- git log -n 20
 footnote gain --days 7
 
-# 4. Lean PreToolUse hook rewrite (eligible command rewritten; piped command untouched)
+# 4. Lean PreToolUse hook rewrite (filtered parts rewritten; a pipe into sort left untouched)
 echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo test --workspace"}}' | footnote hook lean
-echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | head -n 5"}}' | footnote hook lean
+echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | sort"}}' | footnote hook lean
 
 # 5. Turn-1 fixed prefix & MCP schema audit (read-only)
 footnote audit-prefix --root . --probe-mcp
@@ -350,7 +350,7 @@ try {
 
     # 4. Lean PreToolUse hook rewrite
     '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cargo test --workspace"}}' | footnote hook lean
-    '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | head -n 5"}}' | footnote hook lean
+    '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rg foo src | sort"}}' | footnote hook lean
 
     # 5. Turn-1 fixed prefix & MCP schema audit (read-only)
     footnote audit-prefix --root . --probe-mcp
