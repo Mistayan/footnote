@@ -366,6 +366,170 @@ fn an_agent_keeps_its_tools_when_the_daemon_stops() {
     );
 }
 
+/// The memory hook starts a daemon only when none is there. A daemon that is there but slow to answer (still loading its
+/// models after a start, or busy) keeps its socket and the hook answers that prompt by keyword: a second daemon would take
+/// the socket over (on Unix a new listener replaces the socket file) and leave the first one holding its models with no new
+/// connection.
+#[cfg(unix)]
+#[test]
+fn the_hook_starts_a_daemon_only_when_none_is_there() {
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::process::{Command as Std, Stdio};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::time::{Duration, Instant};
+    /// A daemon this test started, stopped when dropped: also when an assertion fails half-way.
+    struct Started(std::process::Child);
+    impl Drop for Started {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let t = tmp();
+    let state = t.path().join("state");
+    fs::create_dir_all(&state).unwrap();
+    let db = state.join("memory.db");
+    let memory = serde_json::json!([{"text": "Always show relative % gaps in every benchmark table.", "kind": "preference",
+                                     "scope": "global", "observed_at": "2026-11-23"}]);
+    bin()
+        .env("FOOTNOTE_STATE_DIR", &state)
+        .arg("--db")
+        .arg(&db)
+        .arg("remember")
+        .write_stdin(memory.to_string())
+        .assert()
+        .success();
+    // A model folder makes the hook recall through the resident daemon; the hook itself never loads it.
+    fs::write(
+        state.join("memory.json"),
+        serde_json::json!({"models": [t.path().join("model")], "resident": true, "idle_seconds": 2}).to_string(),
+    )
+    .unwrap();
+    let hook = |session: &str| {
+        let event = serde_json::json!({"hook_event_name": "UserPromptSubmit", "session_id": session,
+                                       "cwd": env!("CARGO_MANIFEST_DIR"), "prompt": "benchmark table gaps"});
+        let out = bin()
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .arg("hook")
+            .write_stdin(event.to_string())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    let pid = || fs::read_to_string(state.join("daemon.pid")).unwrap_or_default();
+    let start_daemon = || {
+        Started(
+            Std::new(assert_cmd::cargo::cargo_bin!("footnote"))
+                .env("FOOTNOTE_STATE_DIR", &state)
+                .arg("--db")
+                .arg(&db)
+                .args(["serve", "--mcp", "--daemon", "--no-audit"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap(),
+        )
+    };
+
+    // The daemon's socket path, from a daemon started and killed (the socket file stays behind).
+    let daemon = start_daemon();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let sock = loop {
+        let found = fs::read_dir(&state)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.extension().is_some_and(|x| x == "sock"));
+        if let Some(sock) = found {
+            break sock;
+        }
+        assert!(Instant::now() < deadline, "the daemon made no socket");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    drop(daemon);
+    let _ = fs::remove_file(&sock);
+
+    // A daemon that accepts connections and does not answer yet, like one still loading its models.
+    let listener = UnixListener::bind(&sock).unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&accepted);
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            count.fetch_add(1, Ordering::SeqCst);
+            held.push(stream);
+        }
+    });
+    let before = pid();
+    assert!(hook("slow").contains("relative % gaps"), "keyword answer");
+    std::thread::sleep(Duration::from_millis(1500)); // a daemon the hook started would have bound the socket by now
+    let seen = accepted.load(Ordering::SeqCst);
+    assert!(seen >= 1, "the hook did not try the daemon");
+    let _probe = UnixStream::connect(&sock).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        seen + 1,
+        "another daemon took the socket over"
+    );
+    assert_eq!(pid(), before, "the hook started a second daemon");
+
+    // A real daemon that answers in time but fails this call (the model folder does not exist): it keeps its socket too.
+    fs::remove_file(&sock).unwrap();
+    let mut daemon = start_daemon();
+    let serving = daemon.0.id().to_string();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !(pid() == serving && UnixStream::connect(&sock).is_ok()) {
+        assert!(Instant::now() < deadline, "the daemon did not start");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(
+        hook("failing").contains("relative % gaps"),
+        "keyword answer"
+    );
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(pid(), serving, "the hook started a second daemon");
+    assert!(daemon.0.try_wait().unwrap().is_none(), "the daemon stopped");
+    drop(daemon);
+
+    // No daemon at all: the hook starts one for the next prompts, which leaves after its idle time.
+    let _ = fs::remove_file(&sock);
+    let before = pid();
+    assert!(hook("none").contains("relative % gaps"), "keyword answer");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let started = loop {
+        let now = pid();
+        if now != before && UnixStream::connect(&sock).is_ok() {
+            break now;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "no daemon started when none was there"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let alive = || {
+        Std::new("kill")
+            .args(["-0", started.trim()])
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while alive() {
+        if Instant::now() > deadline {
+            let _ = Std::new("kill").arg(started.trim()).status();
+            panic!("the daemon the hook started did not leave after its idle time");
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// Each product's switch (goal 12): off removes its tools from the agent's list and refuses calls at once, on a server
 /// already running; the other products keep working.
 #[test]

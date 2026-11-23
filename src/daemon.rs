@@ -182,11 +182,21 @@ pub fn connect(db: &Path) -> Result<Stream> {
 }
 
 #[cfg(feature = "memory")]
-/// One tool call on the running daemon (the memory hook's recall). Fails when no daemon runs: the caller falls back.
+/// One tool call on the running daemon (`memory-recall --resident`). Fails when no daemon runs: the caller falls back.
 pub fn call(db: &Path, tool: &str, arguments: &serde_json::Value) -> Result<serde_json::Value> {
-    let stream = connect(db).context("no resident daemon")?;
-    let mut reader = BufReader::new(&stream);
-    let mut writer = &stream;
+    call_over(&connect(db).context("no resident daemon")?, tool, arguments)
+}
+
+#[cfg(feature = "memory")]
+/// One tool call over a connection already open to the daemon, for a caller that must tell "no daemon" (`connect`
+/// failed) from "the daemon has not answered yet" (the memory hook's recall).
+pub fn call_over(
+    stream: &Stream,
+    tool: &str,
+    arguments: &serde_json::Value,
+) -> Result<serde_json::Value> {
+    let mut reader = BufReader::new(stream);
+    let mut writer = stream;
     crate::mcp::client_handshake(
         &mut reader,
         &mut writer,
