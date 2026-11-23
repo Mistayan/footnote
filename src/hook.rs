@@ -1266,6 +1266,12 @@ fn write_activity_row(s: &Settings, dir: &Path, row: &Value) {
     if !s.activity {
         return;
     }
+    append_activity(dir, row);
+}
+
+/// Append one entry to `<dir>/activity.jsonl` (the hook's [`note`] and MCP recalls). Best effort, capped: past 512 KB the
+/// older half is dropped.
+pub(crate) fn append_activity(dir: &Path, entry: &Value) {
     let path = dir.join("activity.jsonl");
     if fs::metadata(&path).is_ok_and(|m| m.len() > 512 * 1024)
         && let Ok(text) = fs::read_to_string(&path)
@@ -1273,7 +1279,7 @@ fn write_activity_row(s: &Settings, dir: &Path, row: &Value) {
         let lines: Vec<&str> = text.lines().collect();
         let _ = fs::write(&path, lines[lines.len() / 2..].join("\n") + "\n");
     }
-    let _ = crate::state::append_line(&path, &row.to_string());
+    let _ = crate::state::append_line(&path, &entry.to_string());
 }
 
 fn now_unix_ms() -> u64 {

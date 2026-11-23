@@ -87,7 +87,7 @@ fn memory(state: &Path) -> Result<Value> {
         "db": db,
         "encrypted": crate::app::personal_dir(&db).is_some(),
         "agents": crate::install::memory_registrations()?,
-        "daemon_running": db.exists() && crate::daemon::connect(&db).is_ok(),
+        "daemon_running": crate::daemon::connect(&db).is_ok(),
     });
     let models: Vec<std::path::PathBuf> =
         serde_json::from_value(settings["models"].clone()).unwrap_or_default();
