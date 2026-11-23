@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Boxes, ChevronLeft, FileCode2 } from "lucide-react";
 import "./codemap.css";
 import { footnote, num } from "./data.js";
 import { closure, engineLevel, filesLevel } from "./layout.js";
@@ -160,6 +161,7 @@ export default function CodeMap({ root, project }) {
   const drawn = useRef(null);
   const view = useRef({ x: 0, y: 0, k: 1 });
   const [trail, setTrail] = useState(["engine"]);
+  const [blocks, setBlocks] = useState(null); // level 1's block count, kept for the level switch on level 2
   const [level, setLevel] = useState({ loading: true });
   const [sel, setSel] = useState(null);
   const at = trail[trail.length - 1];
@@ -203,6 +205,7 @@ export default function CodeMap({ root, project }) {
         if (!live) return;
         drawn.current = render(vp.current, L, G, engine, project);
         setLevel({ L, G, data });
+        if (engine) setBlocks(L.nodes.filter((n) => n.kind === "block").length);
       })
       .catch((err) => live && setLevel({ error: String(err) }));
     return () => { live = false; };
@@ -299,21 +302,12 @@ export default function CodeMap({ root, project }) {
         })}
       </ul>
     );
-  const how = (
-    <>
-      <h3>How this map was made</h3>
-      <ul className="how">
-        <li><span className="fn">1</span> Boxes and links: <code>footnote code-map{engine ? "" : ` --block ${at.slice(6)}`}</code> · {level.data?.origin === "compiler" ? "the compiler's index" : "the parser's graph"}</li>
-        <li><span className="fn">2</span> Descriptions: {engine ? <>each block&apos;s <code>Cargo.toml</code> or <code>package.json</code></> : <>each file&apos;s leading module doc</>}, as written</li>
-        <li><span className="fn">3</span> Layout: ELK layered, callers left of what they call</li>
-        <li>No model was called to draw or describe this map.</li>
-      </ul>
-    </>
-  );
-
   return (
     <div className="cmap">
       <div className="cmap-bar">
+        {!engine && (
+          <button type="button" className="back" onClick={() => setTrail(["engine"])}><ChevronLeft size={14} strokeWidth={2} /> All blocks</button>
+        )}
         <nav className="crumbs" aria-label="Zoom level">
           {trail.map((t, i) => (
             <span key={t}>
@@ -325,8 +319,14 @@ export default function CodeMap({ root, project }) {
             </span>
           ))}
         </nav>
-        <div className="levels" aria-hidden="true">
-          <span className={engine ? "on" : ""}>1 blocks</span><span className={engine ? "" : "on"}>2 files</span>
+        <div className="levels" role="group" aria-label="Level">
+          <button type="button" className={engine ? "on" : ""} aria-pressed={engine} onClick={() => !engine && setTrail(["engine"])}
+            aria-label={`Blocks${blocks != null ? `, ${blocks}` : ""}`}>
+            <Boxes size={13} strokeWidth={1.9} />{blocks != null && num(blocks)}
+          </button>
+          <span className={engine ? "" : "on"} aria-label={engine ? "Files: open a block" : `Files, ${L?.nodes.length ?? 0}`}>
+            <FileCode2 size={13} strokeWidth={1.9} />{!engine && L && num(L.nodes.length)}
+          </span>
         </div>
       </div>
       <div className="cmap-main">
@@ -402,7 +402,6 @@ export default function CodeMap({ root, project }) {
               )}
               <h3>Try</h3>
               <p className="hint">Select a box to light up what it reaches. Double-click a box marked <span className="c-open">open ↗</span>, or use its Open button, to go one level down. Esc goes back up.</p>
-              {how}
             </>
           ) : (
             <>
@@ -411,7 +410,7 @@ export default function CodeMap({ root, project }) {
               {node.path && node.path !== node.title && <div className="path">{node.path}</div>}
               {node.desc ? (
                 <>
-                  <p>{node.desc}<span className="fn">2</span></p>
+                  <p>{node.desc}</p>
                   {node.descSource && <div className="src">from <code>{node.descSource}</code></div>}
                 </>
               ) : node.kind === "file" ? (
@@ -443,7 +442,6 @@ export default function CodeMap({ root, project }) {
               {rows([...up], "var(--warn)")}
               <h3>It relies on · {down.size}</h3>
               {rows([...down], "var(--acc)")}
-              {how}
             </>
           )}
         </aside>

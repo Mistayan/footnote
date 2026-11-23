@@ -12,8 +12,16 @@
 .cmap .crumbs button[aria-current] { color: var(--text); font-weight: 600; cursor: default; background: none; }
 .cmap .crumbs .sep { color: var(--line2); }
 .cmap .levels { margin-left: auto; display: flex; gap: 4px; font: var(--t-xs) var(--f-mono); color: var(--mute); }
-.cmap .levels span { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; }
-.cmap .levels span.on { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, transparent); }
+.cmap .levels > * { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px;
+  background: none; color: inherit; font: inherit; }
+.cmap .levels button:not(.on) { cursor: pointer; }
+.cmap .levels button:not(.on):hover { color: var(--text); border-color: var(--line2); }
+.cmap .levels .on { color: var(--acc); border-color: color-mix(in srgb, var(--acc) 45%, transparent); }
+.cmap .back { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px 4px 6px; border: 1px solid var(--line2); border-radius: 8px;
+  background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+.cmap .back:hover { border-color: var(--acc); }
+/* Panning drags the map, never a text selection. */
+.cmap .stage { user-select: none; -webkit-user-select: none; }
 
 .cmap-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: max(560px, calc(100vh - 150px));
   border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
@@ -103,7 +111,6 @@
 .cmap-panel .path { font: 12px var(--f-mono); color: var(--mute); overflow-wrap: anywhere; }
 .cmap-panel p { margin: 13px 0 0; color: var(--text); }
 .cmap-panel h3 { font: 600 11px var(--f-ui); letter-spacing: .07em; text-transform: uppercase; color: var(--mute); margin: 25px 0 8px; }
-.cmap-panel .fn { color: var(--acc); font: 600 10px var(--f-mono); vertical-align: super; margin-left: 2px; }
 .cmap-panel .src { font-size: 12px; color: var(--mute); margin-top: 6px; }
 .cmap-panel code { font: 11.5px var(--f-mono); color: var(--text); }
 .cmap-panel .stats { display: flex; gap: 25px; margin-top: 17px; }
@@ -128,8 +135,6 @@
 .cmap-panel .primary:hover { filter: brightness(1.1); }
 .cmap-panel .primary:focus-visible, .cmap-panel .rows button:focus-visible, .cmap .zoom button:focus-visible, .cmap .crumbs button:focus-visible {
   outline: 2px solid var(--acc); outline-offset: 2px; }
-.cmap-panel .how { padding-left: 0; list-style: none; }
-.cmap-panel .how li { font-size: 12.5px; color: var(--mute); margin: 4px 0; }
 .cmap-panel .hint { color: var(--mute); font-size: 13px; }
 .cmap-panel .chip { display: inline-block; font: 11px var(--f-mono); color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin: 2px 2px 0 0; }
 

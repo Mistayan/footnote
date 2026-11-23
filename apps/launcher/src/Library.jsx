@@ -100,7 +100,7 @@ export default function Library({ refresh }) {
                     <li key={`${d.site}@${d.version}`} className="line-row surface sq lit">
                       <span className="cell-name">{d.site}</span>
                       <span className="cell-dim mono">{d.version}</span>
-                      <span className={`state-dot${d.state === "ready" ? "" : " idle"}`}>{d.state === "ready" ? "Ready" : clip(d.state, 18)}</span>
+                      <span className={`state-dot${d.state === "ready" ? "" : " idle"}`}>{d.state === "ready" ? "Ready" : d.state.startsWith("embedding") ? <span className="shimmer">{clip(d.state, 18)}</span> : clip(d.state, 18)}</span>
                       <span className="num-r mono small">{d.pages != null ? num(d.pages) : "–"}</span>
                       <span className="num-r mono small">{d.bytes != null ? mb(d.bytes) : "–"}</span>
                       <span className="num-r mono small dimmed">
