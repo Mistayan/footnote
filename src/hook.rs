@@ -460,8 +460,6 @@ fn hidden(command: &mut Command) -> &mut Command {
     command
 }
 
-/// The project scope: the repository's name on its `origin` remote (the same on every clone and machine: `footnote`, rather than a
-/// local folder name), else the repository folder's name, else the working folder's.
 /// The files changed in the working tree (from `git status --porcelain`), offered as `code` anchors for the memories being
 /// saved, so a code lookup later finds them (CODE-GRAPH-DESIGN.md section 12). Paths only; nothing is read from the files.
 fn changed_hint(status: &str) -> String {
@@ -482,6 +480,7 @@ fn changed_hint(status: &str) -> String {
     )
 }
 
+/// Resolve the agent's scope from the origin name, primary checkout, or working directory.
 pub(crate) fn project_of(cwd: &str) -> String {
     let remote = git(cwd, &["remote", "get-url", "origin"]);
     let name = remote
@@ -493,12 +492,31 @@ pub(crate) fn project_of(cwd: &str) -> String {
     if !name.is_empty() {
         return name.to_lowercase();
     }
-    let top = git(cwd, &["rev-parse", "--show-toplevel"]);
-    Path::new(if top.is_empty() { cwd } else { &top })
+    Path::new(&primary_root(cwd))
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_lowercase()
+}
+
+/// Map a linked worktree to its primary checkout. The first entry is the primary worktree.
+fn primary_root(cwd: &str) -> String {
+    let top = git(cwd, &["rev-parse", "--show-toplevel"]);
+    if top.is_empty() {
+        return cwd.to_owned();
+    }
+    if Path::new(&top).join(".git").is_file() {
+        let worktrees = git(cwd, &["worktree", "list", "--porcelain", "-z"]);
+        if let Some(root) = worktrees
+            .split('\0')
+            .next()
+            .and_then(|entry| entry.strip_prefix("worktree "))
+            .filter(|root| Path::new(root).is_dir())
+        {
+            return root.to_owned();
+        }
+    }
+    top
 }
 
 /// Default per-call bound for read-only git queries (`footnote projects` runs them in parallel with no hook deadline).
@@ -1476,22 +1494,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
         "SessionStart" => {
             // Best effort, once per session (#209): a failure must not cost the agent its memory pack.
             let _ = crate::state::fix_private_dir(state);
-            let top = git(&e.cwd, &["rev-parse", "--show-toplevel"]);
-            let main_root = if !top.is_empty() && Path::new(&top).join(".git").is_file() {
-                let common = git(
-                    &e.cwd,
-                    &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-                );
-                Path::new(&common)
-                    .parent()
-                    .filter(|p| p.is_dir())
-                    .map(|p| p.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_else(|| top.clone())
-            } else if !top.is_empty() {
-                top.clone()
-            } else {
-                e.cwd.clone()
-            };
+            let main_root = primary_root(&e.cwd);
             // Best effort: the project list must never cost the agent its memory pack.
             // Which agent this is, for the launcher's commit button: Claude Code and Codex keep their session files under
             // `.claude` and `.codex`.
@@ -2045,6 +2048,38 @@ mod tests {
             "took {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    fn linked_worktree_without_origin_uses_the_primary_project_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let primary = dir.path().join("Primary Project");
+        let linked = dir.path().join("task-branch");
+        let empty_hooks = dir.path().join("empty-hooks");
+        fs::create_dir(&primary).unwrap();
+        fs::create_dir(&empty_hooks).unwrap();
+
+        let git = |args: &[&str]| {
+            let output = footnote_core::git_command(&primary)
+                .args([
+                    "-c",
+                    "user.name=test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                ])
+                .arg("-c")
+                .arg(format!("core.hooksPath={}", empty_hooks.display()))
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "git {args:?}: {output:?}");
+        };
+        git(&["init", "-q"]);
+        git(&["commit", "--no-gpg-sign", "--allow-empty", "-qm", "init"]);
+        git(&["worktree", "add", "--detach", linked.to_str().unwrap()]);
+
+        assert_eq!(project_of(primary.to_str().unwrap()), "primary project");
+        assert_eq!(project_of(linked.to_str().unwrap()), "primary project");
     }
 
     #[test]
