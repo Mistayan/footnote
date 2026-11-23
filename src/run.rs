@@ -45,6 +45,7 @@ pub enum CommandFamily {
     Search,
     Linter,
     JsonArray,
+    Listing,
     Generic,
 }
 
@@ -59,6 +60,7 @@ impl CommandFamily {
             Self::Search => "search",
             Self::Linter => "linter",
             Self::JsonArray => "json-array",
+            Self::Listing => "listing",
             Self::Generic => "generic",
         }
     }
@@ -73,6 +75,7 @@ impl CommandFamily {
             "search" => Some(Self::Search),
             "linter" => Some(Self::Linter),
             "json-array" => Some(Self::JsonArray),
+            "listing" => Some(Self::Listing),
             "generic" => Some(Self::Generic),
             _ => None,
         }
@@ -110,6 +113,7 @@ pub fn classify_command(cmd: &[String]) -> CommandFamily {
             _ => CommandFamily::Generic,
         },
         "rg" | "grep" | "egrep" | "fgrep" | "findstr" | "ag" => CommandFamily::Search,
+        "ls" => CommandFamily::Listing,
         "pytest" | "jest" | "vitest" | "mocha" => CommandFamily::TestRunner,
         "go" if sub.as_deref() == Some("test") => CommandFamily::TestRunner,
         "node" if cmd.iter().any(|a| a == "--test") => CommandFamily::TestRunner,
@@ -527,7 +531,11 @@ fn part_rewrite_point(cmd: &str, part: &LinePart, shell: Shell) -> Option<(usize
     if bin == "git" && git_waits_on_user(&argv) {
         return None;
     }
-    if classify_command(&argv) == CommandFamily::Generic && !worth_wrapping(&argv, shell) {
+    // In PowerShell `ls` is `Get-ChildItem`; `footnote run` would start another program.
+    if bin == "ls" && shell != Shell::Posix {
+        return None;
+    }
+    if classify_command(&argv) == CommandFamily::Generic && !worth_wrapping(&argv) {
         return None;
     }
     Some((
@@ -599,7 +607,7 @@ fn keeps_running(argv: &[String]) -> bool {
 
 /// Commands outside the dedicated filters that still print enough to be worth the generic filter (long output is cut
 /// to its head, tail and error lines, with the full text kept behind a handle). Everything else is left alone.
-fn worth_wrapping(argv: &[String], shell: Shell) -> bool {
+fn worth_wrapping(argv: &[String]) -> bool {
     const BUILD_WORDS: &[&str] = &[
         "build",
         "test",
@@ -633,8 +641,6 @@ fn worth_wrapping(argv: &[String], shell: Shell) -> bool {
             .any(|a| BUILD_WORDS.contains(&a.to_ascii_lowercase().as_str()))
     };
     match bin.as_str() {
-        // In PowerShell `ls` is `Get-ChildItem`; `footnote run` would start another program.
-        "ls" => shell == Shell::Posix,
         "find" | "fd" | "tree" | "du" => true,
         "npx" | "pnpx" | "bunx" => names_build(),
         "npm" | "pnpm" | "yarn" | "bun" => match sub.as_deref() {
@@ -869,7 +875,18 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
 
     let raw_bytes = raw_output.len();
     let has_secrets = contains_secrets(&raw_output);
-    let family_sub = subcommand_of(&opts.command);
+    // `ls -t`, `ls -lt`, `--time-style`, `--full-time`: the listing is about dates, so the filter keeps them.
+    let shows_time = family == CommandFamily::Listing
+        && opts.command[1..].iter().any(|a| {
+            a.starts_with("--time")
+                || a == "--full-time"
+                || (a.starts_with('-') && !a.starts_with("--") && a.contains('t'))
+        });
+    let family_sub = if family == CommandFamily::Listing {
+        shows_time.then_some("time")
+    } else {
+        subcommand_of(&opts.command)
+    };
 
     // Track whether uniform JSON-array compaction fired so `footnote gain` attributes it cleanly (#381).
     let (effective_family, filtered_body) =
@@ -1219,7 +1236,121 @@ pub fn filter_output(family: CommandFamily, subcommand: Option<&str>, raw: &str)
         CommandFamily::Search => filter_search(raw),
         CommandFamily::Linter => filter_linter(raw),
         CommandFamily::JsonArray => filter_json_array(raw).unwrap_or_else(|| filter_generic(raw)),
+        CommandFamily::Listing => filter_listing(raw, subcommand == Some("time")),
         CommandFamily::Generic => filter_json_array(raw).unwrap_or_else(|| filter_generic(raw)),
+    }
+}
+
+/// `ls -l` keeps each entry's name, size and kind (`dir/`, `tool*` for an executable, `link -> target`) and drops the
+/// permission, link-count, owner and group columns, and the date unless the listing is sorted or shown by time
+/// (`subcommand` is `"time"` then). `.` and `..` and the `total` line go; other lines (plain `ls`, `dir:` headers of
+/// `ls -R`) pass through.
+fn filter_listing(raw: &str, keep_time: bool) -> String {
+    let mut out = String::with_capacity(raw.len() / 2);
+    for line in raw.lines() {
+        if line.strip_prefix("total ").is_some_and(|n| {
+            n.trim()
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.')
+        }) {
+            continue;
+        }
+        match long_listing_entry(line, keep_time) {
+            Some(None) => continue,
+            Some(Some(entry)) => out.push_str(&entry),
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// One `ls -l` line made short: `None` when the line is not a long-format entry, `Some(None)` for `.` and `..`.
+fn long_listing_entry(line: &str, keep_time: bool) -> Option<Option<String>> {
+    let mut tokens: Vec<(usize, &str)> = Vec::with_capacity(9);
+    let mut rest = line;
+    let mut offset = 0;
+    while tokens.len() < 9 {
+        let trimmed = rest.trim_start();
+        if trimmed.is_empty() {
+            break;
+        }
+        let start = offset + (rest.len() - trimmed.len());
+        let len = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+        tokens.push((start, &trimmed[..len]));
+        offset = start + len;
+        rest = &line[offset..];
+    }
+    let perms = tokens.first()?.1.as_bytes();
+    let kinds = b"-dlcbps";
+    if !(10..=11).contains(&perms.len())
+        || !kinds.contains(&perms[0])
+        || !perms[1..10].iter().all(|c| b"rwxsStT-".contains(c))
+    {
+        return None;
+    }
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|c| c.is_ascii_digit());
+    if tokens.len() < 8 || !digits(tokens[1].1) || !digits(tokens[4].1) {
+        return None;
+    }
+    let size: u64 = tokens[4].1.parse().ok()?;
+    // `2026-11-23 10:31[:00.000] [+0100]` (`--time-style`) or `Nov 23 10:31` / `Nov 23  2025`.
+    let date_end = if tokens[5].1.len() == 10 && tokens[5].1.as_bytes()[4] == b'-' {
+        let mut end = 6;
+        if tokens.get(end).is_some_and(|t| t.1.contains(':')) {
+            end += 1;
+        }
+        if tokens
+            .get(end)
+            .is_some_and(|t| t.1.len() == 5 && matches!(t.1.as_bytes()[0], b'+' | b'-'))
+        {
+            end += 1;
+        }
+        end
+    } else if tokens[5].1.len() == 3
+        && tokens[5].1.bytes().all(|c| c.is_ascii_alphabetic())
+        && digits(tokens[6].1)
+    {
+        8
+    } else {
+        return None;
+    };
+    let name_at = tokens.get(date_end)?.0;
+    let name = &line[name_at..];
+    if name == "." || name == ".." || name == "./" || name == "../" {
+        return Some(None);
+    }
+    let mut entry = String::new();
+    if keep_time {
+        entry.push_str(&line[tokens[5].0..tokens[date_end - 1].0 + tokens[date_end - 1].1.len()]);
+        entry.push_str("  ");
+    }
+    entry.push_str(name);
+    match perms[0] {
+        b'd' if !name.ends_with('/') => entry.push('/'),
+        b'd' | b'l' => {}
+        _ => {
+            if [perms[3], perms[6], perms[9]]
+                .iter()
+                .any(|c| matches!(c, b'x' | b's' | b't'))
+            {
+                entry.push('*');
+            }
+            entry.push_str("  ");
+            entry.push_str(&human_size(size));
+        }
+    }
+    Some(Some(entry))
+}
+
+fn human_size(bytes: u64) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    let b = bytes as f64;
+    match bytes {
+        0..1024 => format!("{bytes}"),
+        1024..1_048_576 => format!("{:.1}K", b / 1024.0),
+        1_048_576..1_073_741_824 => format!("{:.1}M", b / 1_048_576.0),
+        _ => format!("{:.1}G", b / 1_073_741_824.0),
     }
 }
 
@@ -1943,12 +2074,90 @@ fn filter_test_runner(raw: &str) -> String {
 }
 
 fn filter_git(subcommand: Option<&str>, raw: &str) -> String {
+    let collapsed = collapse_line_ending_warnings(raw);
+    let raw = collapsed.as_str();
     match subcommand {
+        Some("push" | "pull" | "fetch" | "clone") => filter_git_transfer(raw),
         Some("status") => filter_git_status(raw),
         Some("log") => filter_git_log(raw),
         Some("diff" | "show") => filter_git_diff(raw),
         _ => filter_generic(raw),
     }
+}
+
+/// Git prints one `warning: in the working copy of 'x', LF will be replaced by CRLF …` line per file on Windows; two or
+/// more become one line naming the first files.
+fn collapse_line_ending_warnings(raw: &str) -> String {
+    let file_of = |line: &str| {
+        let rest = line.strip_prefix("warning: in the working copy of '")?;
+        let (file, tail) = rest.split_once("', ")?;
+        (tail.contains("will be replaced by") && tail.ends_with("the next time Git touches it"))
+            .then_some(file.to_string())
+    };
+    let files: Vec<String> = raw.lines().filter_map(file_of).collect();
+    if files.len() < 2 {
+        return raw.to_string();
+    }
+    let mut out = String::with_capacity(raw.len());
+    let mut said = false;
+    for line in raw.lines() {
+        if file_of(line).is_some() {
+            if !said {
+                let shown: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
+                let more = files.len().saturating_sub(5);
+                out.push_str(&format!(
+                    "warning: Git will change line endings in {} files the next time it touches them: {}{}",
+                    files.len(),
+                    shown.join(", "),
+                    if more > 0 { format!(" and {more} more") } else { String::new() }
+                ));
+                out.push('\n');
+                said = true;
+            }
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// `git push/pull/fetch/clone` keep their ref updates, summaries and errors; object-counting progress, `remote:`
+/// banners (such as the link to open a pull request) and `hint:` advice go.
+fn filter_git_transfer(raw: &str) -> String {
+    const PROGRESS: &[&str] = &[
+        "Enumerating objects",
+        "Counting objects",
+        "Compressing objects",
+        "Writing objects",
+        "Receiving objects",
+        "Resolving deltas",
+        "Unpacking objects",
+        "Delta compression",
+        "Total ",
+    ];
+    let mut out = String::with_capacity(raw.len());
+    for line in raw.lines() {
+        let line = line.rsplit('\r').next().unwrap_or(line);
+        let low = line.to_ascii_lowercase();
+        let alarming = ["error", "fatal", "rejected", "denied", "failed", "warning"]
+            .iter()
+            .any(|w| low.contains(w));
+        if let Some(rest) = line.strip_prefix("remote: ")
+            && (!alarming || PROGRESS.iter().any(|p| rest.starts_with(p)))
+        {
+            continue;
+        }
+        if line == "remote:" || line.starts_with("hint: ") || line == "hint:" {
+            continue;
+        }
+        if PROGRESS.iter().any(|p| line.starts_with(p)) {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
 }
 
 fn filter_git_status(raw: &str) -> String {
@@ -3024,6 +3233,51 @@ mod tests {
             rewrite_command_in("Set-Location x; git status", "footnote", Shell::PowerShell)
                 .as_deref(),
             Some("Set-Location x; footnote run -- git status")
+        );
+    }
+
+    #[test]
+    fn listing_keeps_names_sizes_and_kinds_and_drops_the_other_columns() {
+        let raw = "total 48\n\
+drwxr-xr-x 1 johan 197609     0 Nov 23 10:31 ./\n\
+drwxr-xr-x 1 johan 197609     0 Nov 22 09:00 ../\n\
+-rw-r--r-- 1 johan 197609  2150 Nov 23 10:31 Cargo.toml\n\
+drwxr-xr-x 1 johan 197609     0 Nov 23 10:31 src\n\
+-rwxr-xr-x 1 johan 197609 91234 Nov  2  2025 build tool.sh\n\
+lrwxrwxrwx 1 johan 197609     7 Nov 23 10:31 latest -> v0.5.0\n";
+        assert_eq!(
+            filter_listing(raw, false),
+            "Cargo.toml  2.1K\nsrc/\nbuild tool.sh*  89.1K\nlatest -> v0.5.0\n"
+        );
+        let iso = "-rw-r--r-- 1 j 1 512 2026-11-23 10:31:07.123456789 +0100 a.txt\n";
+        assert_eq!(
+            filter_listing(iso, true),
+            "2026-11-23 10:31:07.123456789 +0100  a.txt  512\n"
+        );
+        // Plain `ls` and `ls -R` headers pass through.
+        assert_eq!(
+            filter_listing("a\nb\n\nsrc:\nc\n", false),
+            "a\nb\n\nsrc:\nc\n"
+        );
+    }
+
+    #[test]
+    fn git_drops_transfer_noise_and_collapses_line_ending_warnings() {
+        let push = "Enumerating objects: 9, done.\nCounting objects: 100% (9/9), done.\n\
+Writing objects: 100% (5/5), 1.2 KiB | 1.2 MiB/s, done.\nTotal 5 (delta 4), reused 0 (delta 0)\n\
+remote: Resolving deltas: 100% (4/4)\nremote:\nremote: Create a pull request for 'x' on GitHub by visiting:\n\
+remote:      https://github.com/o/r/pull/new/x\nremote:\nTo github.com:o/r.git\n * [new branch]      x -> x\n\
+hint: use --set-upstream\nremote: error: GH006: Protected branch update failed\n";
+        assert_eq!(
+            filter_git(Some("push"), push),
+            "To github.com:o/r.git\n * [new branch]      x -> x\nremote: error: GH006: Protected branch update failed\n"
+        );
+        let add = "warning: in the working copy of 'a.rs', LF will be replaced by CRLF the next time Git touches it\n\
+warning: in the working copy of 'b.rs', LF will be replaced by CRLF the next time Git touches it\n\
+warning: in the working copy of 'c.rs', LF will be replaced by CRLF the next time Git touches it\n";
+        assert_eq!(
+            filter_git(Some("add"), add).trim_end(),
+            "warning: Git will change line endings in 3 files the next time it touches them: a.rs, b.rs, c.rs"
         );
     }
 
