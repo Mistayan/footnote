@@ -1,6 +1,6 @@
 [package]
 name = "footnote-launcher"
-version = "0.3.0"
+version = "0.5.0"
 description = "Footnote One: the desktop window over the footnote engine"
 edition = "2024"
 license = "Apache-2.0"
