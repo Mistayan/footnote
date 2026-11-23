@@ -5,6 +5,27 @@ Notable changes to Footnote, newest first. Versions follow semantic versioning, 
 Conventional Commits with git-cliff (`cliff.toml`) and are edited for readers; earlier entries were written by hand. A version's
 section is also its GitHub release notes.
 
+## 0.5.0 - 2026-11-23
+
+Footnote now reaches Claude Code profiles kept with `CLAUDE_CONFIG_DIR`, which had no hooks or MCP server at all, and
+Footnote Lean covers more of what agents run.
+
+### New
+
+- **`tail` pipes and global options** (#580): a command piped into `tail -N` or `Select-Object -Last N` is now compacted
+  too. It runs as `footnote run --no-footer`, a new flag that leaves out the closing `[footnote: …]` note so `tail` still
+  returns the program's last lines; the pipe and its exit code are unchanged. `git -C <dir> status` and
+  `cargo +nightly test` are recognised. Coverage of sampled agent commands: Claude Code 35.8% (0.4.0: 32.0%), Antigravity
+  33.8% (31.8%).
+
+### Fixed
+
+- **Claude Code profiles beside the default** (#579): with `CLAUDE_CONFIG_DIR=<dir>`, Claude Code reads
+  `<dir>/settings.json` and `<dir>/.claude.json`, which `footnote install` never wrote. Install, uninstall and status now
+  cover the variable's folder and any other `~/.claude*` folder holding both `projects/` and `.claude.json`. Run
+  `footnote install` again to set them up.
+- **git status:** the closing hint (`no changes added to commit …`) was listed as an untracked file (#580).
+
 ## 0.4.0 - 2026-11-23
 
 Footnote Lean compacts far more of what agents actually run: compound commands such as `cd x && cargo test | head -40` and
