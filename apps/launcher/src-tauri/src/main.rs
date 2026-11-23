@@ -92,9 +92,11 @@ fn allowed(args: &[String]) -> bool {
         [
             "config",
             "set",
-            "memory.enabled" | "library.enabled" | "code.enabled" | "memory.skill_rewrite",
+            "memory.enabled" | "library.enabled" | "code.enabled" | "memory.skill_rewrite" | "memory.resident",
             "true" | "false",
         ] => true,
+        // Keep in memory (#555): how long the models stay loaded after the last recall, in whole seconds.
+        ["config", "set", "memory.idle_seconds", s] => s.parse::<u32>().is_ok_and(|s| s > 0),
         // The options catalogue (what each option gains and costs) and the review queue: reads.
         ["options"] | ["memory-review"] => true,
         // An agent's pending change to a skill's scripts: the user reads its diff (#472), then serves or refuses it (#457).
@@ -705,7 +707,12 @@ mod tests {
             ok("find -- daemon") && ok("find -- --db") && !ok("find daemon") && !ok("find -- ")
         );
         assert!(
-            !ok("config set memory.resident false")
+            ok("config set memory.resident false")
+                && ok("config set memory.idle_seconds 1800")
+                && !ok("config set memory.idle_seconds 0")
+                && !ok("config set memory.idle_seconds -5")
+                && !ok("config set memory.idle_seconds 30m")
+                && !ok("config set memory.resident maybe")
                 && !ok("config set code.enabled maybe")
                 && !ok("config set code.enabled")
         );
