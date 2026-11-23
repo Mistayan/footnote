@@ -116,7 +116,10 @@ pub fn list(state: &Path, quick: bool) -> Result<Value> {
             p["git"] = git;
         }
         if let Some(ask) = waiting(state, &name) {
-            p["ask"] = json!({"kind": ask["kind"], "asked_at": ask["asked_at"]});
+            p["ask"] = json!({"kind": ask["kind"], "asked_at": ask["asked_at"], "session": ask["session"],
+                "agent": ask["agent"]});
+        } else if let Some(taken) = taken(state, &name) {
+            p["ask_taken"] = taken;
         }
     }
     Ok(json!({"projects": projects, "ignored": ignored}))
@@ -175,6 +178,8 @@ pub fn ignore(state: &Path, project: &str, on: bool) -> Result<Value> {
                 .join(format!("{}.json", file_name(project))),
         );
         let _ = fs::remove_file(ask_path(state, project));
+        let _ = fs::remove_file(turn_path(state, project));
+        let _ = fs::remove_file(taken_path(state, project));
     } else {
         names.remove(project);
     }
@@ -355,6 +360,71 @@ fn ask_path(state: &Path, project: &str) -> std::path::PathBuf {
         .join(format!("{}.json", file_name(project)))
 }
 
+/// Which session took the last request for `project`, and when: what the window shows once the request is gone.
+fn taken_path(state: &Path, project: &str) -> std::path::PathBuf {
+    state
+        .join("agent-asks")
+        .join("taken")
+        .join(format!("{}.json", file_name(project)))
+}
+
+/// The session that started a turn last in `project`: the one a request from the window is meant for.
+fn turn_path(state: &Path, project: &str) -> std::path::PathBuf {
+    state
+        .join("agent-sessions")
+        .join(format!("{}.json", file_name(project)))
+}
+
+/// Write `value` whole: a temporary file of this process, then a rename, so a reader or another writer never sees half.
+fn write_atomic(path: &Path, value: &Value) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        footnote_core::state::ensure_private_dir(dir)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    fs::write(&tmp, value.to_string())?;
+    fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })?;
+    Ok(())
+}
+
+/// Record that `session` started a turn in `project` (a session start or a prompt), which makes it the project's last
+/// session: a commit request from the window names it and only it takes the request. `agent` as for `seen`; empty keeps
+/// the agent already recorded for that session. Ignored projects are not recorded.
+pub fn turn(state: &Path, project: &str, session: &str, agent: &str) -> Result<()> {
+    if ignored(state).contains(project) {
+        return Ok(());
+    }
+    let agent = if agent.is_empty() {
+        last_session(state, project)
+            .filter(|l| l["session"] == session)
+            .and_then(|l| l["agent"].as_str().map(str::to_string))
+            .unwrap_or_default()
+    } else {
+        agent.to_string()
+    };
+    write_atomic(
+        &turn_path(state, project),
+        &json!({"session": session, "agent": agent, "at": now()}),
+    )
+}
+
+/// The project's last session (`session`, `agent`, `at`), if one was recorded.
+pub fn last_session(state: &Path, project: &str) -> Option<Value> {
+    serde_json::from_slice(&fs::read(turn_path(state, project)).ok()?).ok()
+}
+
+/// Who took the last request for `project` and when, while it is recent (an older receipt is removed).
+fn taken(state: &Path, project: &str) -> Option<Value> {
+    let path = taken_path(state, project);
+    let receipt: Value = serde_json::from_slice(&fs::read(&path).ok()?).ok()?;
+    if now() - receipt["taken_at"].as_i64().unwrap_or(0) > ASK_TTL_SECS {
+        let _ = fs::remove_file(&path);
+        return None;
+    }
+    Some(receipt)
+}
+
 fn now() -> i64 {
     time::OffsetDateTime::now_utc().unix_timestamp()
 }
@@ -370,9 +440,11 @@ fn waiting(state: &Path, project: &str) -> Option<Value> {
     Some(ask)
 }
 
-/// `footnote agent-ask <project>`: queue a commit-and-push request for the next agent turn in that project (a session
-/// start, a prompt, or the end of a turn, which then continues with it). The text is fixed here; the window only names the
-/// project. `--cancel` withdraws it.
+/// `footnote agent-ask <project>`: queue a commit-and-push request for the project's last session (the one that started a
+/// turn there last), which takes it at its next hook: a prompt, or the end of a turn, which then continues with it. If
+/// another session starts a turn in the project first, that one becomes the last session and takes it. No supported agent
+/// offers a documented way to reach an idle session from outside (#501), so an idle session gets it when the user next
+/// types there. The text is fixed here; the window only names the project. `--cancel` withdraws it.
 pub fn ask(state: &Path, project: &str, cancel: bool) -> Result<Value> {
     let path = ask_path(state, project);
     if cancel {
@@ -394,27 +466,71 @@ pub fn ask(state: &Path, project: &str, cancel: bool) -> Result<Value> {
     );
     let n = git_state(&root)["uncommitted"].as_u64().unwrap_or(0);
     anyhow::ensure!(n > 0, "nothing to commit in {root}");
-    footnote_core::state::ensure_private_dir(&state.join("agent-asks"))?;
-    let ask = json!({"kind": "commit", "project": project, "path": root, "uncommitted": n, "asked_at": now()});
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, ask.to_string())?;
-    fs::rename(&tmp, &path)?;
+    let last = last_session(state, project).unwrap_or_default();
+    let ask = json!({"kind": "commit", "project": project, "path": root, "uncommitted": n, "asked_at": now(),
+        "session": last["session"], "agent": last["agent"]});
+    write_atomic(&path, &ask)?;
+    // A new request: the receipt of the previous one no longer describes what the window is waiting for.
+    let _ = fs::remove_file(taken_path(state, project));
+    let note = match last["session"].as_str() {
+        Some(id) => format!(
+            "meant for the last session in this project ({} {id}), which takes it at its next turn: a new prompt, or \
+             the end of the turn in progress, which then continues with it. An idle session cannot be reached, so it \
+             waits for the next prompt there",
+            agent_name(last["agent"].as_str().unwrap_or_default())
+        ),
+        None => "the next agent turn in this project receives it: a new prompt or session, or the end of a turn, which \
+                 then continues with it"
+            .to_string(),
+    };
     Ok(
-        json!({"queued": true, "project": project, "path": root, "uncommitted": n,
-        "note": "the next agent turn in this project receives it: a new prompt or session, or the end of a turn, which then continues with it"}),
+        json!({"queued": true, "project": project, "path": root, "uncommitted": n, "session": last["session"],
+        "agent": last["agent"], "delivery": "next-turn", "note": note}),
     )
 }
 
-/// Claim the waiting request for `project`, once: the rename succeeds for one session only. The text to give the agent.
-pub fn take(state: &Path, project: &str) -> Option<String> {
+/// How a person calls the agent the hook recorded (`claude`, `codex`, `antigravity`, or empty when unknown).
+fn agent_name(agent: &str) -> &str {
+    match agent {
+        "claude" => "Claude Code",
+        "codex" => "Codex",
+        "antigravity" => "Antigravity",
+        "" => "agent",
+        other => other,
+    }
+}
+
+/// Claim the waiting request for `project` for `session`, once: only the project's last session may take it (the one the
+/// request names, unless another session started a turn there since), and the rename succeeds for one hook only. `via`
+/// says at which hook (`prompt`, `session start`, `end of turn`) for the receipt the window shows. The text to give the
+/// agent.
+pub fn take(state: &Path, project: &str, session: &str, via: &str) -> Option<String> {
     let path = ask_path(state, project);
     if !path.exists() {
         return None;
     }
     let ask = waiting(state, project)?;
+    let last = last_session(state, project);
+    let target = last
+        .as_ref()
+        .and_then(|l| l["session"].as_str())
+        .or(ask["session"].as_str());
+    if target.is_some_and(|t| t != session) {
+        return None; // meant for another session in this project
+    }
     let claimed = path.with_extension(format!("taken-{}", std::process::id()));
     fs::rename(&path, &claimed).ok()?;
     let _ = fs::remove_file(&claimed);
+    let agent = last
+        .as_ref()
+        .filter(|l| l["session"] == session)
+        .map_or(&ask["agent"], |l| &l["agent"]);
+    // Best effort: a receipt that cannot be written must not cost the agent the request.
+    let _ = write_atomic(
+        &taken_path(state, project),
+        &json!({"kind": ask["kind"], "asked_at": ask["asked_at"], "meant_for": ask["session"], "session": session,
+            "agent": agent, "via": via, "taken_at": now()}),
+    );
     (ask["kind"] == "commit").then(|| {
         COMMIT_ASK
             .replace("{path}", ask["path"].as_str().unwrap_or_default())
@@ -534,21 +650,59 @@ mod tests {
             "asked_at": super::now()});
         std::fs::write(&path, ask.to_string()).unwrap();
         assert!(super::waiting(state, "repo").is_some());
-        let text = super::take(state, "repo").expect("the first turn takes it");
+        let text = super::take(state, "repo", "s1", "prompt").expect("the first turn takes it");
         assert!(
             text.contains(&*root.to_string_lossy()) && text.contains("3 changed file(s)"),
             "{text}"
         );
-        assert!(super::take(state, "repo").is_none(), "only once");
+        assert!(
+            super::take(state, "repo", "s1", "prompt").is_none(),
+            "only once"
+        );
         // An expired request is dropped, not delivered.
         let old = serde_json::json!({"kind": "commit", "path": "x", "uncommitted": 1, "asked_at": super::now() - 2 * super::ASK_TTL_SECS});
         std::fs::write(&path, old.to_string()).unwrap();
-        assert!(super::take(state, "repo").is_none());
+        assert!(super::take(state, "repo", "s1", "prompt").is_none());
         assert!(!path.exists());
         // Cancelling removes it.
         std::fs::write(&path, ask.to_string()).unwrap();
         assert_eq!(super::ask(state, "repo", true).unwrap()["cancelled"], true);
-        assert!(super::take(state, "repo").is_none());
+        assert!(super::take(state, "repo", "s1", "prompt").is_none());
+    }
+
+    #[test]
+    fn only_the_last_session_in_the_project_takes_the_request() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path();
+        super::turn(state, "repo", "old", "codex").unwrap();
+        super::turn(state, "repo", "new", "claude").unwrap();
+        // A session records its agent once; a later turn that cannot tell keeps it.
+        super::turn(state, "repo", "new", "").unwrap();
+        assert_eq!(
+            super::last_session(state, "repo").unwrap()["agent"],
+            "claude"
+        );
+        let ask = serde_json::json!({"kind": "commit", "project": "repo", "path": "x", "uncommitted": 2,
+            "asked_at": super::now(), "session": "new", "agent": "claude"});
+        std::fs::create_dir_all(state.join("agent-asks")).unwrap();
+        std::fs::write(super::ask_path(state, "repo"), ask.to_string()).unwrap();
+        assert!(
+            super::take(state, "repo", "old", "end of turn").is_none(),
+            "an earlier session ending its turn does not take a request meant for the last one"
+        );
+        assert!(super::taken(state, "repo").is_none());
+        assert!(super::take(state, "repo", "new", "end of turn").is_some());
+        let receipt = super::taken(state, "repo").expect("a receipt for the window");
+        assert_eq!(receipt["session"], "new");
+        assert_eq!(receipt["meant_for"], "new");
+        assert_eq!(receipt["agent"], "claude");
+        assert_eq!(receipt["via"], "end of turn");
+        assert!(receipt["taken_at"].as_i64().unwrap() >= ask["asked_at"].as_i64().unwrap());
+        // An ignored project records no session, and ignoring forgets the one it had.
+        super::ignore(state, "repo", true).unwrap();
+        assert!(super::last_session(state, "repo").is_none());
+        super::turn(state, "repo", "later", "claude").unwrap();
+        assert!(super::last_session(state, "repo").is_none());
     }
 
     #[test]

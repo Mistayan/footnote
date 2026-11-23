@@ -1206,6 +1206,20 @@ fn with_context(event: &Event, out: Option<Value>, text: String) -> Option<Value
     Some(v)
 }
 
+/// Which agent a hook event comes from, for the launcher's commit button and the request it sends: Claude Code and Codex
+/// keep their session files under `.claude` and `.codex`; empty when it cannot tell.
+fn agent_of(e: &Event) -> &'static str {
+    if e.agy {
+        "antigravity"
+    } else if e.transcript.contains(".codex") {
+        "codex"
+    } else if e.transcript.contains(".claude") {
+        "claude"
+    } else {
+        ""
+    }
+}
+
 fn stop_ask(event: &Event, reason: String) -> Value {
     let decision = if event.agy { "continue" } else { "block" };
     json!({"decision": decision, "reason": reason})
@@ -1640,18 +1654,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             let _ = crate::state::fix_private_dir(state);
             let main_root = primary_root(&e.cwd);
             // Best effort: the project list must never cost the agent its memory pack.
-            // Which agent this is, for the launcher's commit button: Claude Code and Codex keep their session files under
-            // `.claude` and `.codex`.
-            let agent = if e.agy {
-                "antigravity"
-            } else if e.transcript.contains(".codex") {
-                "codex"
-            } else if e.transcript.contains(".claude") {
-                "claude"
-            } else {
-                ""
-            };
-            let _ = crate::projects::seen(state, &project, &main_root, agent);
+            let _ = crate::projects::seen(state, &project, &main_root, agent_of(&e));
             embed_in_background(s, &db)?;
             // Best effort: a cleaning that cannot start must not cost the agent its memory pack.
             let _ = crate::clean::start_if_due(state, s.clean_days);
@@ -2082,16 +2085,26 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
         }
         _ => {}
     }
-    // A request the user queued from the window for this project (`footnote agent-ask`) goes to the first agent turn that
-    // can take it: with a session start or a prompt, beside what else is given; at the end of a turn, as the reason to
-    // continue, but only when nothing else was asked and the agent is not already continuing for a hook.
+    // A request the user queued from the window for this project (`footnote agent-ask`) goes to the project's last session
+    // (the one that started a turn there last, recorded here): with a session start or a prompt, beside what else is
+    // given; at the end of a turn, as the reason to continue, but only when nothing else was asked and the agent is not
+    // already continuing for a hook. Another session ending its turn there does not take it.
     let ends_turn = e.name == "Stop";
     let starts_turn = matches!(
         e.name.as_str(),
         "SessionStart" | "UserPromptSubmit" | "PreInvocation"
     );
+    if starts_turn {
+        // Best effort: the record must never cost the agent its turn.
+        let _ = crate::projects::turn(state, &project, &e.session, agent_of(&e));
+    }
+    let via = match e.name.as_str() {
+        "SessionStart" => "session start",
+        "Stop" => "end of turn",
+        _ => "prompt",
+    };
     if (starts_turn || (ends_turn && out.is_none() && !e.stop_active))
-        && let Some(text) = crate::projects::take(state, &project)
+        && let Some(text) = crate::projects::take(state, &project, &e.session, via)
     {
         out = if ends_turn {
             Some(stop_ask(&e, text))

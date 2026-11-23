@@ -384,8 +384,9 @@ enum Action {
         #[arg(long)]
         quick: bool,
     },
-    /// Ask the next agent turn in a project to commit and push its uncommitted work (the launcher's commit button). The
-    /// request waits up to a day; the agent receives it once, at a new prompt or session or at the end of a turn.
+    /// Ask the project's last agent session to commit and push its uncommitted work (the launcher's commit button). The
+    /// request waits up to a day; that session receives it once, at its next prompt or at the end of its turn (a session
+    /// that starts a turn there first becomes the last one and takes it). An idle session cannot be reached.
     #[cfg(feature = "memory")]
     AgentAsk {
         /// The project's name, as `footnote projects` lists it.

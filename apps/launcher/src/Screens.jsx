@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import {
   Brain,
   Check,
+  CheckCheck,
   CircleAlert,
   Eye,
   EyeOff,
@@ -17,6 +18,7 @@ import {
   Sparkle,
 } from "lucide-react";
 import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, openReceipt, seen, shortDate } from "./data.js";
+import { sessionName, takenLine, waitingTip } from "./asks.js";
 import AddProject, { ImportGguf } from "./Folders.jsx";
 import { KindIcon } from "./Memory.jsx";
 import { PathPill, Select, Tabs, Tip, clip, toast } from "./ui.jsx";
@@ -51,8 +53,8 @@ const announce = () => dispatchEvent(new Event("footnote-commit-run"));
 
 /** One project as a glass card: name, folder (drive squircle + last folder, opens the folder), then pictograms for its
  * memories, code graph and uncommitted changes. Each pictogram explains itself on hover. The commit pictogram sends the
- * engine's commit-and-push request to the next agent turn in the project (`footnote agent-ask`); while it waits, a click
- * withdraws it. */
+ * engine's commit-and-push request to the project's last agent session (`footnote agent-ask`); while it waits, a click
+ * withdraws it, and once taken its tip says which session took it and when. */
 export function ProjectCard({ p, busy, onIndex, refresh }) {
   const [asking, setAsking] = useState(false);
   const [ignoring, setIgnoring] = useState(false);
@@ -71,6 +73,7 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
   };
   const open = () => openProjectFolder(p.path).catch((e) => toast(String(e), "warn"));
   const waiting = p.ask?.kind === "commit";
+  const taken = waiting ? null : takenLine(p.ask_taken);
   const [, rerender] = useState(0);
   useEffect(() => {
     const on = () => rerender((n) => n + 1);
@@ -102,8 +105,11 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
       toast(`${p.name}: ${clip(r?.said || "done", 220)}${left ? ` (${left} left uncommitted)` : ""}`, left ? "warn" : "ok", { sticky: true });
     } catch (e) {
       if (/is installed on PATH/.test(String(e))) {
-        await footnote("agent-ask", p.name).catch(() => {});
-        toast(`No agent command line found: ${p.name}'s next agent turn commits and pushes instead.`);
+        const q = await footnote("agent-ask", p.name).catch(() => null);
+        const who = sessionName(q?.agent, q?.session);
+        toast(who
+          ? `No agent command line found: sent to ${who}. It commits and pushes at its next turn; while idle it cannot be reached.`
+          : `No agent command line found: ${p.name}'s next agent turn commits and pushes instead.`);
       } else {
         toast(`${p.name}: ${clip(String(e), 200)}`, "warn", { sticky: true });
       }
@@ -147,9 +153,9 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
           </Tip>
         ) : null}
         {p.git && (dirty > 0 && waiting ? (
-          <Tip tip={`Sent: the next agent turn in ${p.name} commits and pushes. Click to withdraw.`}>
+          <Tip tip={waitingTip(p.name, p.ask)}>
             <button type="button" className="stat sent" onClick={ask} disabled={asking}
-              aria-label={`Commit request waiting for the agent in ${p.name}: withdraw it`}>
+              aria-label={`Commit request waiting for ${sessionName(p.ask?.agent, p.ask?.session) ?? "the agent"} in ${p.name}: withdraw it`}>
               <span className="stat-ic"><Send size={12} strokeWidth={2.2} /></span>{num(dirty)}
             </button>
           </Tip>
@@ -159,6 +165,13 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
               <span className="stat-ic"><Loader2 size={12} strokeWidth={2.2} className="spin" /></span>{num(dirty)}
             </span>
           </Tip>
+        ) : dirty > 0 && taken ? (
+          <Tip tip={`${taken} ${num(dirty)} change${dirty === 1 ? "" : "s"} still uncommitted. Click: the agent last used here commits and pushes now, in the background.`}>
+            <button type="button" className="stat sent" onClick={ask} disabled={asking}
+              aria-label={`${taken} ${num(dirty)} uncommitted changes in ${p.name}: commit and push now`}>
+              <span className="stat-ic"><CheckCheck size={13} strokeWidth={2.2} /></span>{num(dirty)}
+            </button>
+          </Tip>
         ) : dirty > 0 ? (
           <Tip tip={`${num(dirty)} uncommitted change${dirty === 1 ? "" : "s"}. Click: the agent last used here commits and pushes now, in the background.`}>
             <button type="button" className="stat bad" onClick={ask} disabled={asking}
@@ -167,8 +180,8 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
             </button>
           </Tip>
         ) : (
-          <Tip tip="Everything is committed">
-            <span className="stat idle on" tabIndex={0} role="img" aria-label="Everything is committed">
+          <Tip tip={taken ? `Everything is committed. ${taken}` : "Everything is committed"}>
+            <span className="stat idle on" tabIndex={0} role="img" aria-label={taken ? `Everything is committed. ${taken}` : "Everything is committed"}>
               <span className="stat-ic"><Check size={13} strokeWidth={2.2} /></span>
             </span>
           </Tip>

@@ -676,6 +676,108 @@ fn a_commit_request_from_the_window_reaches_the_next_turn_once() {
     assert!(!hook(&state, at("a2", "UserPromptSubmit")).contains("commit and push"));
 }
 
+/// #501: the request names the project's last session (the one that started a turn there last) and only it takes it, so
+/// an earlier session ending its turn in the same folder does not; the project list then says who took it, when and how.
+#[test]
+fn a_commit_request_goes_to_the_last_session_in_the_project() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path().join("state");
+    let repo = t.path().join("shop-api");
+    fs::create_dir_all(&state).unwrap();
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(state.join("memory.json"), r#"{"every_turns":1000}"#).unwrap();
+    seed(&state, &[]);
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let at = |session: &str, name: &str, transcript: &str| {
+        json!({"hook_event_name": name, "session_id": session, "cwd": repo.to_string_lossy(), "prompt": "go on",
+            "transcript_path": transcript})
+    };
+    let projects = || -> Value {
+        serde_json::from_slice(
+            &command(&state)
+                .arg("projects")
+                .assert()
+                .success()
+                .get_output()
+                .stdout,
+        )
+        .unwrap()
+    };
+    hook(
+        &state,
+        at("old", "SessionStart", "/home/u/.codex/sessions/old.jsonl"),
+    );
+    hook(
+        &state,
+        at(
+            "new",
+            "SessionStart",
+            "/home/u/.claude/projects/x/new.jsonl",
+        ),
+    );
+    fs::write(repo.join("orders.rs"), "fn main() {}\n").unwrap();
+    let queued: Value = serde_json::from_slice(
+        &command(&state)
+            .args(["agent-ask", "shop-api"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(queued["session"], "new", "{queued}");
+    assert_eq!(queued["agent"], "claude", "{queued}");
+    assert_eq!(queued["delivery"], "next-turn", "{queued}");
+    let listed = projects();
+    assert_eq!(listed["projects"][0]["ask"]["session"], "new", "{listed}");
+
+    let other = hook(&state, at("old", "Stop", ""));
+    assert!(
+        !other.contains("commit and push"),
+        "an earlier session does not take it: {other}"
+    );
+    assert!(projects()["projects"][0]["ask"].is_object());
+
+    let stop: Value = serde_json::from_str(&hook(&state, at("new", "Stop", ""))).unwrap();
+    assert_eq!(stop["decision"], "block", "{stop}");
+    let listed = projects();
+    let p = &listed["projects"][0];
+    assert!(p["ask"].is_null(), "{listed}");
+    assert_eq!(p["ask_taken"]["session"], "new", "{listed}");
+    assert_eq!(p["ask_taken"]["meant_for"], "new", "{listed}");
+    assert_eq!(p["ask_taken"]["agent"], "claude", "{listed}");
+    assert_eq!(p["ask_taken"]["via"], "end of turn", "{listed}");
+    assert!(p["ask_taken"]["taken_at"].as_i64().is_some(), "{listed}");
+
+    // The user prompts the earlier session before the last one moves: it is now the last session and takes the request.
+    command(&state)
+        .args(["agent-ask", "shop-api"])
+        .assert()
+        .success();
+    assert!(projects()["projects"][0]["ask_taken"].is_null());
+    let prompt = hook(
+        &state,
+        at(
+            "old",
+            "UserPromptSubmit",
+            "/home/u/.codex/sessions/old.jsonl",
+        ),
+    );
+    assert!(prompt.contains("commit and push"), "{prompt}");
+    let taken = &projects()["projects"][0]["ask_taken"];
+    assert_eq!(taken["session"], "old", "{taken}");
+    assert_eq!(taken["meant_for"], "new", "{taken}");
+    assert_eq!(taken["agent"], "codex", "{taken}");
+    assert_eq!(taken["via"], "prompt", "{taken}");
+}
+
 /// The commit button's unattended run (`footnote agent-commit`): the hook records which agent a session was (from where it
 /// keeps its session file), and with neither `claude` nor `codex` on PATH the run says so, so the launcher can queue the
 /// request for the next agent turn instead.

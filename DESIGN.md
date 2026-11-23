@@ -180,8 +180,11 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
     that project (recorded by the hook; Claude Code or Codex, else whichever is installed) runs unattended with the engine's
     fixed request. Claude Code may run git commands only; Codex runs in its workspace sandbox with network for the push. The
     pictogram spins while it runs, then a note that stays until dismissed says what was committed and pushed and what was
-    left. With neither command line installed, the request waits for the next agent turn instead (`footnote agent-ask`):
-    the pictogram turns into an accent send mark, and a click withdraws it.
+    left. With neither command line installed, the request waits instead (`footnote agent-ask`), meant for the project's
+    last session (the one that started a turn there last): the pictogram turns into an accent send mark whose tip names
+    that agent and session and says an idle agent cannot be reached, so it waits for the next prompt there; a click
+    withdraws it. Once a session takes it, an accent double check (or the green check, once all is committed) says which
+    agent session took it, when, and at which hook (#501).
   - **Scrolling (T3 Code's rail):** no native scrollbar in the main area or in menus. A sparse tick rail on the right edge,
     about four ticks per screen of content (8 to 36; three per screen in a menu, 6 to 20). The screen in view is brighter,
     and one long white tick marks where you are. On hover the rail spreads and the ticks near the pointer grow like a
@@ -199,6 +202,7 @@ Design pass selected D1's structure for the full window and D2's lenses for the 
 ## 10. Decision log
 | Date | Decision | Reason | Rejected alternative |
 |---|---|---|---|
+| 2026-11-23 | A waiting commit request names the session it is meant for, and its receipt (who took it, when, at which hook) shows on the same pictogram, in its tip and label (#501) | The maintainer expected the click to reach the last agent directly; no supported agent can be messaged while idle, so the window must say who will take it and when it did | A new status line or badge on the card (a new visual element for a rare state); typing into the agent's terminal (a non-goal) |
 | 2026-11-22 | Mini window becomes a squircle KPI widget with a card slider and its own minimize / open full / close controls; Options menu (palette, updates from GitHub releases, help) at the sidebar foot; agent chips repair themselves; the commit pictogram sends the request to the agent | Maintainer review of the real window: the mini's lenses and frame read as a bezel, the version label did not match the shipped release, and copying a request to the clipboard was a useless step | Keep the D2 lenses; a check only when Options opens (replaced the same day by T3 Code's flow: check at start and every six hours, download, restart to update); per-agent installs (the engine connects every agent found in one step) |
 | 2026-11-22 | Launcher shape: squircles everywhere, never full round (pills, tabs, switch, chips, rail, buttons); approve and reject as a green check and a red cross | Maintainer review: the app never used full round, and Apple's squircle is the reference; text Approve/Reject buttons read heavier than the decision needs | Capsule pills and round icon buttons (the first pass of the rework); text buttons |
 | 2026-11-22 | Launcher glass rework: five palettes, glass chrome and heroes, squircle cards, lit borders, tick scroll rail, popover selects, sliding tabs, spring switch, anchored tooltips, armed trash; Projects as cards; Activity only on active days | Maintainer review of the launcher (22 Nov): native controls looked dated, tables were dense and noisy, zero rows and unpushed counts said nothing | Keep dark-only Afterglow with native selects and scrollbars; glass on every row (cost: many blurred layers) |
