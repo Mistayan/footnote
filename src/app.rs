@@ -284,7 +284,7 @@ enum Action {
         /// Install Footnote Lean PreToolUse/BeforeTool shell-rewriter hooks only (#351).
         #[arg(long)]
         lean: bool,
-        /// Disconnect external RTK hooks and MCP entries from detected agent configs (#351).
+        /// Disconnect RTK hooks and MCP entries and remove the obsolete Codex RTK rule.
         #[arg(long)]
         remove_rtk: bool,
         /// Add the folder containing this `footnote` binary to the user's `PATH` (Windows User PATH or POSIX shell profile).

@@ -288,6 +288,69 @@ fn gain_reports_shell_savings_miss_rate_and_attrib() {
 }
 
 #[test]
+fn remove_rtk_removes_only_the_obsolete_codex_rule() {
+    let home = TempDir::new().unwrap();
+    let state = TempDir::new().unwrap();
+    let rules = home.path().join(".codex/rules/default.rules");
+    fs::create_dir_all(rules.parent().unwrap()).unwrap();
+    let before = concat!(
+        "# Keep this comment\r\n",
+        "prefix_rule(pattern=[\"cargo\", \"test\"], decision=\"allow\")\r\n",
+    );
+    let legacy = concat!(
+        "# RTK is mandatory for these local repositories. It is installed under\r\n",
+        "# C:\\example\\rtk and already present in Codex's\r\n",
+        "# inherited PATH, but the elevated Windows sandbox cannot execute it directly.\r\n",
+        "prefix_rule(\r\n",
+        "    pattern = [\"rtk\"],\r\n",
+        "    decision = \"allow\",\r\n",
+        "    justification = \"RTK is the required command wrapper for local development tasks\",\r\n",
+        "    match = [\r\n",
+        "        \"rtk --version\",\r\n",
+        "    ],\r\n",
+        ")\r\n",
+    );
+    let after =
+        "# A rule the user added\r\nprefix_rule(pattern=[\"rtk\", \"git\"], decision=\"prompt\")";
+    let original = format!("{before}{legacy}{after}");
+    let expected = format!("{before}{after}");
+    fs::write(&rules, &original).unwrap();
+
+    let invoke = |args: &[&str]| {
+        let output = cargo_bin_cmd!("footnote")
+            .env("USERPROFILE", home.path())
+            .env("HOME", home.path())
+            .env("FOOTNOTE_STATE_DIR", state.path())
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let dry = invoke(&["install", "--remove-rtk", "--dry-run"]);
+    assert!(
+        dry["rtk_removed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| { entry["what"] == "rtk prefix rule" && entry["status"] == "removed" })
+    );
+    assert_eq!(fs::read_to_string(&rules).unwrap(), original);
+    assert!(!rules.with_extension("rules.footnote-backup").exists());
+
+    invoke(&["install", "--remove-rtk"]);
+    assert_eq!(fs::read_to_string(&rules).unwrap(), expected);
+    assert_eq!(
+        fs::read_to_string(rules.with_extension("rules.footnote-backup")).unwrap(),
+        original
+    );
+
+    invoke(&["install", "--remove-rtk"]);
+    invoke(&["uninstall", "--lean"]);
+    assert_eq!(fs::read_to_string(&rules).unwrap(), expected);
+}
+
+#[test]
 fn install_lean_remove_rtk_and_uninstall_lean_preserves_memory_hooks() {
     let home = TempDir::new().unwrap();
     let state = TempDir::new().unwrap();

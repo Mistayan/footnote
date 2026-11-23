@@ -187,7 +187,8 @@ Installs the fast `PreToolUse` hook (`footnote hook lean`) so eligible shell com
 # Preview, then wire Memory + Lean + User PATH in one command:
 footnote install --memory --lean --add-to-path --dry-run
 footnote install --memory --lean --add-to-path
-# If migrating from RTK, remove legacy RTK hooks/MCP entries in the same step:
+# If migrating from RTK, preview cleanup of legacy hooks, MCP entries and the Codex RTK rule:
+footnote install --lean --remove-rtk --dry-run
 footnote install --lean --remove-rtk
 ```
 

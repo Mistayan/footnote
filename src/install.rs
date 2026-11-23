@@ -773,6 +773,13 @@ fn remove_rtk_entries(home: &Path, dry_run: bool) -> Result<Vec<Value>> {
         &codex_toml,
         edit_text(&codex_toml, dry_run, |t| without_toml_table(t, "rtk")),
     )?;
+    let codex_rules = home.join(".codex/rules/default.rules");
+    push(
+        "codex",
+        "rtk prefix rule",
+        &codex_rules,
+        edit_text(&codex_rules, dry_run, without_legacy_rtk_rule),
+    )?;
     let gemini_settings = home.join(".gemini/settings.json");
     push(
         "gemini-cli",
@@ -1408,6 +1415,28 @@ fn without_toml_table(text: &str, name: &str) -> Option<String> {
         }
     }
     found.then(|| out.trim_end().to_string() + "\n")
+}
+
+fn without_legacy_rtk_rule(text: &str) -> Option<String> {
+    // Match the former mandatory RTK rule by its pattern, decision and justification.
+    // Only take the preceding comment when it is the one shipped with that rule.
+    let rule = regex::Regex::new(concat!(
+        r"(?m)^(?:# RTK is mandatory for [^\r\n]+\. It is installed under\r?\n",
+        r"# [^\r\n]+ and already present in Codex's\r?\n",
+        r"# inherited PATH, but the elevated Windows sandbox cannot execute it directly\.\r?\n)?",
+        r"prefix_rule\([ \t]*\r?\n",
+        r#"[ \t]+pattern[ \t]*=[ \t]*\["rtk"\],[ \t]*\r?\n"#,
+        r#"[ \t]+decision[ \t]*=[ \t]*"allow",[ \t]*\r?\n"#,
+        r#"[ \t]+justification[ \t]*=[ \t]*"RTK is the required command wrapper for local development tasks",[ \t]*\r?\n"#,
+        r"(?:[ \t]+[^\r\n]*\r?\n)*\)[ \t]*(?:\r?\n|\z)",
+    ))
+    .ok()?;
+    let matched = rule.find(text)?;
+    Some(format!(
+        "{}{}",
+        &text[..matched.start()],
+        &text[matched.end()..]
+    ))
 }
 
 /// `footnote uninstall --memory`: remove what `install --memory` added to every agent. Memories and settings stay.
