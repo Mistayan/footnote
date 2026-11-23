@@ -363,3 +363,80 @@ fn oversized_stdin_passes_through_without_a_handle() {
         .success();
     assert!(result.get_output().stdout == input);
 }
+
+/// Windows Application Control blocks the first build script cargo compiled (os error 4551, #392). The run ends there
+/// instead of letting cargo start its other build scripts, each one a system alert, and the next cargo command of a chain
+/// (`cargo clippy; cargo test`) in the same folder is not started at all. A fake `cargo` stands in for the blocked build.
+#[cfg(unix)]
+#[test]
+fn a_blocked_cargo_build_ends_the_run_and_the_chain_after_it() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::{Duration, Instant};
+    let dir = tempfile::tempdir().unwrap();
+    let (bin, project, state) = (
+        dir.path().join("bin"),
+        dir.path().join("p"),
+        dir.path().join("state"),
+    );
+    for d in [&bin, &project] {
+        fs::create_dir(d).unwrap();
+    }
+    let runs = dir.path().join("runs.log");
+    let cargo = bin.join("cargo");
+    fs::write(
+        &cargo,
+        format!(
+            "#!/bin/sh\necho \"$*\" >> '{}'\nfor i in $(seq 1 60); do echo \"   Compiling dep-$i v1.0.0\"; done >&2\nprintf '   Compiling a v1.0.0\\nerror: failed to run custom build command for `a v1.0.0`\\n\\nCaused by:\\n  could not execute process `build-script-build` (never executed)\\n\\nCaused by:\\n  An Application Control policy has blocked this file. (os error 4551)\\n' >&2\nexec sleep 30\n",
+            runs.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let run = |sub: &str| {
+        cargo_bin_cmd!("footnote")
+            .env("FOOTNOTE_STATE_DIR", &state)
+            .env("PATH", &path)
+            .current_dir(&project)
+            .args(["run", "--", "cargo", sub])
+            .timeout(Duration::from_secs(60))
+            .output()
+            .unwrap()
+    };
+
+    let started = Instant::now();
+    let first = run("build");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "the blocked build was not ended: {:?}",
+        started.elapsed()
+    );
+    assert_ne!(first.status.code(), Some(0));
+    let text = String::from_utf8(first.stdout).unwrap();
+    assert!(
+        text.contains("os error 4551") && text.contains("Docker or WSL 2"),
+        "{text}"
+    );
+
+    let second = run("test");
+    assert_eq!(second.status.code(), Some(101));
+    let text = String::from_utf8(second.stdout).unwrap();
+    assert!(
+        text.contains("`cargo test` not run") && text.contains("`cargo build`"),
+        "{text}"
+    );
+    assert_eq!(fs::read_to_string(&runs).unwrap(), "build\n");
+
+    // Another folder is not affected.
+    let other = dir.path().join("other");
+    fs::create_dir(&other).unwrap();
+    cargo_bin_cmd!("footnote")
+        .env("FOOTNOTE_STATE_DIR", &state)
+        .env("PATH", &path)
+        .current_dir(&other)
+        .args(["run", "--", "cargo", "check"])
+        .timeout(Duration::from_secs(60))
+        .output()
+        .unwrap();
+    assert_eq!(fs::read_to_string(&runs).unwrap(), "build\ncheck\n");
+}

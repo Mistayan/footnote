@@ -424,6 +424,57 @@ fn a_missing_indexer_falls_back_to_the_parser_and_says_how_to_upgrade() {
     assert_eq!(v["counts"]["resolved_links"], 1, "{v}");
 }
 
+/// Windows Application Control blocks rust-analyzer's build scripts (os error 4551) in every Rust root alike: the indexer is
+/// tried in the first root only, so one blocked index raises one system alert, and the parser still builds the graph.
+#[cfg(unix)]
+#[test]
+fn an_indexer_blocked_in_one_root_is_not_run_again_in_the_next() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("two-roots");
+    for sub in ["app", "tool"] {
+        fs::create_dir_all(project.join(sub).join("src")).unwrap();
+        fs::write(
+            project.join(sub).join("Cargo.toml"),
+            format!("[package]\nname = \"{sub}\"\n"),
+        )
+        .unwrap();
+        fs::write(project.join(sub).join("src/main.rs"), "fn main() {}\n").unwrap();
+    }
+    let bin = dir.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    let runs = dir.path().join("runs.log");
+    let fake = bin.join("rust-analyzer");
+    fs::write(
+        &fake,
+        format!(
+            "#!/bin/sh\necho run >> '{}'\necho 'An Application Control policy has blocked this file. (os error 4551)' >&2\nexit 1\n",
+            runs.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&fake, fs::Permissions::from_mode(0o755)).unwrap();
+    let out = Command::new(assert_cmd::cargo::cargo_bin!("footnote"))
+        .env("FOOTNOTE_STATE_DIR", dir.path().join("state"))
+        .env("FOOTNOTE_POLICY_FILE", dir.path().join("no-policy.json"))
+        .env("PATH", &bin)
+        .args(["code-index", project.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["indexer"], "tree-sitter", "{v}");
+    assert!(
+        v["upgrade"].as_str().unwrap().contains("os error 4551"),
+        "{v}"
+    );
+    assert_eq!(fs::read_to_string(&runs).unwrap(), "run\n", "{v}");
+}
+
 #[test]
 fn impact_walks_callers_level_by_level_and_lists_tests_apart() {
     let dir = tempfile::tempdir().unwrap();

@@ -890,7 +890,24 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
         let fam = opts
             .family_override
             .unwrap_or_else(|| classify_command(&opts.command));
-        let (combined, code) = spawn_and_capture(&opts.command, opts.raw_stderr)?;
+        let cargo = matches!(fam, CommandFamily::CargoBuild | CommandFamily::CargoTest);
+        // A chain (`cargo clippy; cargo test`) goes on after a blocked build: the next cargo command in this folder would
+        // only raise the same Windows alerts again.
+        if cargo && let Some(blocked) = wac_blocked_recently(&cwd) {
+            let msg = format!(
+                "footnote: `{}` not run: `{blocked}` was just blocked by Windows Application Control (os error 4551) in this \
+                 folder, and would be again. Build in Docker or WSL 2 (HOW-TO.md), or run it again in {WAC_CIRCUIT_SECS} s.\n",
+                opts.command.join(" ")
+            );
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(msg.as_bytes());
+            let _ = stdout.flush();
+            return Ok(101);
+        }
+        let (combined, code, blocked) = spawn_and_capture(&opts.command, opts.raw_stderr, cargo)?;
+        if blocked {
+            record_wac_block(&cwd, &opts.command);
+        }
         let Some(output) = combined else {
             return Ok(code);
         };
@@ -1157,7 +1174,93 @@ fn resolve_program(name: &str) -> std::ffi::OsString {
     name.into()
 }
 
-fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>, i32)> {
+/// How Rust prints `ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION`: Windows Application Control (Smart App Control, WDAC) refused to
+/// start a program. Cargo hits it on the first build script it compiled (#392). The text before it is in the system's
+/// language; this part is not.
+const WAC_BLOCK: &[u8] = b"(os error 4551)";
+
+/// How long cargo commands in a folder where one was just blocked are not started again: long enough for the rest of a
+/// chain typed on one line, short enough not to be in the way once the cause is gone.
+const WAC_CIRCUIT_SECS: u64 = 15;
+
+/// Ends the program and every process it started. On Windows a plain kill ends cargo alone, and the build scripts it started
+/// would go on, each blocked one raising its own alert.
+fn kill_tree(child: &mut std::process::Child) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &child.id().to_string()])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct WacBlock {
+    command: String,
+    at: u64,
+}
+
+fn wac_blocks_path() -> Result<PathBuf> {
+    let dir = crate::state::state_dir()?.join("usage");
+    crate::state::ensure_private_dir(&dir)?;
+    Ok(dir.join("wac-blocked.json"))
+}
+
+fn wac_key(cwd: &Path) -> String {
+    footnote_core::hash(cwd.to_string_lossy().as_bytes())[..16].to_string()
+}
+
+fn load_wac_blocks(path: &Path) -> BTreeMap<String, WacBlock> {
+    let now = now_secs();
+    let mut blocks: BTreeMap<String, WacBlock> = fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    blocks.retain(|_, b| now.saturating_sub(b.at) < WAC_CIRCUIT_SECS);
+    blocks
+}
+
+/// The cargo command blocked in `cwd` within the last `WAC_CIRCUIT_SECS` seconds, if any.
+fn wac_blocked_recently(cwd: &Path) -> Option<String> {
+    let path = wac_blocks_path().ok()?;
+    load_wac_blocks(&path)
+        .remove(&wac_key(cwd))
+        .map(|b| b.command)
+}
+
+fn record_wac_block(cwd: &Path, cmd: &[String]) {
+    let Ok(path) = wac_blocks_path() else {
+        return;
+    };
+    let mut blocks = load_wac_blocks(&path);
+    blocks.insert(
+        wac_key(cwd),
+        WacBlock {
+            command: cmd.join(" "),
+            at: now_secs(),
+        },
+    );
+    let tmp = path.with_extension("json.tmp");
+    if let Ok(bytes) = serde_json::to_vec(&blocks)
+        && fs::write(&tmp, bytes).is_ok()
+    {
+        let _ = fs::rename(&tmp, &path);
+    }
+}
+
+/// Runs `cmd` and returns its output (`None` once it outgrew the store and was streamed), its exit code, and whether Windows
+/// Application Control blocked a program it started. With `stop_on_wac` (cargo), the first block ends the run.
+fn spawn_and_capture(
+    cmd: &[String],
+    raw_stderr: bool,
+    stop_on_wac: bool,
+) -> Result<(Option<String>, i32, bool)> {
     let mut child = Command::new(resolve_program(&cmd[0]))
         .args(&cmd[1..])
         .stdin(Stdio::inherit())
@@ -1196,6 +1299,7 @@ fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>
     let out_reader = pump(Box::new(out), false, sender);
     let (mut stdout_bytes, mut stderr_bytes) = (Vec::new(), Vec::new());
     let mut streaming = false;
+    let mut blocked = false;
     let mut output = std::io::stdout().lock();
     let drained = (|| -> std::io::Result<()> {
         for (stderr, chunk) in receiver {
@@ -1211,6 +1315,19 @@ fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>
                 output.write_all(&chunk)?;
             } else if stderr {
                 stderr_bytes.extend_from_slice(&chunk);
+                // Only the new bytes, plus enough before them for a mark split across two reads.
+                let from = stderr_bytes
+                    .len()
+                    .saturating_sub(chunk.len() + WAC_BLOCK.len() - 1);
+                if stop_on_wac
+                    && !blocked
+                    && stderr_bytes[from..]
+                        .windows(WAC_BLOCK.len())
+                        .any(|w| w == WAC_BLOCK)
+                {
+                    blocked = true;
+                    kill_tree(&mut child);
+                }
             } else {
                 stdout_bytes.extend_from_slice(&chunk);
             }
@@ -1218,7 +1335,7 @@ fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>
         Ok(())
     })();
     if drained.is_err() {
-        let _ = child.kill();
+        kill_tree(&mut child);
     }
     let exit_code = child
         .wait()
@@ -1235,7 +1352,7 @@ fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>
     }
     drained?;
     if streaming {
-        return Ok((None, exit_code));
+        return Ok((None, exit_code, blocked));
     }
 
     let stdout_str = String::from_utf8_lossy(&stdout_bytes);
@@ -1253,7 +1370,7 @@ fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>
             }
         }
     };
-    Ok((Some(combined), exit_code))
+    Ok((Some(combined), exit_code, blocked))
 }
 
 /// Core preservation-first dispatcher across the shipped command families.
@@ -1831,8 +1948,50 @@ fn is_rustc_diag_continuation(line: &str, trimmed: &str) -> bool {
         || line.trim_start().starts_with("| ")
 }
 
+/// Cargo output where Windows Application Control blocked the programs cargo built (#392): the first block, which names the
+/// crate and the program, then one note instead of the same error once per build script still running at that moment.
+fn first_wac_block(clean: &str) -> Option<String> {
+    let blocked = |line: &str| line.trim_end().as_bytes().ends_with(WAC_BLOCK);
+    let blocks = clean.lines().filter(|l| blocked(l)).count();
+    if blocks == 0 {
+        return None;
+    }
+    let mut kept = Vec::new();
+    let mut compiled = 0usize;
+    for line in clean.lines() {
+        let trimmed = line.trim();
+        if is_cargo_progress_line(trimmed) {
+            if trimmed.starts_with("Compiling ") || trimmed.starts_with("Checking ") {
+                compiled += 1;
+            }
+            continue;
+        }
+        if !trimmed.is_empty() {
+            kept.push(line.to_string());
+        }
+        if blocked(line) {
+            break;
+        }
+    }
+    if compiled > 0 {
+        kept.insert(0, format!("cargo: {compiled} crates compiled/checked"));
+    }
+    let more = match blocks - 1 {
+        0 => String::new(),
+        n => format!(" {n} more blocked build script(s) left out."),
+    };
+    kept.push(format!(
+        "note: Windows Application Control does not let programs built on this machine run (os error 4551).{more} \
+         Build in Docker or WSL 2 instead (HOW-TO.md)."
+    ));
+    Some(kept.join("\n"))
+}
+
 fn filter_cargo_build(raw: &str) -> String {
     let clean = strip_ansi(raw);
+    if let Some(wac) = first_wac_block(&clean) {
+        return wac;
+    }
     let mut kept = Vec::new();
     let mut compiled = 0usize;
     let mut in_diag = false;
@@ -1886,6 +2045,9 @@ fn filter_cargo_build(raw: &str) -> String {
 
 fn filter_cargo_test(raw: &str) -> String {
     let clean = strip_ansi(raw);
+    if let Some(wac) = first_wac_block(&clean) {
+        return wac;
+    }
     let mut kept = Vec::new();
     let mut in_diag = false;
     let mut in_failures = false;
@@ -3593,5 +3755,59 @@ no changes added to commit (use \"git add\" and/or \"git commit -a\")
         assert!(validate_handle_id("../memory").is_err());
         assert!(validate_handle_id("h-../../etc/passwd").is_err());
         assert!(validate_handle_id("memory.db").is_err());
+    }
+
+    /// Cargo goes on draining its parallel jobs after the first blocked build script; the agent needs that first one only.
+    #[test]
+    fn cargo_output_keeps_the_first_application_control_block_only() {
+        let raw = "\
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling serde v1.0.229
+error: failed to run custom build command for `proc-macro2 v1.0.107`
+
+Caused by:
+  could not execute process `C:\\repo\\target\\debug\\build\\proc-macro2\\build-script-build.exe` (never executed)
+
+Caused by:
+  An Application Control policy has blocked this file. (os error 4551)
+warning: build failed, waiting for other jobs to finish...
+error: failed to run custom build command for `quote v1.0.47`
+
+Caused by:
+  could not execute process `C:\\repo\\target\\debug\\build\\quote\\build-script-build.exe` (never executed)
+
+Caused by:
+  An Application Control policy has blocked this file. (os error 4551)
+error: failed to run custom build command for `serde v1.0.229`
+
+Caused by:
+  Une stratégie de contrôle d’application a bloqué ce fichier. (os error 4551)
+";
+        for family in [CommandFamily::CargoBuild, CommandFamily::CargoTest] {
+            let out = filter_output(family, Some("build"), raw);
+            assert!(out.starts_with("cargo: 3 crates compiled/checked"), "{out}");
+            assert!(
+                out.contains("failed to run custom build command for `proc-macro2 v1.0.107`")
+                    && out.contains("proc-macro2\\build-script-build.exe"),
+                "{out}"
+            );
+            assert!(
+                !out.contains("quote v1.0.47")
+                    && !out.contains("serde v1.0.229")
+                    && !out.contains("waiting for other jobs"),
+                "{out}"
+            );
+            assert!(
+                out.contains("2 more blocked build script(s) left out"),
+                "{out}"
+            );
+        }
+        // Output without a block is filtered as before.
+        let plain = "   Compiling a v1.0.0\nerror: could not compile `a`\n";
+        assert!(
+            !filter_output(CommandFamily::CargoBuild, Some("build"), plain)
+                .contains("Application Control")
+        );
     }
 }
