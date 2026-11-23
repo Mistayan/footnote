@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 from collections import Counter
+from contextlib import asynccontextmanager
 from datetime import date
 import hashlib
 import json
@@ -100,32 +101,8 @@ def baseline_counts(hook_rows, mcp_calls, used_ids):
     }
 
 
-async def session(codex, footnote, model, sandbox, repo, env, word, memory_id, baseline=None, deduplicate=False):
-    home = Path(env.get("CODEX_HOME") or Path.home() / ".codex")
-    config = home / "config.toml"
-    user = tomllib.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
-    options = ["-c", f"shell_environment_policy.set.FOOTNOTE_STATE_DIR={json.dumps(env['FOOTNOTE_STATE_DIR'])}"]
-    binding = None
-    for name in user.get("mcp_servers", {}):
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
-            raise ValueError("Cannot isolate MCP servers with a nonstandard configuration key")
-        options += ["-c", f"mcp_servers.{name}.enabled=false"]
-    if baseline:
-        state = Path(env["FOOTNOTE_STATE_DIR"])
-        command = json.dumps(str(footnote))
-        args = json.dumps(["--db", str(state / "memory.db"), "serve", "--mcp"])
-        server_env = f"FOOTNOTE_STATE_DIR={json.dumps(str(state))}"
-        if deduplicate:
-            binding = state / "binding.json"
-            env = dict(env, FOOTNOTE_CONTEXT_SESSION_FILE=str(binding))
-            option = f"FOOTNOTE_CONTEXT_SESSION_FILE={json.dumps(str(binding))}"
-            server_env += "," + option
-            options += ["-c", "shell_environment_policy.set." + option]
-        options += ["-c", (
-            f"mcp_servers.{FIXTURE_SERVER}={{command={command},args={args},"
-            f"env={{{server_env}}}}}"
-        )]
-
+@asynccontextmanager
+async def app_server(codex, repo, env, options, name):
     app = await asyncio.create_subprocess_exec(
         codex, "app-server", "--disable", "plugins", "--disable", "memories", *options,
         cwd=repo, env=env, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
@@ -155,10 +132,48 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id, b
 
     try:
         await send("initialize", {
-            "clientInfo": {"name": "footnote-hook-activation", "version": "1"},
+            "clientInfo": {"name": name, "version": "1"},
             "capabilities": {"experimentalApi": True},
         }, 1)
         await send("initialized", {})
+
+        async def next_event():
+            return buffered.pop(0) if buffered else await receive()
+
+        yield send, next_event
+    finally:
+        if app.returncode is None:
+            app.terminate()
+            await app.wait()
+
+
+async def session(codex, footnote, model, sandbox, repo, env, word, memory_id, baseline=None, deduplicate=False):
+    home = Path(env.get("CODEX_HOME") or Path.home() / ".codex")
+    config = home / "config.toml"
+    user = tomllib.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
+    options = ["-c", f"shell_environment_policy.set.FOOTNOTE_STATE_DIR={json.dumps(env['FOOTNOTE_STATE_DIR'])}"]
+    binding = None
+    for name in user.get("mcp_servers", {}):
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+            raise ValueError("Cannot isolate MCP servers with a nonstandard configuration key")
+        options += ["-c", f"mcp_servers.{name}.enabled=false"]
+    if baseline:
+        state = Path(env["FOOTNOTE_STATE_DIR"])
+        command = json.dumps(str(footnote))
+        args = json.dumps(["--db", str(state / "memory.db"), "serve", "--mcp"])
+        server_env = f"FOOTNOTE_STATE_DIR={json.dumps(str(state))}"
+        if deduplicate:
+            binding = state / "binding.json"
+            env = dict(env, FOOTNOTE_CONTEXT_SESSION_FILE=str(binding))
+            option = f"FOOTNOTE_CONTEXT_SESSION_FILE={json.dumps(str(binding))}"
+            server_env += "," + option
+            options += ["-c", "shell_environment_policy.set." + option]
+        options += ["-c", (
+            f"mcp_servers.{FIXTURE_SERVER}={{command={command},args={args},"
+            f"env={{{server_env}}}}}"
+        )]
+
+    async with app_server(codex, repo, env, options, "footnote-hook-activation") as (send, next_event):
         listed = await send("hooks/list", {"cwds": [str(repo)]}, 2)
         hooks = footnote_hooks(listed["data"][0]["hooks"], footnote)
         trust = {event: hooks.get(event, {}).get("trustStatus", "missing") for event in sorted(REQUIRED)}
@@ -190,7 +205,7 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id, b
         usage = None
         rerouted = False
         while True:
-            row = buffered.pop(0) if buffered else await receive()
+            row = await next_event()
             method = row.get("method")
             params = row.get("params", {})
             if not isinstance(params, dict) or params.get("threadId") != thread_id:
@@ -266,10 +281,6 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id, b
             "fixture_memory_used": used, "successful_lean_git": used_lean,
             "commands": commands, "lean_git_runs": len(shell_runs), "tokens": usage, **metrics,
         }
-    finally:
-        if app.returncode is None:
-            app.terminate()
-            await app.wait()
 
 
 def main():
