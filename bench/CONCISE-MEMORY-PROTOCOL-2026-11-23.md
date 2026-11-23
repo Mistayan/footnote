@@ -1,0 +1,18 @@
+# Concise memory protocol for #605
+
+Compare three arms on the same four synthetic task families, each with an initial decision and a follow-up. The task questions and answer key stay out of the write prompts. The author of the benchmark supplied both, so these are held out from the writer and the recall formatter only.
+
+1. **Current.** Write a memory using the current save guidance. Replay the installed Footnote prompt hook with default 200-character recall excerpts, lexical retrieval, and an empty delivery history.
+2. **Excerpt.** Use the same written records and ranked hits. In each recalled line, select the complete decision-bearing sentences when they fit the existing character cap. Preserve the ID and expose the original through a full-text lookup.
+3. **Write and excerpt.** Ask for one shorter self-contained sentence with the same decision requirements. Store the output in a fresh database and replay the same retrieval and excerpt logic.
+
+The local pass uses fixed, synthetic long-form records. The live pilot uses GPT-6.2 Sol for both write prompts and all three task arms, with medium reasoning effort and one scheduled attempt per write and task. Each writer sees the same synthetic notes once. Charge the ordinary writer's complete usage once to each arm that uses its records. Present the three arms in rotating order by task. Both task turns share a fresh ephemeral thread. The follow-up receives no second replay payload.
+
+Use only a dedicated fixture profile with the four installed Footnote hooks already trusted. Verify their completion and an executed Lean git rewrite in each measured thread. Deliver the experimental context in the task prompt so the installed hook and profile stay usable in all arms. Keep the live hook's activation memory in its own synthetic database. Use a fixture-only MCP `footnote_get` for full text and the original IDs. Score task submissions as structured dry-run action decisions and follow-up answers. No external tasks run.
+
+## Decision rule frozen before scoring
+
+- Grade each critical field against the fixed answer key, including the source memory ID, scope, action and its exception or trigger. Grade both turns. A task is accepted only if all fields match, the ranked results exclude its other-project near-match, and the live trace is valid. Record full-text availability and decision-bearing excerpt coverage independently of the accepted task rate.
+- A candidate is eligible for a larger opt-in trial only if both its writer and the baseline writer have complete verified telemetry, both arms have complete task telemetry across the four cases, every candidate task is accepted with every critical field correct, and the candidate spends strictly fewer provider tokens per accepted task than the current arm. A failure or missing metric cannot earn promotion. The pilot cannot establish a product default.
+- The token numerator sums cached input, uncached input and all output for writes and both task turns, including attempted failures when usage was reported. Reasoning output is included in provider output. Show the components separately. The denominator is accepted tasks. Report fully observed totals and mark unavailable totals if a run has incomplete usage. Count full-text calls through follow-up completion, including failures and repeated lookups for the same ID. No benchmark retries are scheduled. Provider-internal retries without trace evidence remain unknown.
+- Local replay records exact fields demonstrably in the excerpt, scoped hit IDs, fallback integrity and context size. Character and byte counts have no bearing on the live adoption rule. Keep successful and failed cases in the receipt.
