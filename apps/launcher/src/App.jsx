@@ -413,9 +413,10 @@ function Sidebar({ status, projects, screen, go }) {
         {item("usage", BarChart3, "Usage")}
         {item("skills", Sparkles, "Skills")}
       </nav>
-      <h2 className="grp">Footnote Enterprise</h2>
-      <nav className="nav" aria-label="Footnote Enterprise">
-        {item("enterprise", Building2, "Alias, sign-on…", <span className="n">Learn more</span>)}
+      {/* Last before the footer and lightly lit: an invitation to look, not a sales banner. */}
+      <nav className="nav ent-cta" aria-label="Footnote Enterprise">
+        {item("enterprise", Building2, <span className="ent-t"><b>Footnote Enterprise</b><small>Alias, sign-on, policies</small></span>,
+          <span className="n" aria-hidden="true">›</span>)}
       </nav>
       <div className="foot">
         <Options version={status?.version} />

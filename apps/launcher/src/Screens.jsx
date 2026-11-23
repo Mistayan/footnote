@@ -21,7 +21,7 @@ import { cancelInstall, footnote, mb, num, openLicense, openProjectFolder, openR
 import { sessionName, takenLine, waitingTip } from "./asks.js";
 import AddProject, { ImportGguf } from "./Folders.jsx";
 import { KindIcon } from "./Memory.jsx";
-import { PathPill, Select, Tabs, Tip, clip, toast } from "./ui.jsx";
+import { PathPill, Scroll, Select, Tabs, Tip, clip, toast } from "./ui.jsx";
 
 // The workspace screens: Projects, Models and Activity. Each reads its own engine command.
 
@@ -147,7 +147,7 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
             <button type="button" className="stat idle" disabled={busy !== null && busy !== undefined} onClick={() => onIndex(p.path)}
               aria-label={`Build the code graph of ${p.name}`}>
               <span className="stat-ic">
-                {busy === p.path ? <Loader2 size={13} strokeWidth={1.9} className="spin" /> : <ScanSearch size={13} strokeWidth={1.9} />}
+                {busy === p.path ? <GraphBuild size={13} /> : <ScanSearch size={13} strokeWidth={1.9} />}
               </span>
             </button>
           </Tip>
@@ -205,18 +205,35 @@ export function ProjectCard({ p, busy, onIndex, refresh }) {
   );
 }
 
+// Indexing builds a call graph, so the busy mark draws one: edges trace in turn and light the node they reach.
+function GraphBuild({ size = 14 }) {
+  const edges = [[3, 3, 11, 4], [3, 3, 4, 11], [11, 4, 11, 11], [4, 11, 11, 11]];
+  const nodes = [[3, 3], [11, 4], [4, 11], [11, 11]];
+  return (
+    <svg className="graph-build" width={size} height={size} viewBox="0 0 14 14" aria-hidden="true">
+      {edges.map(([x1, y1, x2, y2], i) => (
+        <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} pathLength="1" style={{ animationDelay: `${i * 0.35}s` }} />
+      ))}
+      {nodes.map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r="1.7" style={{ animationDelay: `${i * 0.35}s` }} />)}
+    </svg>
+  );
+}
+
 export function Projects({ projects, refresh }) {
   const list = projects?.projects;
   const [busy, setBusy] = useState(null);
+  const [step, setStep] = useState(null); // { i, n }: real position in the batch, shown on the button
   const [error, setError] = useState(null);
   // One at a time: indexing is heavy, and a failure names its project instead of stopping the rest.
   const index = async (paths) => {
     setError(null);
-    for (const path of paths) {
+    for (const [i, path] of paths.entries()) {
       setBusy(path);
+      setStep({ i: i + 1, n: paths.length });
       try { await footnote("code-index", path); } catch (e) { setError(`${path}: ${e}`); }
     }
     setBusy(null);
+    setStep(null);
     refresh?.();
   };
   if (!list) return <div className="body"><span className="skel" /></div>;
@@ -243,8 +260,9 @@ export function Projects({ projects, refresh }) {
           </div>
           <div className="hero-actions">
             {todo.length > 0 && (
-              <button type="button" className="btn primary" disabled={busy !== null} onClick={() => index(todo)}>
-                {busy ? "Indexing…" : `Index ${todo.length} without a graph`}
+              <button type="button" className={`btn primary${busy ? " working" : ""}`} disabled={busy !== null} aria-busy={busy !== null}
+                onClick={() => index(todo)}>
+                {busy ? <><GraphBuild /> {step?.n > 1 ? `Indexing ${step.i} of ${step.n}` : "Indexing"}…</> : `Index ${todo.length} without a graph`}
               </button>
             )}
             <AddProject refresh={refresh} />
@@ -578,6 +596,48 @@ const PERIODS = [[7, "7 days"], [30, "30 days"], [90, "90 days"]];
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 const active = (d) => d.saved || d.prompts_given_memories || d.sessions;
 
+const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
+const utc = (iso) => new Date(`${iso}T00:00:00Z`);
+
+/** The period as a calendar, Monday first: each day shows its date and the memories saved that day, tinted by how many.
+ *  Days with no activity cannot be picked. */
+function DayCalendar({ days, day, pick }) {
+  if (days.length === 0) return null;
+  const byDate = new Map(days.map((d) => [d.date, d]));
+  const first = utc(days[0].date), last = utc(days[days.length - 1].date);
+  const start = new Date(first);
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));
+  const cells = [];
+  for (const t = new Date(start); t <= last || cells.length % 7; t.setUTCDate(t.getUTCDate() + 1)) cells.push(new Date(t));
+  const peak = Math.max(1, ...days.map((d) => d.saved ?? 0));
+  const today = new Date().toISOString().slice(0, 10);
+  const month = (t) => t.toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
+  const range = month(first) === month(last) ? `${month(first)} ${first.getUTCFullYear()}` : `${month(first)} – ${month(last)} ${last.getUTCFullYear()}`;
+  return (
+    <section className="cal surface sq" aria-label="Active days">
+      <div className="cal-head"><b>{range}</b><span>memories saved</span></div>
+      <div className="cal-grid" role="group" aria-label="Pick a day">
+        {WEEKDAYS.map((w, i) => <span key={i} className="wd" aria-hidden="true">{w}</span>)}
+        {cells.map((t) => {
+          const iso = t.toISOString().slice(0, 10), d = byDate.get(iso);
+          if (!d) return <span key={iso} className="cell out" aria-hidden="true" />;
+          const on = active(d), n = d.saved ?? 0;
+          return (
+            <Tip key={iso} tip={`${shortDate(iso)} · ${num(d.prompts_given_memories)} recalls · ${num(n)} saved`}>
+              <button type="button" className={`cell${iso === today ? " today" : ""}`} disabled={!on} aria-pressed={iso === day}
+                onClick={() => pick(iso)} style={{ "--heat": n ? 0.12 + (0.5 * n) / peak : 0 }}
+                aria-label={`${seen(iso)}: ${num(n)} saved, ${num(d.prompts_given_memories)} recalls`}>
+                <span className="dn">{t.getUTCDate() === 1 ? `${t.getUTCDate()} ${month(t)}` : t.getUTCDate()}</span>
+                <b>{on ? num(n) : ""}</b>
+              </button>
+            </Tip>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function Activity() {
   const [days, setDays] = useState(30);
   const { data, error } = useRead(["activity", "--days", String(days)]);
@@ -626,21 +686,8 @@ export function Activity() {
             <p className="empty">Nothing happened in this period. Memory logs a day once an agent saves or recalls.</p>
           ) : (
             <div className="act-split">
-              <section className="surface sq" aria-label="Active days">
-                <div className="days-head" aria-hidden="true"><span>Day</span><span>Recalls</span><span>Saved</span></div>
-                <ul className="days-list">
-                  {live.map((d) => (
-                    <li key={d.date}>
-                      <button type="button" aria-pressed={d.date === day} onClick={() => setPicked(d.date)}>
-                        <b>{seen(d.date)}</b>
-                        <span className="n">{num(d.prompts_given_memories)}</span>
-                        <span className="n">{num(d.saved)}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-              <section className="tbl-card surface sq" aria-labelledby="day-title">
+              <DayCalendar days={all} day={day} pick={setPicked} />
+              <section className="tbl-card day-log surface sq" aria-labelledby="day-title">
                 <h2 id="day-title">
                   {day && shortDate(day)}
                   {chosen && (
@@ -650,6 +697,7 @@ export function Activity() {
                 {recalls.length === 0 ? (
                   <p className="empty">The recall log keeps the latest recalls only; none of them is from this day.</p>
                 ) : (
+                  <Scroll label={`Recalls of ${day && shortDate(day)}`}>
                   <table className="gtbl">
                     <colgroup><col style={{ width: 92 }} /><col style={{ width: 140 }} /><col style={{ width: 170 }} /><col /></colgroup>
                     <thead><tr><th scope="col">Time</th><th scope="col">Event</th><th scope="col">Project</th><th scope="col">Memories given</th></tr></thead>
@@ -683,6 +731,7 @@ export function Activity() {
                       ))}
                     </tbody>
                   </table>
+                  </Scroll>
                 )}
               </section>
             </div>

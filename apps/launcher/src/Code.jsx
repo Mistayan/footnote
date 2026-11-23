@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { footnote, num } from "./data.js";
 import CodeMap from "./CodeMap.jsx";
 import { Select, Tabs } from "./ui.jsx";
-import { FolderGit2 } from "lucide-react";
+import { Boxes, ChevronLeft, FileCode2, FolderGit2, GitFork, Waypoints } from "lucide-react";
 
 // Code, by zoom level (DESIGN.md section 11): the architecture map of a project and its blocks' files (CodeMap.jsx), then
 // one symbol's callers and callees.
@@ -10,9 +10,11 @@ import { FolderGit2 } from "lucide-react";
 export default function Code({ projects, view, go }) {
   const graphs = (projects?.projects ?? []).filter((p) => p.code_graph && p.exists);
   const [root, setRoot] = useState(null);
-  const project = graphs.find((p) => p.path === root) ?? graphs[0];
+  // With several graphs the screen opens on all of them; one graph opens straight on its map.
+  const project = graphs.find((p) => p.path === root) ?? (graphs.length === 1 ? graphs[0] : null);
 
   if (!projects) return <div className="body"><span className="skel" /></div>;
+  if (graphs.length > 1 && !project) return <Graphs graphs={graphs} open={setRoot} />;
   if (!project)
     return (
       <div className="body">
@@ -24,6 +26,9 @@ export default function Code({ projects, view, go }) {
   return (
     <div className="body">
       <div className="bar">
+        {graphs.length > 1 && (
+          <button type="button" className="btn back-btn" onClick={() => setRoot(null)}><ChevronLeft size={14} strokeWidth={2} /> All graphs</button>
+        )}
         {graphs.length > 1 ? (
           <Select value={project.path} options={graphs.map((p) => ({ value: p.path, label: p.name }))} onChange={setRoot}
             label="Project" icon={FolderGit2} />
@@ -36,6 +41,44 @@ export default function Code({ projects, view, go }) {
     </div>
   );
 }
+
+/** Every registered code graph as a card with its size; a card opens that project's map. */
+function Graphs({ graphs, open }) {
+  return (
+    <div className="body">
+      <div className="graph-grid">
+        {graphs.map((p) => <GraphCard key={p.path} p={p} open={() => open(p.path)} />)}
+      </div>
+    </div>
+  );
+}
+
+function GraphCard({ p, open }) {
+  const { data, error } = useRead(["code-map", "--root", p.path]);
+  const blocks = data?.blocks.filter((b) => b.symbols > 0) ?? [];
+  const sum = (k) => blocks.reduce((n, b) => n + (b[k] ?? 0), 0);
+  const kpis = [
+    [Boxes, "blocks", blocks.length],
+    [FileCode2, "files", sum("files")],
+    [GitFork, "symbols", sum("symbols")],
+    [Waypoints, "links", data?.links.length ?? 0],
+  ];
+  return (
+    <button type="button" className="graph-card surface sq" onClick={open} aria-label={`Open the code map of ${p.name}`}>
+      <b>{p.name}</b>
+      <span className="path mono">{p.path}</span>
+      {error ? <span className="warn small">{clipErr(error)}</span> : (
+        <span className="graph-kpis">
+          {kpis.map(([Icon, label, v]) => (
+            <span key={label} title={label}><Icon size={12} strokeWidth={1.9} />{data ? num(v) : "–"}<small>{label}</small></span>
+          ))}
+        </span>
+      )}
+    </button>
+  );
+}
+
+const clipErr = (e) => (e === "ENGINE_MISSING" ? "Engine not found" : String(e).slice(0, 80));
 
 function useRead(args) {
   const [state, setState] = useState({});

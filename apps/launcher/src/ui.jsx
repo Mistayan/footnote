@@ -269,6 +269,33 @@ export function Scroll({ children, className = "", label, compact = false }) {
       el.removeEventListener("scroll", measure);
     };
   }, [measure]);
+  // The end of the scroll answers a push past it: a small bump and a faint accent glow at that edge. Pushing again within
+  // half a second strengthens both, up to a light cap. Reduced motion keeps the glow only.
+  const glow = useRef(null);
+  const push = useRef({ n: 0, t: 0, anim: null });
+  useEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (!e.deltaY || el.scrollHeight <= el.clientHeight + 2) return;
+      const down = e.deltaY > 0;
+      const atEdge = down ? el.scrollTop + el.clientHeight >= el.scrollHeight - 1 : el.scrollTop <= 0;
+      const p = push.current, now = performance.now();
+      if (!atEdge) { p.n = 0; return; }
+      if (p.anim?.playState === "running" && now - p.t < 120) return;
+      p.n = now - p.t < 500 ? Math.min(p.n + 1, 4) : 1;
+      p.t = now;
+      const g = glow.current;
+      g.dataset.edge = down ? "end" : "start";
+      g.animate([{ opacity: 0 }, { opacity: 0.25 + p.n * 0.15 }, { opacity: 0 }], { duration: 560, easing: "ease-out" });
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const px = (2 + p.n * 1.5) * (down ? -1 : 1);
+      p.anim = el.animate([{ translate: "0 0" }, { translate: `0 ${px}px` }, { translate: "0 0" }],
+        { duration: 320, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" });
+    };
+    el.addEventListener("wheel", onWheel, { passive: true });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
   const seek = (e, smooth) => {
     const el = box.current;
     const rail = e.currentTarget.getBoundingClientRect();
@@ -282,6 +309,7 @@ export function Scroll({ children, className = "", label, compact = false }) {
   return (
     <div className={`scroll-wrap ${className}${m.ticks > 0 ? " has-rail" : ""}${compact ? " compact" : ""}`}>
       <div ref={box} className="scroll" role={compact ? undefined : "region"} aria-label={compact ? undefined : label}>{children}</div>
+      <i ref={glow} className="edge-glow" aria-hidden="true" />
       {m.ticks > 0 && (
         <div className="rail" aria-hidden="true"
           onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); seek(e, true); }}
