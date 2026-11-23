@@ -1,0 +1,62 @@
+{
+  "window_utc": [
+    "2026-11-22T14:45:01.706000+00:00",
+    "2026-11-22T14:47:06.301000+00:00"
+  ],
+  "model_requests": 10,
+  "tool_round_trips": 9,
+  "tool_calls": 11,
+  "peak_input_tokens": 157935,
+  "cumulative_input_tokens": 1501804,
+  "cached_input_tokens": 1481862,
+  "text_deliveries": 21,
+  "repeat_deliveries": 2,
+  "sources": {
+    "hook_pack": {
+      "delivered": 10,
+      "distinct": 10,
+      "required_referenced_in_final_answer": 0
+    },
+    "hook_recall": {
+      "delivered": 4,
+      "distinct": 4,
+      "required_referenced_in_final_answer": 0
+    },
+    "mcp_recall": {
+      "delivered": 5,
+      "distinct": 5,
+      "required_referenced_in_final_answer": 3
+    },
+    "mcp_get": {
+      "delivered": 2,
+      "distinct": 2,
+      "required_referenced_in_final_answer": 0
+    }
+  },
+  "mcp_reads": {
+    "mcp_get": 2,
+    "mcp_recall": 2
+  },
+  "failed_mcp_reads": {
+    "mcp_recall": 1
+  },
+  "required": [
+    217,
+    228,
+    268
+  ],
+  "required_missed_by_hooks_and_retrieved_by_mcp": [
+    217,
+    228,
+    268
+  ],
+  "required_referenced_in_final_answer": [
+    217,
+    228,
+    268
+  ],
+  "initial_skill_listing_in_trace": {
+    "skills": 94,
+    "bytes": 29774
+  }
+}

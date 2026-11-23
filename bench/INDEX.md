@@ -146,6 +146,7 @@ Do not quote: L9, L10, L11, M3, M5, C5, T3, T6, T7 (ledger grade N) and anything
 | LEAN-07 | 2026-11-23 | Does GPT Sol receive Footnote Memory and use the Lean rewrite? (#509) | GPT-6.2 Sol used the fixture memory and ran the requested Git command through Footnote Lean. | CURRENT | [CODEX-HOOK-ACTIVATION-2026-11-23.md:3](experiments/CODEX-HOOK-ACTIVATION-2026-11-23.md#L3) |
 | LEAN-08 | 2026-11-23 | How much memory do the hooks and MCP repeat in one accepted GPT Sol turn? (#509) | GPT Sol accepted both fixture runs. Footnote delivered six memory items per run, including three repeats. | CURRENT | [CODEX-CONTEXT-BASELINE-2026-11-23.md:3](experiments/CODEX-CONTEXT-BASELINE-2026-11-23.md#L3) |
 | LEAN-09 | 2026-11-23 | Does a session binding let MCP skip a complete memory delivered by a hook? (#510) | Repeats fell from three to two in one accepted pair. The two MCP responses together shrank by 377 bytes (12.6%). … | CURRENT | [CODEX-CONTEXT-DEDUP-2026-11-23.md:3](experiments/CODEX-CONTEXT-DEDUP-2026-11-23.md#L3) |
+| LEAN-10 | 2026-11-23 | Which sources surface the three design decisions in the recorded code-map turn? (#509) | All three design decisions cited in the answer arrived through MCP recall. The hooks supplied 14 items without surfacing any of the three decisions. | CURRENT | [INFORMATION-LAYER-RECORDED-TURN-2026-11-22.md:3](experiments/INFORMATION-LAYER-RECORDED-TURN-2026-11-22.md#L3) |
 
 ### Infrastructure
 

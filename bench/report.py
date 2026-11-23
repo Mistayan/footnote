@@ -12,11 +12,17 @@ HERE = Path(__file__).resolve().parent
 TASKS = {"scifact": "SciFact", "nfcorpus": "NFCorpus", "syntec": "SyntecRetrieval", "alloprof": "AlloprofRetrieval"}
 
 
+def retrieval_receipts():
+    for path in sorted((HERE / "receipts").glob("*.json")):
+        result = json.loads(path.read_text(encoding="utf-8"))
+        if result.get("protocol") == "v1":
+            yield path, result
+
+
 def latest() -> dict:
     out: dict = {}
-    for f in sorted((HERE / "receipts").glob("*.json")):
-        r = json.loads(f.read_text(encoding="utf-8"))
-        if r.get("partial") or r["protocol"] != "v1":
+    for f, r in retrieval_receipts():
+        if r.get("partial"):
             continue
         out[(r["dataset"]["id"], r["engine"]["id"])] = (f.name, r)
     return out
