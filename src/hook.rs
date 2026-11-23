@@ -141,6 +141,7 @@ struct Settings {
     resident: bool,
     idle_seconds: u64,
     infer_tags: bool,
+    follow_up_recall: bool,
     /// Suggest skills from the themes indexed with `footnote skills index` (#280); off until more prompts are measured.
     skills: bool,
     /// Context size, in tokens, past which Stop asks once for a handoff and a fresh session (#250, #379); 0 never asks.
@@ -186,6 +187,7 @@ impl Default for Settings {
             resident: true,
             idle_seconds: 1800,
             infer_tags: false,
+            follow_up_recall: false,
             skills: false,
             skill_rewrite: false,
             skill_trial_uses: 5,
@@ -394,7 +396,7 @@ struct Event {
     session: String,
     cwd: String,
     prompt: String,
-    /// Claude Code's session file; read only for its last token count, never its text.
+    /// Local transcript used for token counts and opt-in follow-up recall.
     transcript: String,
     stop_active: bool,
     /// True for Antigravity (`agy` CLI / IDE / ACP) payloads: `injectSteps` output and `decision: "continue"` on Stop.
@@ -1342,6 +1344,148 @@ fn recall(s: &Settings, db: &Path, project: &str, query: &str, limit: usize) -> 
     crate::memory::recall(&c, query, Some(project), limit, &[], &tags)
 }
 
+fn follow_up_topic(e: &Event, project: &str) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let prompt = e.prompt.trim();
+    if matches!(project, "" | "global" | "personal")
+        || prompt.len() > 500
+        || !prompt
+            .to_lowercase()
+            .split(|c: char| !c.is_alphabetic())
+            .any(|word| {
+                matches!(
+                    word,
+                    "it" | "this"
+                        | "that"
+                        | "these"
+                        | "those"
+                        | "them"
+                        | "continue"
+                        | "same"
+                        | "ça"
+                        | "cela"
+                        | "suite"
+                        | "poursuis"
+                )
+            })
+    {
+        return None;
+    }
+    let path = Path::new(&e.transcript);
+    if path.extension()?.to_str()? != "jsonl" || path.file_stem()?.to_str()? != e.session {
+        return None;
+    }
+    const TAIL_BYTES: u64 = 512 * 1024;
+    let mut file = fs::File::open(path).ok()?;
+    let start = file.metadata().ok()?.len().saturating_sub(TAIL_BYTES);
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(TAIL_BYTES).read_to_end(&mut bytes).ok()?;
+    let mut current_prompt_seen = false;
+    for line in bytes.split(|&b| b == b'\n').rev() {
+        let Ok(row) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if row["sessionId"] != e.session || row["isSidechain"] == true || row["isMeta"] == true {
+            continue;
+        }
+        let content = &row["message"]["content"];
+        if row["type"] == "user" {
+            let user = content.as_str().or_else(|| {
+                content.as_array()?.iter().find_map(|block| {
+                    (block["type"] == "text")
+                        .then(|| block["text"].as_str())
+                        .flatten()
+                })
+            });
+            if let Some(user) = user {
+                if !current_prompt_seen && user.trim() == prompt {
+                    current_prompt_seen = true;
+                    continue;
+                }
+                return None;
+            }
+        }
+        if row["type"] != "assistant" || row["message"]["stop_reason"] != "end_turn" {
+            continue;
+        }
+        let cwd = row["cwd"]
+            .as_str()
+            .map(footnote_core::path_map::map_host_path)?;
+        if Path::new(&cwd) != Path::new(&e.cwd) {
+            return None;
+        }
+        // Only unambiguous, explicit project commands. Surrounding prose is never searched.
+        let mut topics = std::collections::BTreeSet::new();
+        for text in content
+            .as_array()?
+            .iter()
+            .filter(|block| block["type"] == "text")
+            .filter_map(|block| block["text"].as_str())
+        {
+            for inline in text.split('`').skip(1).step_by(2) {
+                let Some((command, action)) = inline.split_once(' ') else {
+                    continue;
+                };
+                if command.eq_ignore_ascii_case(project)
+                    && action.len() <= 64
+                    && action.contains('-')
+                    && action.split('-').all(|part| {
+                        part.len() >= 2 && part.bytes().all(|b| b.is_ascii_alphanumeric())
+                    })
+                {
+                    topics.insert(action.to_ascii_lowercase().replace('-', " "));
+                }
+            }
+        }
+        return (topics.len() == 1)
+            .then(|| topics.into_iter().next())
+            .flatten();
+    }
+    None
+}
+
+fn follow_up_hits(
+    s: &Settings,
+    e: &Event,
+    db: &Path,
+    project: &str,
+    shown: &[i64],
+) -> Option<Vec<Value>> {
+    let topic = follow_up_topic(e, project)?;
+    let c = crate::app::open(db, false).ok()?;
+    let tags = if s.infer_tags {
+        crate::memory::prompt_tags(&c, &topic).ok()?
+    } else {
+        vec![]
+    };
+    let results = crate::memory::recall(&c, &topic, Some(project), 20, &[], &tags).ok()?;
+    let mut matches: Vec<_> = results["memories"]
+        .as_array()?
+        .iter()
+        .filter(|m| {
+            m["scope"] == project
+                && m["id"].as_i64().is_some_and(|id| !shown.contains(&id))
+                && m["text"].as_str().is_some_and(|body| {
+                    topic.split_whitespace().all(|term| {
+                        body.split(|c: char| !c.is_ascii_alphanumeric())
+                            .any(|word| word.eq_ignore_ascii_case(term))
+                    })
+                })
+        })
+        .cloned()
+        .collect();
+    if let Some(index) = matches.iter().position(|m| {
+        m["tags"]
+            .as_array()
+            .is_some_and(|tags| tags.iter().any(|tag| tag == "locked"))
+    }) {
+        // Keep one matching locked decision ahead of regular topical hits.
+        matches[..=index].rotate_right(1);
+    }
+    (!matches.is_empty()).then_some(matches)
+}
+
 fn metric(state: &Path, on: bool, mut row: Value) {
     if on {
         row["t"] = json!(
@@ -1704,12 +1848,29 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                         Ok(v)
                     })?;
                     let (mut raw_total, mut after_floors) = (0usize, 0usize);
+                    let mut reason = None;
                     if let Some(list) = hits["memories"].as_array_mut() {
                         raw_total = list.len();
                         list.retain(|m| passes_floors(m, s.cos_floor, s.inject_floor));
                         after_floors = list.len();
                         list.retain(|m| m["id"].as_i64().is_none_or(|id| !st.shown.contains(&id)));
                         list.truncate(s.recall_limit);
+                        if s.follow_up_recall
+                            && e.name == "UserPromptSubmit"
+                            && signals.anchors.is_empty()
+                            && list.iter().filter(|m| m["scope"] == project).count()
+                                < s.recall_limit
+                            && let Some(mut contextual) =
+                                follow_up_hits(s, &e, &db, &project, &st.shown)
+                        {
+                            contextual.retain(|m| !list.iter().any(|old| old["id"] == m["id"]));
+                            if !contextual.is_empty() {
+                                list.retain(|m| m["scope"] == project);
+                                list.extend(contextual);
+                                list.truncate(s.recall_limit);
+                                reason = Some("previous_reply");
+                            }
+                        }
                     }
                     let hit_ids: Vec<Value> = hits["memories"]
                         .as_array()
@@ -1732,7 +1893,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                             &project,
                             &session_id,
                             &hit_ids,
-                            None,
+                            reason,
                             anchor_hits,
                         );
                         recalled = if s.pointer_packing {

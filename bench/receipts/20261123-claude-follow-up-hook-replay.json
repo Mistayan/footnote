@@ -1,0 +1,36 @@
+{
+  "turn_start_utc": "2026-11-22T14:45:01.706000+00:00",
+  "footnote_sha256": "c104e0a5efc55b47c03be695d157dda43338707e9ecc432cf44ff7232ab06d90",
+  "settings": {
+    "resident": false,
+    "recall_limit": 4
+  },
+  "results": {
+    "direct": {
+      "memories_delivered": 4,
+      "required_ids_rendered": [
+        268
+      ],
+      "required_ids_rendered_as_excerpt": [
+        268
+      ],
+      "hook_context_bytes": 1115,
+      "used_previous_reply": false
+    },
+    "follow_up": {
+      "memories_delivered": 4,
+      "required_ids_rendered": [
+        268,
+        217,
+        228
+      ],
+      "required_ids_rendered_as_excerpt": [
+        268,
+        217,
+        228
+      ],
+      "hook_context_bytes": 1109,
+      "used_previous_reply": true
+    }
+  }
+}

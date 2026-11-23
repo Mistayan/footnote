@@ -63,6 +63,14 @@ pub fn catalogue() -> Vec<OptionSpec> {
             cost: "A memory tagged without the word the prompt uses is left out; off until bench/experiments/MEMORY-TAGS.md passes",
         },
         OptionSpec {
+            key: "memory.follow_up_recall",
+            default: json!(false),
+            range: None,
+            choices: None,
+            gain: "Claude Code follow-ups can recover project memories about the command mentioned in the previous reply",
+            cost: "Reads a bounded tail of the local transcript when direct recall leaves room for project memories; the reply is used only to extract a command topic",
+        },
+        OptionSpec {
             key: "memory.skills",
             default: json!(false),
             range: None,

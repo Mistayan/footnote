@@ -50,6 +50,101 @@ fn seed(state: &Path, models: &[&str]) {
 }
 
 #[test]
+fn follow_up_recall_uses_one_project_topic_from_the_same_completed_reply() {
+    let t = tempfile::tempdir().unwrap();
+    let state = t.path();
+    let cwd = state.join("follow-up-fixture");
+    fs::create_dir(&cwd).unwrap();
+    let id = "019a9d4e-918b-7000-a027-38fe53eec001";
+    let transcript = state.join(format!("{id}.jsonl"));
+    command(state)
+        .arg("--db")
+        .arg(state.join("memory.db"))
+        .arg("remember")
+        .write_stdin(
+            json!([
+                {"text": "The target map uses violet widgets.", "kind": "fact", "scope": "follow-up-fixture", "observed_at": "2026-11-22"},
+                {"text": "The target map uses fixed tick marks.", "kind": "fact", "scope": "follow-up-fixture", "observed_at": "2026-11-22", "tags": ["locked"]},
+                {"text": "Could we check it again before lunch?", "kind": "preference", "scope": "global", "observed_at": "2026-11-22"},
+                {"text": "The target map uses private labels.", "kind": "fact", "scope": "personal", "observed_at": "2026-11-22"}
+            ]).to_string()
+        )
+        .assert()
+        .success();
+    let prompt = "Could we check it again?";
+    let event = json!({
+        "hook_event_name":"UserPromptSubmit","session_id":id,"cwd":cwd,
+        "transcript_path":transcript,"prompt":prompt,
+    });
+    let reply = |session: &str, folder: &Path, text: &str| {
+        json!({
+            "type": "assistant", "sessionId": session, "cwd": folder, "isSidechain": false,
+            "message": {"stop_reason":"end_turn","content":[{"type":"text","text":text}]},
+        })
+    };
+    let call = |enabled: bool, prior: Value, between: Option<Value>| {
+        let mut rows = vec![prior];
+        rows.extend(between);
+        rows.push(json!({"type":"user","sessionId":id,"message":{"content":prompt}}));
+        let input = rows
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(&transcript, input).unwrap();
+        fs::write(
+            state.join("memory.json"),
+            json!({"follow_up_recall":enabled,"resident":false,"idle_handoff_minutes":0})
+                .to_string(),
+        )
+        .unwrap();
+        let _ = fs::remove_file(state.join(format!("memory-hook/{id}.json")));
+        hook(state, event.clone())
+    };
+    let valid = reply(
+        id,
+        &cwd,
+        "Transcript sentinel. I used `follow-up-fixture target-map`.",
+    );
+    let direct = call(false, valid.clone(), None);
+    assert!(direct.contains("before lunch"));
+    assert!(!direct.contains("violet widgets"));
+    let contextual = call(true, valid.clone(), None);
+    let locked = contextual.find("fixed tick marks").unwrap();
+    let topical = contextual.find("violet widgets").unwrap();
+    assert!(locked < topical);
+    assert!(!contextual.contains("before lunch"));
+    assert!(!contextual.contains("private labels"));
+    assert!(!contextual.contains("Transcript sentinel"));
+
+    for (other, between) in [
+        (
+            reply("another-session", &cwd, "`follow-up-fixture target-map`"),
+            None,
+        ),
+        (reply(id, state, "`follow-up-fixture target-map`"), None),
+        (
+            reply(
+                id,
+                &cwd,
+                "`follow-up-fixture target-map` or `follow-up-fixture build-plan`",
+            ),
+            None,
+        ),
+        (
+            valid,
+            Some(
+                json!({"type":"user","sessionId":id,"message":{"content":[{"type":"text","text":"New topic"}]}}),
+            ),
+        ),
+    ] {
+        let rejected = call(true, other, between);
+        assert!(rejected.contains("before lunch"));
+        assert!(!rejected.contains("violet widgets"));
+    }
+}
+
+#[test]
 fn standalone_mcp_marks_only_full_deliveries_from_its_bound_session() {
     let t = tempfile::tempdir().unwrap();
     let root = t.path().canonicalize().unwrap();
