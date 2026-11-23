@@ -78,7 +78,7 @@ fn browse_activity_and_jobs_show_what_memory_did_without_prompts() {
     );
     let log = fs::read_to_string(state.join("memory-hook/activity.jsonl")).unwrap();
     assert!(
-        log.contains("\"recall\"") && !log.contains("zebra"),
+        log.contains("\"recall\"") && log.contains("\"save\"") && !log.contains("zebra"),
         "{log}"
     );
     let st = footnote(state, &["status"], None);
@@ -89,6 +89,23 @@ fn browse_activity_and_jobs_show_what_memory_did_without_prompts() {
     let day = days.iter().find(|d| d["date"] == today.as_str()).unwrap();
     assert_eq!(day["saved"], 3, "{act}"); // four saved, one forgotten
     assert_eq!(day["prompts_given_memories"], 1, "{act}");
+    let hours = act["hours"].as_array().unwrap();
+    assert_eq!(hours.len(), 7, "7-day hourly grid: {act}");
+    let today_hours = hours.last().unwrap()["hours"].as_array().unwrap();
+    assert_eq!(today_hours.len(), 24, "24 cells per day: {act}");
+    let hourly_saved: u64 = today_hours
+        .iter()
+        .map(|c| c["saved"].as_u64().unwrap())
+        .sum();
+    let hourly_recalls: u64 = today_hours
+        .iter()
+        .map(|c| c["recalls"].as_u64().unwrap())
+        .sum();
+    assert_eq!(
+        (hourly_saved, hourly_recalls),
+        (4, 1),
+        "per-hour saves and recalls: {act}"
+    );
     assert!(act["most_used"][0]["memory"]["text"].is_string(), "{act}");
     // Recent recalls, newest first, name the memories that reached the agent (never the prompt).
     let recent = act["recent"].as_array().unwrap();

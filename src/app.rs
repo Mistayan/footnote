@@ -1561,7 +1561,10 @@ fn execute(cli: Cli) -> Result<Value> {
                 &mut std::io::Read::take(std::io::stdin(), 512 * 1024),
                 &mut input,
             )?;
-            crate::memory::remember(&mut c, &serde_json::from_str(&input)?, &model, "cli")
+            let report =
+                crate::memory::remember(&mut c, &serde_json::from_str(&input)?, &model, "cli")?;
+            crate::activity::log_save(db, &report);
+            Ok(report)
         }
         #[cfg(feature = "memory")]
         Action::Forget { id } => crate::memory::forget(&mut c, id),

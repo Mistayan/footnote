@@ -50,15 +50,38 @@ const projects = {
   ignored: ["2026-11-21-scratch", "bare-probe"],
 };
 
+const PROFILE = [0.5, 0.3, 0.12, 0.05, 0.04, 0.05, 0.1, 0.4, 0.9, 1.2, 1.4, 1.3, 0.8, 1, 1.4, 1.5, 1.4, 1.2, 0.9, 1, 1.3, 1.4, 1.2, 0.9];
+let actSeed = 20261123;
+const actRnd = () => ((actSeed = (actSeed * 1664525 + 1013904223) % 4294967296) / 4294967296);
+function spreadHours(total, burst) {
+  if (!total) return Array.from({ length: 24 }, () => 0);
+  const w = PROFILE.map((p) => p * (burst ? (actRnd() < 0.45 ? 0 : 0.4 + actRnd() * 1.8) : 0.55 + actRnd() * 0.9));
+  const sum = w.reduce((a, b) => a + b, 0);
+  const raw = w.map((x) => (x / sum) * total);
+  const out = raw.map(Math.floor);
+  raw
+    .map((x, i) => [x - Math.floor(x), i])
+    .sort((a, b) => b[0] - a[0])
+    .slice(0, total - out.reduce((a, b) => a + b, 0))
+    .forEach(([, i]) => { out[i] += 1; });
+  return out;
+}
+
+const activityDays = [6, 5, 4, 3, 2, 1, 0].map((back, i) => {
+  const saved = [36, 18, 19, 27, 24, 19, 22][i];
+  const prompts_given_memories = [108, 96, 170, 152, 119, 200, 129][i];
+  const sessions = [22, 25, 61, 55, 29, 45, 28][i];
+  const s = spreadHours(saved, true);
+  const r = spreadHours(prompts_given_memories, false);
+  const hours = s.map((sv, h) => ({ saved: sv, recalls: r[h] }));
+  return { date: iso(back), saved, recalls: prompts_given_memories, prompts_given_memories, sessions, hours };
+});
+
 const activity = {
   activity_log: true,
   note: "dates in UTC; saves by the date the agent observed; prompt text is never recorded",
-  days: [6, 5, 4, 3, 2, 1, 0].map((back, i) => ({
-    date: iso(back),
-    saved: [0, 3, 7, 0, 12, 9, 10][i],
-    prompts_given_memories: [0, 22, 41, 0, 63, 70, 80][i],
-    sessions: [0, 2, 4, 0, 6, 5, 7][i],
-  })),
+  days: activityDays,
+  hours: activityDays,
   recent: [
     { t: Date.parse(`${iso(0)}T09:12:00Z`), event: "recall", project: "atlas-api", memories: [
       { id: 17, kind: "fact", scope: "atlas-api", observed_at: "2026-11-12", text: "The API keeps cursor pagination; offset pagination was dropped after the slow-count incident." },

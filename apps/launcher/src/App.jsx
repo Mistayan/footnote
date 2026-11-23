@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Activity as ActivityIcon,
@@ -34,6 +34,7 @@ import Search from "./Search.jsx";
 import Skills from "./Skills.jsx";
 import Usage from "./Usage.jsx";
 import { switchTo } from "./Mini.jsx";
+import { GRID_W, ROW_H, SLOT, buildActivityGrid, hh } from "./activityGrid.js";
 import { Activity as ActivityScreen, Models, ProjectCard, Projects as ProjectsScreen } from "./Screens.jsx";
 import { AGENTS, footnote, inApp, installUpdate, load, mb, num, openCodex, openSupport, shortDate } from "./data.js";
 import { PALETTES, Scroll, Switch, Tip, Toasts, clip, toast, usePalette, useSpotlight } from "./ui.jsx";
@@ -598,35 +599,129 @@ function Agents({ list, loading, refresh }) {
 }
 
 function Activity({ activity }) {
-  const days = (activity?.days ?? []).filter((d) => d.saved || d.prompts_given_memories || d.sessions).reverse();
+  const [tip, setTip] = useState(null); // { kind: "info" } | { kind: "cell", d: number, h: number } | null
+  const colRef = useRef(null);
+  const tipRef = useRef(null);
+  const tipId = useId();
+  const grid = activity ? buildActivityGrid(activity) : null;
+
+  useLayoutEffect(() => {
+    const col = colRef.current;
+    const el = tipRef.current;
+    if (!col || !el || !tip) return;
+    const target =
+      tip.kind === "info"
+        ? col.querySelector(".act-info")
+        : col.querySelector(`circle.h[data-d="${tip.d}"][data-h="${tip.h}"]`);
+    if (!target) return;
+    const box = col.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    let left = t.left - box.left + t.width / 2 - el.offsetWidth / 2;
+    left = Math.max(0, Math.min(left, box.width - el.offsetWidth));
+    el.style.setProperty("--tx", `${Math.round(left)}px`);
+    el.style.setProperty("--ty", `${Math.round(t.bottom - box.top + 8)}px`);
+  }, [tip, activity]);
+
+  const onCellKey = (e, d, h) => {
+    let next = null;
+    if (e.key === "ArrowRight") next = [d, (h + 1) % 24];
+    else if (e.key === "ArrowLeft") next = [d, (h + 23) % 24];
+    else if (e.key === "ArrowDown") next = [(d + 1) % 7, h];
+    else if (e.key === "ArrowUp") next = [(d + 6) % 7, h];
+    else if (e.key === "Escape") {
+      e.preventDefault();
+      setTip(null);
+      return;
+    }
+    if (next) {
+      e.preventDefault();
+      colRef.current?.querySelector(`circle.h[data-d="${next[0]}"][data-h="${next[1]}"]`)?.focus();
+    }
+  };
+
+  const activeRow = tip?.kind === "cell" ? grid?.rows[tip.d] : null;
+  const activeDot = activeRow ? activeRow.dots[tip.h] : null;
+  const unhourlyDay = activeRow && activeRow.saved > 0 && activeRow.hourlySaved === 0;
+
   return (
     <aside className="feed" aria-label="Activity">
-      <h2 className="section">Activity</h2>
-      {!activity ? (
-        <span className="skel" />
-      ) : days.length === 0 ? (
-        <p className="dimmed">Nothing yet this week.</p>
+      {!grid ? (
+        <>
+          <h2 className="section">Activity</h2>
+          <span className="skel" />
+        </>
       ) : (
-        <table className="tbl days">
-          <thead>
-            <tr>
-              <th scope="col">Day</th>
-              <th scope="col" className="num">Saved</th>
-              <th scope="col" className="num" title="Prompts that were given memories">Recalls</th>
-              <th scope="col" className="num">Sessions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {days.map((d) => (
-              <tr key={d.date}>
-                <td className="mono"><time dateTime={d.date}>{shortDate(d.date)}</time></td>
-                <td className="num">{num(d.saved)}</td>
-                <td className="num">{num(d.prompts_given_memories)}</td>
-                <td className="num">{num(d.sessions)}</td>
-              </tr>
+        <div
+          ref={colRef}
+          className="act-col"
+          onPointerLeave={() => setTip(null)}
+        >
+          <div className="act-top">
+            <span className="act-cap">
+              Activity <em>this week</em>
+              <button
+                type="button"
+                className="act-info"
+                aria-label="How to read this"
+                aria-describedby={tip?.kind === "info" ? tipId : undefined}
+                onPointerEnter={() => setTip({ kind: "info" })}
+                onFocus={() => setTip({ kind: "info" })}
+                onBlur={() => setTip(null)}
+                onKeyDown={(e) => e.key === "Escape" && setTip(null)}
+              >
+                i
+              </button>
+            </span>
+            <span className="act-legend">
+              <span><i style={{ background: "var(--save)" }} />Saved</span>
+              <span><i style={{ background: "var(--recall)" }} />Recalls</span>
+            </span>
+          </div>
+          <div className="act-ticks" aria-hidden="true">
+            {[0, 6, 12, 18].map((h) => (
+              <span key={h} style={{ left: `${(h + 0.5) * SLOT}px` }}>{hh(h)}</span>
             ))}
-          </tbody>
-        </table>
+          </div>
+          <div className={`act-grid${tip?.kind === "cell" ? " focus" : ""}`}>
+            {grid.rows.map((row, di) => (
+              <FragmentRow
+                key={row.date}
+                row={row}
+                di={di}
+                tip={tip}
+                tipId={tipId}
+                setTip={setTip}
+                onCellKey={onCellKey}
+              />
+            ))}
+          </div>
+          <div className="act-foot">
+            <span><b>{num(grid.totals.saved)}</b> saved</span>
+            <span><b>{num(grid.totals.recalls)}</b> recalls</span>
+            <span><b>{num(grid.totals.sessions)}</b> sessions</span>
+          </div>
+          <div
+            ref={tipRef}
+            id={tipId}
+            role="tooltip"
+            className={`act-tip${tip?.kind === "info" ? " prose" : ""}${tip ? " on" : ""}`}
+          >
+            {tip?.kind === "info" ? (
+              "One dot per hour. Bigger means more happened; the colour follows the legend, blended when both."
+            ) : activeRow && activeDot ? (
+              <>
+                {activeRow.wd} {activeRow.short} · {hh(activeDot.h)}:00
+                {activeDot.busiest && <span className="k"> · busiest</span>}
+                <br />
+                <span className="s">
+                  {unhourlyDay ? `${num(activeRow.saved)} saved that day` : `${num(activeDot.saved)} saved`}
+                </span>
+                {" · "}
+                <span className="r">{num(activeDot.recalls)} recalls</span>
+              </>
+            ) : null}
+          </div>
+        </div>
       )}
       {activity?.most_used?.length > 0 && (
         <>
@@ -643,6 +738,47 @@ function Activity({ activity }) {
         </>
       )}
     </aside>
+  );
+}
+
+function FragmentRow({ row, di, tip, tipId, setTip, onCellKey }) {
+  return (
+    <>
+      <div className={`act-day${row.today ? " today" : ""}`}>{row.wd}</div>
+      <svg
+        width={GRID_W}
+        height={ROW_H}
+        role="group"
+        aria-label={`${row.wd} ${row.short}: ${num(row.saved)} saved, ${num(row.recalls)} recalls`}
+      >
+        {row.dots.map((dot) => {
+          const lit = tip?.kind === "cell" && (tip.d === di || tip.h === dot.h);
+          const focused = tip?.kind === "cell" && tip.d === di && tip.h === dot.h;
+          return (
+            <g key={dot.h}>
+              <circle
+                className={`h${lit ? " on" : ""}`}
+                data-d={di}
+                data-h={dot.h}
+                tabIndex={0}
+                role="button"
+                aria-label={`${row.wd} ${row.short} ${hh(dot.h)}:00: ${num(dot.saved)} saved, ${num(dot.recalls)} recalls${dot.busiest ? ", busiest hour" : ""}`}
+                aria-describedby={focused ? tipId : undefined}
+                cx={dot.cx}
+                cy={dot.cy}
+                r={dot.r}
+                fill={dot.fill}
+                onPointerEnter={() => setTip({ kind: "cell", d: di, h: dot.h })}
+                onFocus={() => setTip({ kind: "cell", d: di, h: dot.h })}
+                onBlur={() => setTip(null)}
+                onKeyDown={(e) => onCellKey(e, di, dot.h)}
+              />
+              {dot.busiest && <circle className="act-ring" cx={dot.cx} cy={dot.cy} r={dot.ringR} />}
+            </g>
+          );
+        })}
+      </svg>
+    </>
   );
 }
 

@@ -165,19 +165,21 @@ pub fn run(root: &Path, set: &[String], _record: bool) -> Result<Value> {
     if !answers.is_empty() {
         let state = crate::state::state_dir()?;
         std::fs::create_dir_all(&state)?;
-        let mut c = crate::app::open(&crate::status::memory_db(&state)?, true)?;
+        let mem_db = crate::status::memory_db(&state)?;
+        let mut c = crate::app::open(&mem_db, true)?;
         let scope = crate::hook::project_of(&root_s);
         let today = time::OffsetDateTime::now_utc().date().to_string();
         for (key, value) in &answers {
             for id in known.get(key).map(|k| k.0.clone()).unwrap_or_default() {
                 crate::memory::forget(&mut c, id)?;
             }
-            crate::memory::remember(
+            let report = crate::memory::remember(
                 &mut c,
                 &json!([{"text": format!("{}{value}", head(&root_s, key)), "kind": "fact", "scope": scope, "observed_at": today}]),
                 &[],
                 "cli",
             )?;
+            crate::activity::log_save(&mem_db, &report);
             known.insert(key, (vec![], value.clone()));
         }
     }

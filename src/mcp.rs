@@ -810,7 +810,10 @@ fn dispatch(shared: &Shared, name: &str, args: &Value) -> Result<Value> {
             } else {
                 model_args(db, args)?
             };
-            crate::memory::remember(&mut memory_db(db)?, &args["memories"], &models, "mcp")
+            let report =
+                crate::memory::remember(&mut memory_db(db)?, &args["memories"], &models, "mcp")?;
+            crate::activity::log_save(db, &report);
+            Ok(report)
         }
         #[cfg(feature = "memory")]
         "footnote_forget" => crate::memory::forget(&mut memory_db(db)?, int_arg(args, "id")?),

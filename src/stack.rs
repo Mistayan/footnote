@@ -716,15 +716,17 @@ pub fn write(root: &Path, yes: bool) -> Result<Value> {
         let state = crate::state::state_dir()?;
         std::fs::create_dir_all(&state)?;
         let root_s = root.to_string_lossy().to_string();
-        let mut c = crate::app::open(&crate::status::memory_db(&state)?, true)?;
+        let mem_db = crate::status::memory_db(&state)?;
+        let mut c = crate::app::open(&mem_db, true)?;
         let today = time::OffsetDateTime::now_utc().date().to_string();
-        crate::memory::remember(
+        let report = crate::memory::remember(
             &mut c,
             &json!([{"text": format!("Wrote {} in {root_s} from the project's imports (no dependency file existed).", names.join(", ")),
                 "kind": "fact", "scope": crate::hook::project_of(&root_s), "observed_at": today}]),
             &[],
             "cli",
         )?;
+        crate::activity::log_save(&mem_db, &report);
         out["recorded"] = json!(true);
     }
     Ok(out)
@@ -790,12 +792,13 @@ pub fn run(root: &Path, user: &[String], record: bool) -> Result<Value> {
             for id in ids {
                 crate::memory::forget(&mut c, id)?;
             }
-            crate::memory::remember(
+            let report = crate::memory::remember(
                 &mut c,
                 &json!(memory_items(&root_s, &scope, &libs, &today)),
                 &[],
                 "cli",
             )?;
+            crate::activity::log_save(&db, &report);
             out["recorded"] = json!(true);
         }
         Ok(out)
