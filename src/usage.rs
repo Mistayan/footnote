@@ -924,6 +924,7 @@ pub fn gain(days: u16, attrib: bool, missed: bool) -> Result<Value> {
         "source": "Footnote Lean (usage/lean.jsonl)",
         "shell": ledger["shell"],
         "footnote": ledger["footnote"],
+        "hook_decisions": hook_decisions(&state, &first),
         "total_saved_bytes": ledger["total_saved_bytes"],
         "total_saved_tokens_estimate": ledger["total_saved_tokens_estimate"],
     });
@@ -956,16 +957,102 @@ pub fn gain(days: u16, attrib: bool, missed: bool) -> Result<Value> {
 }
 
 #[derive(Default)]
+struct HookTotals {
+    rewrites: u64,
+    passes: u64,
+    errors: u64,
+    pass_reasons: BTreeMap<String, u64>,
+}
+
+fn hook_decisions(state: &Path, first: &str) -> Value {
+    let path = state.join("usage").join(crate::run::LEAN_HOOK_LOG);
+    let mut by_agent: BTreeMap<String, HookTotals> = BTreeMap::new();
+    let mut by_reason = BTreeMap::new();
+    for path in [path.with_extension("jsonl.old"), path] {
+        let Ok(log) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        for row in log
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        {
+            if !ledger_date(&row).is_some_and(|day| day.as_str() >= first) {
+                continue;
+            }
+            let Some(agent) = row["agent"].as_str() else {
+                continue;
+            };
+            let total = by_agent.entry(agent.into()).or_default();
+            match row["decision"].as_str() {
+                Some("rewrite") => total.rewrites += 1,
+                Some("pass") => {
+                    total.passes += 1;
+                    if let Some(reason) = row["reason"].as_str() {
+                        *total.pass_reasons.entry(reason.into()).or_default() += 1;
+                        *by_reason.entry(reason.to_owned()).or_insert(0u64) += 1;
+                    }
+                }
+                Some("error") => total.errors += 1,
+                _ => {}
+            }
+        }
+    }
+    let agents: BTreeMap<_, _> = by_agent
+        .into_iter()
+        .map(|(agent, v)| {
+            let calls = v.rewrites + v.passes + v.errors;
+            (
+                agent,
+                json!({
+                    "calls": calls, "rewrites": v.rewrites, "passes": v.passes, "errors": v.errors,
+                    "rewrite_rate": if calls == 0 { 0.0 } else { v.rewrites as f64 / calls as f64 },
+                    "pass_reasons": v.pass_reasons,
+                }),
+            )
+        })
+        .collect();
+    let mut ranked: Vec<_> = by_reason.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let reasons: Vec<_> = ranked
+        .into_iter()
+        .map(|(reason, calls)| {
+            json!({
+                "reason": reason, "calls": calls,
+            })
+        })
+        .collect();
+    json!({
+        "source": "actual hook calls (usage/lean-hooks.jsonl)",
+        "by_agent": agents,
+        "top_pass_reasons": reasons,
+    })
+}
+
+fn ledger_date(row: &Value) -> Option<String> {
+    row["t"]
+        .as_i64()
+        .and_then(|ms| time::OffsetDateTime::from_unix_timestamp(ms / 1000).ok())
+        .map(|t| t.date().to_string())
+}
+
+#[derive(Default)]
 struct MissedAgg {
     calls: u64,
     raw_bytes: u64,
     max_bytes: u64,
 }
 
+#[derive(Default)]
+struct MissedTotals {
+    covered: u64,
+    uncovered: u64,
+    bytes: u64,
+}
+
 /// Sanitize a raw shell invocation into a safe command prefix (binary or `binary subcommand`) with zero
 /// arguments, paths, flags, URLs, or payloads retained (#381).
-/// Returns `(prefix, is_already_covered)`.
-fn classify_shell_prefix(raw_cmd: &str) -> Option<(String, bool)> {
+/// Coverage uses the hook's rewrite check on the entire call.
+fn classify_shell_prefix(raw_cmd: &str, agent: &str, tool: &str) -> Option<(String, bool)> {
     const SUBCOMMAND_BINS: &[&str] = &[
         "git",
         "cargo",
@@ -1080,8 +1167,7 @@ fn classify_shell_prefix(raw_cmd: &str) -> Option<(String, bool)> {
         return None;
     }
 
-    let covered = matches!(bin.as_str(), "footnote" | "rtk")
-        || crate::run::classify_command(&words) != crate::run::CommandFamily::Generic;
+    let covered = crate::run::would_rewrite(raw_cmd, agent, tool);
 
     let sub = if SUBCOMMAND_BINS.contains(&bin.as_str()) {
         words
@@ -1115,10 +1201,7 @@ fn missed_commands(days: u16, first: &str) -> Value {
         .unwrap_or(std::time::UNIX_EPOCH);
 
     let mut files_scanned = 0u64;
-    let mut total_calls = 0u64;
-    let mut covered_calls = 0u64;
-    let mut uncovered_calls = 0u64;
-    let mut uncovered_bytes = 0u64;
+    let mut by_agent: BTreeMap<&str, MissedTotals> = BTreeMap::new();
     let mut agg: HashMap<String, MissedAgg> = HashMap::new();
 
     for (agent, dir, _) in sources() {
@@ -1137,10 +1220,7 @@ fn missed_commands(days: u16, first: &str) -> Value {
                 agent,
                 &file,
                 first,
-                &mut total_calls,
-                &mut covered_calls,
-                &mut uncovered_calls,
-                &mut uncovered_bytes,
+                by_agent.entry(agent).or_default(),
                 &mut agg,
             );
         }
@@ -1169,29 +1249,43 @@ fn missed_commands(days: u16, first: &str) -> Value {
         })
         .collect();
 
+    let covered_calls = by_agent.values().map(|v| v.covered).sum::<u64>();
+    let uncovered_calls = by_agent.values().map(|v| v.uncovered).sum::<u64>();
+    let uncovered_bytes = by_agent.values().map(|v| v.bytes).sum::<u64>();
+    let agents: BTreeMap<_, _> = by_agent
+        .into_iter()
+        .map(|(agent, v)| {
+            (
+                agent,
+                json!({
+                    "total_shell_calls": v.covered + v.uncovered,
+                    "covered_calls": v.covered,
+                    "uncovered_calls": v.uncovered,
+                    "uncovered_bytes": v.bytes,
+                }),
+            )
+        })
+        .collect();
     json!({
         "days": days,
         "from": first,
         "files_scanned": files_scanned,
-        "total_shell_calls": total_calls,
+        "total_shell_calls": covered_calls + uncovered_calls,
         "covered_calls": covered_calls,
         "uncovered_calls": uncovered_calls,
         "uncovered_bytes": uncovered_bytes,
         "uncovered_tokens_estimate": uncovered_bytes / 4,
-        "note": "command prefixes and byte counts only; zero arguments or raw payloads are retained",
+        "by_agent": agents,
+        "note": "estimates from completed transcript calls checked by the current hook rules; use hook_decisions for actual rewrites",
         "top_uncovered": top_uncovered,
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 fn scan_missed_file(
     agent: &str,
     path: &Path,
     first: &str,
-    total_calls: &mut u64,
-    covered_calls: &mut u64,
-    uncovered_calls: &mut u64,
-    uncovered_bytes: &mut u64,
+    totals: &mut MissedTotals,
     agg: &mut HashMap<String, MissedAgg>,
 ) {
     let data = if path.extension().is_some_and(|x| x == "zstd") {
@@ -1277,7 +1371,8 @@ fn scan_missed_file(
                             else {
                                 continue;
                             };
-                            if let Some((prefix, covered)) = classify_shell_prefix(cmd) {
+                            if let Some((prefix, covered)) = classify_shell_prefix(cmd, agent, name)
+                            {
                                 pending.insert(id.to_string(), (prefix, covered, in_range));
                             }
                         }
@@ -1292,16 +1387,7 @@ fn scan_missed_file(
                                 continue;
                             }
                             let bytes = tool_result_bytes(&item["content"]);
-                            record_missed(
-                                prefix,
-                                covered,
-                                bytes,
-                                total_calls,
-                                covered_calls,
-                                uncovered_calls,
-                                uncovered_bytes,
-                                agg,
-                            );
+                            record_missed(prefix, covered, bytes, totals, agg);
                         }
                         _ => {}
                     }
@@ -1328,7 +1414,8 @@ fn scan_missed_file(
                         };
                         let raw_args = payload.get("arguments").or_else(|| payload.get("input"));
                         if let Some(cmd) = extract_codex_cmd(raw_args)
-                            && let Some((prefix, covered)) = classify_shell_prefix(&cmd)
+                            && let Some((prefix, covered)) =
+                                classify_shell_prefix(&cmd, agent, name)
                         {
                             pending.insert(id.to_string(), (prefix, covered, in_range));
                         }
@@ -1344,16 +1431,7 @@ fn scan_missed_file(
                             continue;
                         }
                         let bytes = tool_result_bytes(&payload["output"]);
-                        record_missed(
-                            prefix,
-                            covered,
-                            bytes,
-                            total_calls,
-                            covered_calls,
-                            uncovered_calls,
-                            uncovered_bytes,
-                            agg,
-                        );
+                        record_missed(prefix, covered, bytes, totals, agg);
                     }
                     _ => {}
                 }
@@ -1383,7 +1461,9 @@ fn scan_missed_file(
                         // Antigravity transcript args encode string values as JSON string literals (`"\"git status\""`).
                         let decoded = serde_json::from_str::<String>(raw_cmd)
                             .unwrap_or_else(|_| raw_cmd.to_string());
-                        if let Some((prefix, covered)) = classify_shell_prefix(&decoded) {
+                        if let Some((prefix, covered)) =
+                            classify_shell_prefix(&decoded, agent, name)
+                        {
                             let result_step = step_idx.saturating_add(1).saturating_add(i as u64);
                             pending.insert(result_step.to_string(), (prefix, covered, in_range));
                         }
@@ -1401,16 +1481,7 @@ fn scan_missed_file(
                         continue;
                     }
                     let bytes = tool_result_bytes(&v["content"]);
-                    record_missed(
-                        prefix,
-                        covered,
-                        bytes,
-                        total_calls,
-                        covered_calls,
-                        uncovered_calls,
-                        uncovered_bytes,
-                        agg,
-                    );
+                    record_missed(prefix, covered, bytes, totals, agg);
                 }
                 _ => {}
             },
@@ -1463,24 +1534,19 @@ fn extract_codex_cmd(raw: Option<&Value>) -> Option<String> {
     None
 }
 
-#[allow(clippy::too_many_arguments)]
 fn record_missed(
     prefix: String,
     covered: bool,
     bytes: u64,
-    total_calls: &mut u64,
-    covered_calls: &mut u64,
-    uncovered_calls: &mut u64,
-    uncovered_bytes: &mut u64,
+    totals: &mut MissedTotals,
     agg: &mut HashMap<String, MissedAgg>,
 ) {
-    *total_calls += 1;
     if covered {
-        *covered_calls += 1;
+        totals.covered += 1;
         return;
     }
-    *uncovered_calls += 1;
-    *uncovered_bytes += bytes;
+    totals.uncovered += 1;
+    totals.bytes += bytes;
     let e = agg.entry(prefix).or_default();
     e.calls += 1;
     e.raw_bytes += bytes;
@@ -1512,10 +1578,7 @@ fn lean_ledger_from_lines(lines: &[String], first: &str) -> Value {
         let Ok(v) = serde_json::from_str::<Value>(raw) else {
             continue;
         };
-        let date = v["t"]
-            .as_i64()
-            .and_then(|ms| time::OffsetDateTime::from_unix_timestamp(ms / 1000).ok())
-            .map(|t| t.date().to_string());
+        let date = ledger_date(&v);
         let Some(date) = date.filter(|d| d.as_str() >= first) else {
             continue;
         };

@@ -148,6 +148,7 @@ Do not quote: L9, L10, L11, M3, M5, C5, T3, T6, T7 (ledger grade N) and anything
 | LEAN-09 | 2026-11-23 | Does a session binding let MCP skip a complete memory delivered by a hook? (#510) | Repeats fell from three to two in one accepted pair. The two MCP responses together shrank by 377 bytes (12.6%). … | CURRENT | [CODEX-CONTEXT-DEDUP-2026-11-23.md:3](experiments/CODEX-CONTEXT-DEDUP-2026-11-23.md#L3) |
 | LEAN-10 | 2026-11-23 | Which sources surface the three design decisions in the recorded code-map turn? (#509) | All three design decisions cited in the answer arrived through MCP recall. The hooks supplied 14 items without surfacing any of the three decisions. | CURRENT | [INFORMATION-LAYER-RECORDED-TURN-2026-11-22.md:3](experiments/INFORMATION-LAYER-RECORDED-TURN-2026-11-22.md#L3) |
 | LEAN-11 | 2026-11-23 | Can the previous reply help the hook surface the three design decisions? (#513) | The follow-up hook surfaced all three annotated decisions. Direct recall surfaced one on the same memory snapshot. | CURRENT | [CLAUDE-FOLLOW-UP-RECALL-2026-11-23.md:3](experiments/CLAUDE-FOLLOW-UP-RECALL-2026-11-23.md#L3) |
+| LEAN-12 | 2026-11-23 | How does the Lean hook's actual rewrite logic change reported coverage? (#567) | The same 6,770 completed shell calls yielded 3,539 eligible rewrites under the hook's rules. The old prefix heuristic counted 2,648. | CURRENT | [LEAN-HOOK-DECISIONS-2026-11-23.md:3](experiments/LEAN-HOOK-DECISIONS-2026-11-23.md#L3) |
 
 ### Infrastructure
 

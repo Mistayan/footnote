@@ -240,23 +240,53 @@ pub fn rewrite_command(cmd: &str) -> Option<String> {
 /// redirected (`done | grep x`), since that would carry the body's filtered output.
 #[must_use]
 pub fn rewrite_command_in(cmd: &str, bin_cmd: &str, shell: Shell) -> Option<String> {
+    let inserts = rewrite_points(cmd, shell).ok()?;
+    Some(render_rewrite(cmd, bin_cmd, inserts))
+}
+
+fn rewrite_points(cmd: &str, shell: Shell) -> Result<Vec<(usize, RunFlags)>, &'static str> {
     if cmd.trim().is_empty() {
-        return None;
+        return Err("empty");
     }
-    let parts = line_parts(cmd)?;
+    let parts = line_parts(cmd).ok_or("compound")?;
     if parts.iter().any(|p| {
         (p.redirects_stdout || p.redirects_stderr || !p.pipes.is_empty())
             && closes_compound(&cmd[p.start..p.end])
     }) {
-        return None;
+        return Err("compound");
     }
     let inserts: Vec<(usize, RunFlags)> = parts
         .iter()
         .filter_map(|part| part_rewrite_point(cmd, part, shell))
         .collect();
     if inserts.is_empty() {
-        return None;
+        return Err(
+            if parts
+                .iter()
+                .any(|p| p.opaque || p.redirects_stdout || !p.pipes.is_empty())
+            {
+                "compound"
+            } else {
+                "not-covered"
+            },
+        );
     }
+    Ok(inserts)
+}
+
+pub(crate) fn shell_for_agent(agent: &str, tool: &str) -> Shell {
+    if cfg!(windows) && (agent == "codex" || !tool.eq_ignore_ascii_case("bash")) {
+        Shell::PowerShell
+    } else {
+        Shell::Posix
+    }
+}
+
+pub(crate) fn would_rewrite(cmd: &str, agent: &str, tool: &str) -> bool {
+    rewrite_points(cmd, shell_for_agent(agent, tool)).is_ok()
+}
+
+fn render_rewrite(cmd: &str, bin_cmd: &str, inserts: Vec<(usize, RunFlags)>) -> String {
     let mut out = String::with_capacity(cmd.len() + inserts.len() * 48);
     let mut last = 0;
     for (at, flags) in inserts {
@@ -273,7 +303,7 @@ pub fn rewrite_command_in(cmd: &str, bin_cmd: &str, shell: Shell) -> Option<Stri
         last = at;
     }
     out.push_str(&cmd[last..]);
-    Some(out.trim().to_string())
+    out.trim().to_string()
 }
 
 /// The `footnote run` options a rewritten part needs.
@@ -2808,90 +2838,177 @@ fn log_lean_retrieve(handle: &str, returned_bytes: usize) {
 /// Handle a PreToolUse hook event from Claude Code, Codex or Antigravity:
 /// rewrite eligible shell commands to `footnote run -- <cmd>` using each CLI's native wire format.
 /// Returns `None` when the event is not a rewritable shell call (passthrough untouched).
+#[cfg(any(feature = "memory", test))]
 #[must_use]
 pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
-    let ev_name = event["hook_event_name"]
-        .as_str()
-        .or_else(|| event["hookEventName"].as_str())
-        .unwrap_or("");
-    if !ev_name.is_empty() && ev_name != "PreToolUse" {
-        return None;
+    let (agent, tool) = hook_agent_tool(event);
+    match hook_decision(event, agent, tool).0 {
+        HookDecision::Rewrite(output) => Some(output),
+        _ => None,
     }
-    let is_agy = event.get("toolCall").is_some()
-        || event.get("conversationId").is_some()
-        || event.get("hookEventName").is_some();
+}
 
+enum HookDecision {
+    Rewrite(Value),
+    Pass(&'static str),
+    Error(&'static str),
+}
+
+fn hook_agent_tool(event: &Value) -> (&'static str, &str) {
+    let agent = if event.get("toolCall").is_some()
+        || event.get("conversationId").is_some()
+        || event.get("hookEventName").is_some()
+    {
+        "antigravity"
+    } else if event.get("turn_id").is_some() {
+        "codex"
+    } else {
+        "claude-code"
+    };
     let tool = event["tool_name"]
         .as_str()
         .or_else(|| event["toolName"].as_str())
         .or_else(|| event["toolCall"]["name"].as_str())
         .unwrap_or("");
+    (agent, tool)
+}
+
+fn hook_decision(event: &Value, agent: &str, tool: &str) -> (HookDecision, Option<&'static str>) {
+    use HookDecision::{Error, Pass, Rewrite};
+    let ev_name = event["hook_event_name"]
+        .as_str()
+        .or_else(|| event["hookEventName"].as_str())
+        .unwrap_or("");
+    if !ev_name.is_empty() && ev_name != "PreToolUse" {
+        return (Pass("wrong-event"), None);
+    }
     #[cfg(feature = "code")]
-    if tool == "Read" && !is_agy {
-        return outline_instead(event).map(|reason| {
-            json!({"hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            }})
-        });
+    if tool == "Read" && agent != "antigravity" {
+        return (
+            outline_instead(event).map_or(Pass("not-covered"), |reason| {
+                Rewrite(json!({"hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }}))
+            }),
+            None,
+        );
     }
-    let is_shell = matches!(
-        tool.to_ascii_lowercase().as_str(),
-        "bash"
-            | "powershell"
-            | "shell"
-            | "run_command"
-            | "run_shell_command"
-            | "command"
-            | "terminal"
-    );
-    if !is_shell {
-        return None;
+    if !SHELL_TOOLS
+        .iter()
+        .any(|name| tool.eq_ignore_ascii_case(name))
+    {
+        return (Pass("not-covered"), None);
     }
-    let input = event
+    let Some(input) = event
         .get("tool_input")
         .or_else(|| event.get("toolInput"))
         .or_else(|| event.get("toolCall").and_then(|tc| tc.get("args")))
-        .and_then(Value::as_object)?;
+        .and_then(Value::as_object)
+    else {
+        return (Error("missing-input"), None);
+    };
     let (cmd_key, cmd_str) = if let Some(s) = input.get("command").and_then(Value::as_str) {
         ("command", s)
-    } else {
-        let s = input.get("CommandLine").and_then(Value::as_str)?;
+    } else if let Some(s) = input.get("CommandLine").and_then(Value::as_str) {
         ("CommandLine", s)
+    } else {
+        return (Error("missing-command"), None);
     };
     // Codex (#573) sends `turn_id`. It names its tool `Bash` but runs PowerShell on Windows, and its shell's PATH can
     // lack `footnote` even when this hook's has it, so it always gets the full path.
-    let is_codex = event.get("turn_id").is_some();
-    // Claude Code's Bash tool runs Git Bash on Windows; every other shell tool there runs PowerShell.
-    let shell = if cfg!(windows) && (is_codex || !tool.eq_ignore_ascii_case("bash")) {
-        Shell::PowerShell
-    } else {
-        Shell::Posix
+    let shell = shell_for_agent(agent, tool);
+    let points = match rewrite_points(cmd_str, shell) {
+        Ok(points) => points,
+        Err(reason) => return (Pass(reason), logged_program(cmd_str)),
     };
     let bin_cmd = match std::env::current_exe() {
-        Ok(exe) if is_codex || !footnote_on_path() => format_exe_for_shell(&exe, shell),
+        Ok(exe) if agent == "codex" || !footnote_on_path() => format_exe_for_shell(&exe, shell),
         _ => "footnote".to_string(),
     };
-    let rewritten = rewrite_command_in(cmd_str, &bin_cmd, shell)?;
-    if is_agy {
+    let program = logged_program(&cmd_str[points[0].0..]);
+    let rewritten = render_rewrite(cmd_str, &bin_cmd, points);
+    if agent == "antigravity" {
         // Antigravity PreToolUse contract: shallow merge into `toolCall.args` via `overwrite`.
         let mut overwrite = serde_json::Map::new();
         overwrite.insert(cmd_key.to_string(), json!(rewritten));
-        return Some(json!({
-            "decision": "allow",
-            "overwrite": overwrite,
-        }));
+        return (
+            Rewrite(json!({
+                "decision": "allow",
+                "overwrite": overwrite,
+            })),
+            program,
+        );
     }
     let mut updated = input.clone();
     updated.insert(cmd_key.to_string(), json!(rewritten));
-    Some(json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "updatedInput": updated,
-        }
-    }))
+    (
+        Rewrite(json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "updatedInput": updated,
+            }
+        })),
+        program,
+    )
+}
+
+const SHELL_TOOLS: &[&str] = &[
+    "bash",
+    "powershell",
+    "shell",
+    "run_command",
+    "run_shell_command",
+    "command",
+    "terminal",
+];
+
+fn logged_program(command: &str) -> Option<&'static str> {
+    const PROGRAMS: &[&str] = &[
+        "git",
+        "cargo",
+        "rg",
+        "grep",
+        "ls",
+        "find",
+        "cat",
+        "sort",
+        "curl",
+        "python",
+        "python3",
+        "py",
+        "npm",
+        "pnpm",
+        "yarn",
+        "bun",
+        "docker",
+        "kubectl",
+        "gh",
+        "uv",
+        "pip",
+        "go",
+        "pytest",
+        "ruff",
+        "tsc",
+        "eslint",
+        "jest",
+        "vitest",
+        "footnote",
+        "rtk",
+        "get-childitem",
+    ];
+    let token = command
+        .split_ascii_whitespace()
+        .next()?
+        .trim_matches(['"', '\'']);
+    let name = token.rsplit(['/', '\\']).next()?;
+    let stem = Path::new(name).file_stem()?.to_str()?;
+    PROGRAMS
+        .iter()
+        .copied()
+        .find(|name| stem.eq_ignore_ascii_case(name))
 }
 
 /// Lines past which a whole-file Read is answered with the file's outline (#240).
@@ -2954,35 +3071,108 @@ fn outline_instead(event: &Value) -> Option<String> {
 /// Never fails closed against the user's shell; any parse or I/O error passes through silently.
 pub fn run_lean_hook() {
     const MAX_HOOK_EVENT: u64 = 2 * 1024 * 1024;
+    let state = crate::state::state_dir().ok();
+    let settings = state
+        .as_deref()
+        .and_then(|state| footnote_core::config::product_settings(state, "usage").ok());
+    let allowed = |key: &str| {
+        settings
+            .as_ref()
+            .and_then(|v| v[key].as_bool())
+            .unwrap_or(true)
+    };
+    let log = |agent, tool, program, decision: &HookDecision| {
+        if allowed("lean_log")
+            && let Some(state) = &state
+        {
+            log_hook_decision(state, agent, tool, program, decision);
+        }
+    };
+
     let mut raw = String::new();
     if std::io::stdin()
         .take(MAX_HOOK_EVENT + 1)
         .read_to_string(&mut raw)
         .is_err()
-        || raw.len() as u64 > MAX_HOOK_EVENT
-        || raw.trim().is_empty()
     {
+        log("unknown", "", None, &HookDecision::Error("read-error"));
         return;
     }
-    let Ok(event) = serde_json::from_str::<Value>(&raw) else {
+    if raw.len() as u64 > MAX_HOOK_EVENT {
+        log("unknown", "", None, &HookDecision::Error("too-large"));
         return;
+    }
+    let event = match serde_json::from_str::<Value>(&raw) {
+        Ok(event) if event.is_object() => event,
+        _ => {
+            log("unknown", "", None, &HookDecision::Error("invalid-event"));
+            return;
+        }
     };
-    let is_agy = event.get("toolCall").is_some()
-        || event.get("conversationId").is_some()
-        || event.get("hookEventName").is_some();
+    let (agent, tool) = hook_agent_tool(&event);
+    let (decision, program) = if allowed("lean_enabled") {
+        hook_decision(&event, agent, tool)
+    } else {
+        (HookDecision::Pass("disabled"), None)
+    };
+    log(agent, tool, program, &decision);
 
-    // Respect explicit company/user opt-out if usage.lean_enabled is set to false.
-    let enabled = crate::state::state_dir().ok().is_none_or(|state| {
-        footnote_core::config::product_settings(&state, "usage")
-            .ok()
-            .is_none_or(|v| v["lean_enabled"].as_bool().unwrap_or(true))
-    });
-    if enabled && let Some(out) = pre_tool_use_hook(&event) {
+    if let HookDecision::Rewrite(out) = decision {
         println!("{out}");
-    } else if is_agy {
+    } else if agent == "antigravity" {
         // Antigravity PreToolUse requires an explicit `decision`; `{}` denies the tool call.
         println!("{{\"decision\":\"allow\"}}");
     }
+}
+
+pub(crate) const LEAN_HOOK_LOG: &str = "lean-hooks.jsonl";
+
+fn log_hook_decision(
+    state: &Path,
+    agent: &str,
+    tool: &str,
+    program: Option<&str>,
+    decision: &HookDecision,
+) {
+    let dir = state.join("usage");
+    let path = dir.join(LEAN_HOOK_LOG);
+    let open = || fs::OpenOptions::new().create(true).append(true).open(&path);
+    let mut file = match open() {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let Ok(file) = crate::state::ensure_private_dir(&dir).and_then(|()| Ok(open()?)) else {
+                return;
+            };
+            file
+        }
+        Err(_) => return,
+    };
+    if file.metadata().is_ok_and(|m| m.len() >= 512 * 1024) {
+        drop(file);
+        let _ = fs::rename(&path, path.with_extension("jsonl.old"));
+        let Ok(next) = open() else { return };
+        file = next;
+    }
+    // Tool names can come from plugins. Persist only the fixed vocabulary.
+    let tool = SHELL_TOOLS
+        .iter()
+        .copied()
+        .chain(["read"])
+        .find(|known| tool.eq_ignore_ascii_case(known))
+        .unwrap_or("other");
+    let (decision, reason) = match decision {
+        HookDecision::Rewrite(_) => ("rewrite", None),
+        HookDecision::Pass(reason) => ("pass", Some(*reason)),
+        HookDecision::Error(reason) => ("error", Some(*reason)),
+    };
+    let row = json!({
+        "t": footnote_core::audit::now_ms(),
+        "agent": agent, "tool": tool, "program": program,
+        "decision": decision, "reason": reason,
+    });
+    let mut line = row.to_string();
+    line.push('\n');
+    let _ = file.write_all(line.as_bytes());
 }
 
 #[cfg(test)]

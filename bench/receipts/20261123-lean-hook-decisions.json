@@ -1,0 +1,124 @@
+{
+  "baseline_revision": "b51455c",
+  "baseline_sha256": "37d130194146370014730cca2b2d5bb4b5877c670f1e52bb1664ceb06229880c",
+  "candidate_sha256": "01844a342442343cae89ef57e63c81f196d0acda6a89bedd39b6fc03c680f2a9",
+  "build_profile": "debug",
+  "platform": "Windows",
+  "coverage": {
+    "before": {
+      "from": "2026-11-17",
+      "files_scanned": 371,
+      "total_shell_calls": 6770,
+      "covered_calls": 2648,
+      "uncovered_calls": 4122
+    },
+    "after": {
+      "from": "2026-11-17",
+      "files_scanned": 371,
+      "total_shell_calls": 6770,
+      "covered_calls": 3539,
+      "uncovered_calls": 3231,
+      "by_agent": {
+        "antigravity": {
+          "covered_calls": 499,
+          "total_shell_calls": 790,
+          "uncovered_bytes": 680560,
+          "uncovered_calls": 291
+        },
+        "claude-code": {
+          "covered_calls": 3040,
+          "total_shell_calls": 5979,
+          "uncovered_bytes": 4753489,
+          "uncovered_calls": 2939
+        },
+        "codex": {
+          "covered_calls": 0,
+          "total_shell_calls": 1,
+          "uncovered_bytes": 324,
+          "uncovered_calls": 1
+        }
+      }
+    }
+  },
+  "quiet_machine_timing": {
+    "cpu_load_percent": {
+      "after": 15,
+      "before": [
+        3
+      ]
+    },
+    "pairs": 180,
+    "logged_decisions_including_warmup": 185,
+    "before": {
+      "p50_ms": 10.024,
+      "p95_ms": 11.14
+    },
+    "after": {
+      "p50_ms": 9.828,
+      "p95_ms": 10.739
+    },
+    "paired_median_delta_ms": -0.174,
+    "bootstrap_95_percent_interval_ms": [
+      -0.255,
+      -0.097
+    ]
+  },
+  "other_paired_runs": [
+    {
+      "cpu_load_percent_before": 24,
+      "pairs": 180,
+      "logged_decisions_including_warmup": 185,
+      "before": {
+        "p50_ms": 10.12,
+        "p95_ms": 11.25
+      },
+      "after": {
+        "p50_ms": 9.947,
+        "p95_ms": 11.287
+      },
+      "paired_median_delta_ms": -0.134,
+      "bootstrap_95_percent_interval_ms": [
+        -0.216,
+        -0.068
+      ]
+    },
+    {
+      "cpu_load_percent": {
+        "before_percent": 26,
+        "after_percent": 12
+      },
+      "pairs": 240,
+      "logged_decisions_including_warmup": 245,
+      "before": {
+        "p50_ms": 10.173,
+        "p95_ms": 24.837
+      },
+      "after": {
+        "p50_ms": 9.935,
+        "p95_ms": 24.524
+      },
+      "paired_median_delta_ms": -0.185,
+      "bootstrap_95_percent_interval_ms": [
+        -0.271,
+        -0.129
+      ]
+    }
+  ],
+  "append_overhead_codex_only": {
+    "pairs": 120,
+    "logged_decisions_including_warmup": 125,
+    "log_disabled": {
+      "p50_ms": 9.638,
+      "p95_ms": 10.406
+    },
+    "log_enabled": {
+      "p50_ms": 9.809,
+      "p95_ms": 24.456
+    },
+    "paired_median_delta_ms": 0.178,
+    "bootstrap_95_percent_interval_ms": [
+      0.144,
+      0.211
+    ]
+  }
+}

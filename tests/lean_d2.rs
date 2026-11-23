@@ -194,6 +194,80 @@ fn hook_lean_rewrites_antigravity_tool_calls() {
 }
 
 #[test]
+fn hook_lean_logs_one_safe_decision_per_call_and_gain_counts_it() {
+    let state = TempDir::new().unwrap();
+    let run = |input: &str| {
+        cargo_bin_cmd!("footnote")
+            .env("FOOTNOTE_STATE_DIR", state.path())
+            .args(["hook", "lean"])
+            .write_stdin(input.to_owned())
+            .assert()
+            .success();
+    };
+    let claude = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+        "cwd": "PRIVATE_CWD", "tool_input": {"command": "git log -- PRIVATE_ARGUMENT"}});
+    let codex = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash", "turn_id": "PRIVATE_TURN",
+        "tool_input": {"command": "cargo test > PRIVATE_OUT"}});
+    let agy = json!({"hookEventName": "PreToolUse", "conversationId": "PRIVATE_SESSION",
+        "toolCall": {"name": "run_command", "args": {"CommandLine": "PRIVATE_PROGRAM hi"}}});
+    for event in [&claude, &codex, &agy] {
+        run(&event.to_string());
+    }
+    run("not-json-PRIVATE_EVENT");
+
+    let usage = state.path().join("usage.json");
+    fs::write(&usage, r#"{"lean_enabled":false}"#).unwrap();
+    run(&codex.to_string());
+    fs::write(&usage, r#"{"lean_log":false}"#).unwrap();
+    run(&claude.to_string());
+
+    let log = state.path().join("usage/lean-hooks.jsonl");
+    let raw = fs::read_to_string(&log).unwrap();
+    assert!(!raw.contains("PRIVATE_"), "{raw}");
+    let rows: Vec<Value> = raw
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows[0]["agent"], "claude-code");
+    assert_eq!(rows[0]["tool"], "bash");
+    assert_eq!(rows[0]["program"], "git");
+    assert_eq!(rows[0]["decision"], "rewrite");
+    assert_eq!(rows[1]["agent"], "codex");
+    assert_eq!(rows[1]["reason"], "compound");
+    assert_eq!(rows[2]["agent"], "antigravity");
+    assert_eq!(rows[2]["tool"], "run_command");
+    assert!(rows[2]["program"].is_null());
+    assert_eq!(rows[2]["reason"], "not-covered");
+    assert_eq!(rows[3]["decision"], "error");
+    assert_eq!(rows[4]["reason"], "disabled");
+
+    // Rotate the existing log and make sure the report reads both segments.
+    fs::write(&log, format!("{raw}{}", " ".repeat(512 * 1024))).unwrap();
+    fs::write(&usage, "{}").unwrap();
+    run(&codex.to_string());
+    assert!(log.with_extension("jsonl.old").exists());
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
+
+    let gain = cargo_bin_cmd!("footnote")
+        .env("FOOTNOTE_STATE_DIR", state.path())
+        .arg("gain")
+        .output()
+        .unwrap();
+    assert!(gain.status.success(), "{gain:?}");
+    let output: Value = serde_json::from_slice(&gain.stdout).unwrap();
+    let hooks = &output["hook_decisions"];
+    assert_eq!(hooks["by_agent"]["claude-code"]["rewrite_rate"], 1.0);
+    assert_eq!(hooks["by_agent"]["codex"]["calls"], 3);
+    assert_eq!(hooks["by_agent"]["codex"]["pass_reasons"]["compound"], 2);
+    assert_eq!(hooks["by_agent"]["unknown"]["errors"], 1);
+    assert_eq!(
+        hooks["top_pass_reasons"][0],
+        json!({"reason": "compound", "calls": 2})
+    );
+}
+
+#[test]
 fn gain_reports_shell_savings_miss_rate_and_attrib() {
     let state = TempDir::new().unwrap();
     let mut noisy = String::new();
@@ -480,15 +554,16 @@ fn gain_missed_ranks_uncovered_prefixes_without_leaking_arguments_or_payloads() 
     let today = time::OffsetDateTime::now_utc().date().to_string();
     let ts = format!("{today}T08:00:00Z");
 
-    // Claude transcript: 1 covered (`cargo test`) + 2 uncovered (`gh api`, `curl`) containing sensitive args/payloads.
+    // Claude transcript: a covered command and three uncovered calls with private arguments.
     let claude_lines = [
         json!({
             "type": "assistant",
             "timestamp": ts,
             "message": {"content": [
                 {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "cargo test --workspace"}},
-                {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "cd /private/secret-repo && gh api repos/org/priv/issues?secret=LEAK_ARG_1"}},
-                {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "curl -H 'X-Token: LEAK_HEADER' https://internal.example/v1"}}
+                {"type": "tool_use", "id": "t2", "name": "Bash", "input": {"command": "cd /private/secret-repo && gh api repos/org/priv/issues?secret=LEAK_ARG_1 | sort"}},
+                {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "curl -H 'X-Token: LEAK_HEADER' https://internal.example/v1"}},
+                {"type": "tool_use", "id": "t4", "name": "Bash", "input": {"command": "git diff | sort && cat /private/secret-repo"}}
             ]}
         }),
         json!({
@@ -497,7 +572,8 @@ fn gain_missed_ranks_uncovered_prefixes_without_leaking_arguments_or_payloads() 
             "message": {"content": [
                 {"type": "tool_result", "tool_use_id": "t1", "content": "x".repeat(9000)},
                 {"type": "tool_result", "tool_use_id": "t2", "content": format!("SECRET_PAYLOAD_BODY_{}", "a".repeat(6000))},
-                {"type": "tool_result", "tool_use_id": "t3", "content": format!("RAW_HTTP_BODY_{}", "b".repeat(1500))}
+                {"type": "tool_result", "tool_use_id": "t3", "content": format!("RAW_HTTP_BODY_{}", "b".repeat(1500))},
+                {"type": "tool_result", "tool_use_id": "t4", "content": "fallback output"}
             ]}
         }),
     ];
@@ -525,7 +601,7 @@ fn gain_missed_ranks_uncovered_prefixes_without_leaking_arguments_or_payloads() 
         json!({
             "timestamp": ts,
             "type": "response_item",
-            "payload": {"type": "function_call", "call_id": "c2", "name": "exec_command", "arguments": "{\"cmd\":\"docker ps --filter name=PRIVATE_CONTAINER_99\"}"}
+            "payload": {"type": "function_call", "call_id": "c2", "name": "exec_command", "arguments": "{\"cmd\":\"docker ps --filter name=PRIVATE_CONTAINER_99 | sort\"}"}
         }),
         json!({
             "timestamp": ts,
@@ -560,7 +636,7 @@ fn gain_missed_ranks_uncovered_prefixes_without_leaking_arguments_or_payloads() 
             "output_tokens": 120,
             "tool_calls": [
                 {"name": "run_command", "args": {"CommandLine": "\"git diff\""}},
-                {"name": "run_command", "args": {"CommandLine": "\"kubectl get pods -n PRIVATE_NS_42\""}}
+                {"name": "run_command", "args": {"CommandLine": "\"kubectl get pods -n PRIVATE_NS_42 | sort\""}}
             ]
         }),
         json!({
@@ -599,16 +675,20 @@ fn gain_missed_ranks_uncovered_prefixes_without_leaking_arguments_or_payloads() 
     let raw_out = String::from_utf8(out.stdout).unwrap();
     let v: Value = serde_json::from_str(&raw_out).unwrap();
     let m = &v["missed"];
-    assert_eq!(m["total_shell_calls"], 7, "{v}");
+    assert_eq!(m["total_shell_calls"], 8, "{v}");
     assert_eq!(m["covered_calls"], 3, "{v}");
-    assert_eq!(m["uncovered_calls"], 4, "{v}");
+    assert_eq!(m["uncovered_calls"], 5, "{v}");
+    assert_eq!(m["by_agent"]["claude-code"]["uncovered_calls"], 3, "{v}");
+    assert_eq!(m["by_agent"]["codex"]["covered_calls"], 1, "{v}");
+    assert_eq!(m["by_agent"]["antigravity"]["covered_calls"], 1, "{v}");
 
     let top = m["top_uncovered"].as_array().unwrap();
-    assert_eq!(top.len(), 4, "{top:?}");
+    assert_eq!(top.len(), 5, "{top:?}");
     assert_eq!(top[0]["prefix"], "gh api");
     assert_eq!(top[1]["prefix"], "docker ps");
     assert_eq!(top[2]["prefix"], "kubectl get");
     assert_eq!(top[3]["prefix"], "curl");
+    assert_eq!(top[4]["prefix"], "git diff");
 
     // Privacy invariant: zero arguments, paths, headers, or raw payloads may appear in the report.
     for forbidden in [

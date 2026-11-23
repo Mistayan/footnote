@@ -183,6 +183,7 @@ Footnote assumes retrieved text is **untrusted data** that may contain prompt in
 - Single-binary CLI + MCP server (`Library`, `Memory`, `Code`, `Lean`) on Windows x64 and Linux x64.
 - Automatic hook & MCP registration for Claude Code, Codex CLI, Antigravity CLI (`agy`, including T3 Code), Grok, and DeepSeek Harness.
 - Token/cost & missed-command telemetry (`footnote usage`, `footnote gain`) for Claude Code, Codex, DeepSeek Harness, and Antigravity.
+  `footnote gain` reports observed Lean hook rewrite rates and pass reasons by agent. `footnote gain --missed` estimates coverage of completed transcript calls with the same rewrite rules. The rotating decision log stores tool and known program names, with command text excluded. Disable the Lean ledgers with `footnote config set usage.lean_log false`.
 
 **Work in progress / known limits:**
 - **Desktop Launcher (`apps/launcher`, Tauri 2):** ships in the Windows installer with the engine ([installer/README.md](installer/README.md)) and builds from source ([apps/launcher/README.md](apps/launcher/README.md)).

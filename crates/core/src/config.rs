@@ -179,8 +179,8 @@ pub fn catalogue() -> Vec<OptionSpec> {
             default: json!(true),
             range: None,
             choices: None,
-            gain: "The Usage view shows what Footnote's trimmed search results saved, measured on each call",
-            cost: "One line per agent search in usage/lean.jsonl in the state folder (time, tool, two sizes; never text), capped at about 1 MB",
+            gain: "Measure Lean output savings and see rewrite rates and pass reasons by agent in footnote gain",
+            cost: "Local rotating usage ledgers store sizes and hook decisions. Commands, arguments and tool payloads are excluded",
         },
         OptionSpec {
             key: "memory.metrics",
