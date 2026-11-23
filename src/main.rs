@@ -32,6 +32,8 @@ mod refresh;
 #[cfg(feature = "memory")]
 mod review;
 mod run;
+#[cfg(feature = "memory")]
+mod session_context;
 // Skills the agent revised from use (#444), served in place of curated ones; review and the hook need Memory.
 #[cfg(feature = "library")]
 #[cfg_attr(not(feature = "memory"), allow(dead_code))]

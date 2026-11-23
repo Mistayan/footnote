@@ -60,6 +60,8 @@ pub struct Shared {
     pub db: std::path::PathBuf,
     pub audit: std::sync::Mutex<Option<crate::audit::Audit>>,
     pub token: Option<String>,
+    #[cfg(feature = "memory")]
+    bound_context: bool,
 }
 
 impl Shared {
@@ -68,6 +70,8 @@ impl Shared {
             db: db.to_path_buf(),
             audit: std::sync::Mutex::new(audit),
             token,
+            #[cfg(feature = "memory")]
+            bound_context: false,
         }
     }
 }
@@ -104,7 +108,12 @@ pub fn serve(
     if !mcp {
         bail!("serve requires --mcp: the MCP stdio transport is the only one implemented");
     }
-    let shared = Shared::new(db, open_audit(audit_path, mac_key)?, None);
+    #[allow(unused_mut)]
+    let mut shared = Shared::new(db, open_audit(audit_path, mac_key)?, None);
+    #[cfg(feature = "memory")]
+    {
+        shared.bound_context = true;
+    }
     let stdin = std::io::stdin();
     let mut reader = BufReader::new(stdin.lock());
     let stdout = std::io::stdout();
@@ -432,7 +441,7 @@ fn handle(shared: &Shared, request: &Value, session: &str) -> Option<Value> {
             // report a tool error, then keep serving the rest of the conversation.
             let started = std::time::Instant::now();
             let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                run_tool(&shared.db, name, &arguments)
+                run_tool(shared, name, &arguments)
             })) {
                 Ok(result) => result,
                 Err(_) => tool_envelope(
@@ -463,9 +472,9 @@ fn initialize(params: &Value) -> Value {
     })
 }
 
-fn run_tool(db: &Path, name: &str, args: &Value) -> Value {
+fn run_tool(shared: &Shared, name: &str, args: &Value) -> Value {
     footnote_search::store::take_lean_bytes(); // only this call's results count
-    let result = crate::metrics::timed!(format!("mcp.{name}"), dispatch(db, name, args));
+    let result = crate::metrics::timed!(format!("mcp.{name}"), dispatch(shared, name, args));
     log_lean(name);
     match result {
         Ok(value) => {
@@ -671,7 +680,8 @@ fn known_args(name: &str, args: &Value) -> Result<()> {
     check(&tool["inputSchema"], args, "")
 }
 
-fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
+fn dispatch(shared: &Shared, name: &str, args: &Value) -> Result<Value> {
+    let db = shared.db.as_path();
     known_args(name, args)?;
     // Every product at once (`footnote find`): each one applies its own switch, so no single product gate here (#344).
     if name == "footnote_recall" && args["all"] == true {
@@ -698,18 +708,44 @@ fn dispatch(db: &Path, name: &str, args: &Value) -> Result<Value> {
         }
     );
     match name {
-        "footnote_recall" => recall(db, args).map(|v| compact_unless_verbose(v, args)),
+        "footnote_recall" => {
+            #[allow(unused_mut)]
+            let mut results = recall(db, args)?;
+            #[cfg(feature = "memory")]
+            if shared.bound_context
+                && let Some(project) = args["project"].as_str()
+                && let Some(delivery) = crate::hook::delivered(db, Some(project))
+                && let Some(hits) = results["results"].as_array_mut()
+            {
+                for hit in hits {
+                    delivery.mark(hit);
+                }
+            }
+            Ok(compact_unless_verbose(results, args))
+        }
         // Not listed in tools/list: the memory hook's per-prompt recall through the resident daemon (models stay loaded).
         #[cfg(feature = "memory")]
         "footnote_memory_recall" => memory_recall(db, args),
         "footnote_get" => {
             let c = read_db(db)?;
             let record = enum_arg(args, "kind", &["chunk", "record"], "chunk")? == "record";
+            #[cfg(feature = "memory")]
+            let delivery = if shared.bound_context && !record && args["full"] != true {
+                crate::hook::delivered(db, None)
+            } else {
+                None
+            };
             let one = |id| {
                 if record {
                     record_by_id(&c, id)
                 } else {
-                    chunk_by_id(&c, id)
+                    #[allow(unused_mut)]
+                    let mut hit = chunk_by_id(&c, id)?;
+                    #[cfg(feature = "memory")]
+                    if let Some(delivery) = &delivery {
+                        delivery.mark(&mut hit);
+                    }
+                    Ok(hit)
                 }
             };
             // Several ids in one call, so reading the memories a prompt pointed to is one round trip (#511).
@@ -1121,6 +1157,10 @@ fn compact_unless_verbose(v: Value, args: &Value) -> Value {
     };
     for h in hits {
         let id = &h["id"];
+        if h["already_shown"] == true {
+            out.push(format!("[{id}] already shown in this session"));
+            continue;
+        }
         if let Some(e) = h["error"].as_str() {
             out.push(format!("[{id}] {e}"));
             continue;
@@ -1602,6 +1642,7 @@ fn tool_definitions() -> Value {
                 "properties": {
                     "id": {"type": ["integer", "array"], "items": {"type": "integer"}},
                     "kind": {"type": "string", "enum": ["chunk", "record"]},
+                    "full": {"type": "boolean", "description": "Return text even if already shown."},
                     "verbose": {"type": "boolean"}
                 },
                 "required": ["id"]

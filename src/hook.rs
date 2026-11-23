@@ -1,4 +1,5 @@
-//! Agent memory event orchestration. Only counters are retained; the agent itself writes memories through MCP.
+//! Agent memory event orchestration. The agent itself writes memories through MCP.
+use crate::session_context::{Binding, Delivery};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -256,6 +257,9 @@ struct Session {
     /// Memories already in this context (#242): each one is re-read by every later call, so it is never shown twice.
     /// Reset at SessionStart, which also follows a compaction that dropped them.
     shown: Vec<i64>,
+    /// Digests of complete project memory rendered for a bound MCP session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delivery: Option<Delivery>,
     /// Skills already suggested in this context, by name; reset at SessionStart.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     skills_shown: Vec<String>,
@@ -623,6 +627,18 @@ fn safe_session_id(id: &str) -> String {
 
 fn session_path(dir: &Path, id: &str) -> PathBuf {
     dir.join(format!("{}.json", safe_session_id(id)))
+}
+
+pub(crate) fn delivered(db: &Path, project: Option<&str>) -> Option<Delivery> {
+    let binding = Binding::load()?;
+    if project.is_some_and(|p| !binding.for_project(p)) {
+        return None;
+    }
+    let dir = crate::state::state_dir().ok()?.join("memory-hook");
+    let path = session_path(&dir, binding.session());
+    let session: Session =
+        serde_json::from_slice(&footnote_core::bounded_read(&path).ok()?).ok()?;
+    session.delivery.filter(|d| d.matches(&binding, db))
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -1011,7 +1027,13 @@ fn passes_floors(m: &Value, cos_floor: Option<f64>, inject_floor: Option<f64>) -
 
 /// Pointer-packed recall rendering (#356): top `full_top_k` hits keep up to 200-char snippets; remaining hits become
 /// compact 60-char one-line pointers (one `footnote_get id=[..]` fetches every cut one) within `max_chars` total body budget.
-fn render_packed(v: &Value, title: &str, full_top_k: usize, max_chars: usize) -> String {
+fn render_packed(
+    v: &Value,
+    title: &str,
+    full_top_k: usize,
+    max_chars: usize,
+    mut delivery: Option<&mut Delivery>,
+) -> String {
     const FULL_CHARS: usize = 200;
     const PTR_CHARS: usize = 60;
     let budget = if max_chars == 0 { 600 } else { max_chars };
@@ -1039,6 +1061,9 @@ fn render_packed(v: &Value, title: &str, full_top_k: usize, max_chars: usize) ->
         let line_chars = line.chars().count();
         if !lines.is_empty() && used + line_chars > budget {
             break;
+        }
+        if let Some(delivery) = delivery.as_deref_mut() {
+            delivery.note(m, &text[..cut]);
         }
         used += line_chars;
         lines.push(line);
@@ -1072,19 +1097,26 @@ fn framed(title: &str, lines: &[String]) -> String {
 
 /// `short`: per-prompt recall lines, capped at 200 characters with the id to fetch the rest (#242); the session pack keeps
 /// full text, since it carries the user's standing rules.
-fn render(v: &Value, title: &str, short: bool) -> String {
+fn render(v: &Value, title: &str, short: bool, mut delivery: Option<&mut Delivery>) -> String {
     let lines: Vec<String> = v["memories"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|m| {
             let text = m["text"].as_str().unwrap_or_default();
+            let cut = if short {
+                text.char_indices().nth(200).map_or(text.len(), |(i, _)| i)
+            } else {
+                text.len()
+            };
+            if let Some(delivery) = delivery.as_deref_mut() {
+                delivery.note(m, &text[..cut]);
+            }
             // Who wrote it (#207): `mcp` is an agent, `cli` a person; older memories have no origin.
             let by = m["origin"]
                 .as_str()
                 .map_or(String::new(), |o| format!(" · {o}"));
             if short {
-                let cut = text.char_indices().nth(200).map_or(text.len(), |(i, _)| i);
                 let more = if cut < text.len() { "…" } else { "" };
                 format!(
                     "- [id {} · {} · {}{by}] {}{more}",
@@ -1422,6 +1454,23 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
         Session::default()
     };
     let db = s.db(state);
+    if matches!(
+        e.name.as_str(),
+        "SessionStart" | "UserPromptSubmit" | "PreInvocation"
+    ) {
+        let binding =
+            Binding::load().filter(|b| b.accepts(&e.session, &project, Path::new(&e.cwd)));
+        st.delivery = match binding {
+            Some(b)
+                if e.name != "SessionStart"
+                    && st.delivery.as_ref().is_some_and(|d| d.matches(&b, &db)) =>
+            {
+                st.delivery.take()
+            }
+            Some(b) => Delivery::new(b, &db),
+            None => None,
+        };
+    }
     let mut out = None;
     match e.name.as_str() {
         "SessionStart" => {
@@ -1495,12 +1544,18 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                 note(s, &dir, "pack", &project, &session_id, &memories);
                 st.shown = ids(&memories).collect();
                 let pack = if binding {
-                    render(&memories, "Binding rules for this user and project", true)
+                    render(
+                        &memories,
+                        "Binding rules for this user and project",
+                        true,
+                        st.delivery.as_mut(),
+                    )
                 } else {
                     render(
                         &memories,
                         "What you remember about this user and project",
                         false,
+                        st.delivery.as_mut(),
                     )
                 };
                 text = if pack.is_empty() || binding {
@@ -1683,9 +1738,15 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
                                 "Possibly relevant memories",
                                 s.recall_full_top_k,
                                 s.recall_max_chars,
+                                st.delivery.as_mut(),
                             )
                         } else {
-                            render(&hits, "Possibly relevant memories", true)
+                            render(
+                                &hits,
+                                "Possibly relevant memories",
+                                true,
+                                st.delivery.as_mut(),
+                            )
                         };
                     } else if raw_total == 0 {
                         note_recall_outcome(
@@ -1874,7 +1935,7 @@ fn handle(state: &Path, s: &Settings, event: &Value) -> Result<Option<Value>> {
             with_context(&e, out, text)
         };
     }
-    // Rewriting through a temp file also drops legacy transcript/cwd fields. Only counters survive.
+    // The atomic replacement lets MCP read a complete snapshot while a hook runs.
     let mut temp = tempfile::NamedTempFile::new_in(&dir)?;
     serde_json::to_writer(&mut temp, &st)?;
     temp.persist(&path)?;
@@ -2282,7 +2343,7 @@ mod tests {
                 {"id": 4, "kind": "fact", "observed_at": "2026-11-20", "text": long_d},
             ]
         });
-        let packed = render_packed(&v, "Possibly relevant memories", 2, 600);
+        let packed = render_packed(&v, "Possibly relevant memories", 2, 600, None);
         assert!(packed.contains(&long_a), "hit 1 keeps full body");
         assert!(packed.contains(&long_b), "hit 2 keeps full body");
         assert!(
@@ -2293,7 +2354,7 @@ mod tests {
             !packed.contains(&"C".repeat(80)),
             "hit 3 truncated to 60-char pointer"
         );
-        let flat = render(&v, "Possibly relevant memories", true);
+        let flat = render(&v, "Possibly relevant memories", true, None);
         assert!(
             packed.len() < flat.len(),
             "packed ({}) < flat ({})",

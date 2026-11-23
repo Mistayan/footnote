@@ -50,6 +50,96 @@ fn seed(state: &Path, models: &[&str]) {
 }
 
 #[test]
+fn standalone_mcp_marks_only_full_deliveries_from_its_bound_session() {
+    let t = tempfile::tempdir().unwrap();
+    let root = t.path().canonicalize().unwrap();
+    let cwd = root.join("context-fixture");
+    fs::create_dir(&cwd).unwrap();
+    let db = root.join("memory.db");
+    let fact = "Calibration widgets are violet.";
+    let stored = command(&root)
+        .arg("--db")
+        .arg(&db)
+        .arg("remember")
+        .write_stdin(json!([{
+            "kind": "fact", "scope": "context-fixture", "observed_at": "2026-11-23", "text": fact
+        }]).to_string())
+        .assert()
+        .success()
+        .get_output().stdout.clone();
+    let id = serde_json::from_slice::<Value>(&stored).unwrap()["stored"][0]["id"].clone();
+    let make_binding = |name: &str, session: &str| {
+        let path = root.join(name);
+        fs::write(
+            &path,
+            json!({
+                "session": session, "project": "context-fixture", "cwd": cwd
+            })
+            .to_string(),
+        )
+        .unwrap();
+        path
+    };
+    let a = "019a9d4e-918b-7000-a027-38fe53eec000";
+    let b = "019a9d4e-918b-7000-a027-38fe53eec001";
+    let bind_a = make_binding("first.json", a);
+    let bind_b = make_binding("second.json", b);
+    let pack = |binding: &Path, session: &str, subagent: bool| {
+        let mut event = event_in(session, "SessionStart", "");
+        event["cwd"] = json!(cwd);
+        event["subagent"] = json!(subagent);
+        let output = command(&root)
+            .env("FOOTNOTE_CONTEXT_SESSION_FILE", binding)
+            .arg("hook")
+            .write_stdin(event.to_string())
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        String::from_utf8(output).unwrap()
+    };
+    let get = |binding: &Path, full: bool| {
+        let request = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+                "name": "footnote_get", "arguments": {"id": id, "verbose": true, "full": full}
+            }
+        });
+        let response = command(&root)
+            .env("FOOTNOTE_CONTEXT_SESSION_FILE", binding)
+            .arg("--db")
+            .arg(&db)
+            .args(["serve", "--mcp"])
+            .write_stdin(format!("{request}\n"))
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let envelope: Value = serde_json::from_slice(&response).unwrap();
+        serde_json::from_str::<Value>(envelope["result"]["content"][0]["text"].as_str().unwrap())
+            .unwrap()
+    };
+    std::thread::scope(|s| {
+        let first = s.spawn(|| pack(&bind_a, a, false));
+        let second = s.spawn(|| pack(&bind_b, b, true));
+        assert!(first.join().unwrap().contains(fact));
+        assert!(!second.join().unwrap().contains(fact));
+    });
+    assert_eq!(
+        get(&bind_a, false),
+        json!({"id": id, "already_shown": true})
+    );
+    assert_eq!(get(&bind_a, true)["text"], fact);
+    assert_eq!(get(&bind_b, false)["text"], fact);
+    assert_eq!(get(&root.join("missing.json"), false)["text"], fact);
+
+    // SessionStart replaces the previous delivery list even for the same native session.
+    assert!(!pack(&bind_a, a, true).contains(fact));
+    assert_eq!(get(&bind_a, false)["text"], fact);
+}
+
+#[test]
 fn pack_recall_save_and_stop_loop_match_the_existing_contract() {
     let t = tempfile::tempdir().unwrap();
     let state = t.path();
