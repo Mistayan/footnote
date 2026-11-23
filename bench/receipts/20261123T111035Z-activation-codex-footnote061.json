@@ -1,0 +1,44 @@
+{
+  "protocol": 1,
+  "codex": "codex-cli 0.171.0",
+  "footnote": "footnote 0.6.1",
+  "footnote_sha256": "d6517d41062451eeb42dccfd276a3b6ef1198febd533106da320b98ebbdcd532",
+  "requested_model": "gpt-6.2-sol",
+  "accepted": true,
+  "model": "gpt-6.2-sol",
+  "trust": {
+    "preToolUse": "trusted",
+    "sessionStart": "trusted",
+    "stop": "trusted",
+    "userPromptSubmit": "trusted"
+  },
+  "model_turn_started": true,
+  "sandbox": "dangerFullAccess",
+  "turn_completed": true,
+  "model_rerouted": false,
+  "hooks_completed": [
+    "preToolUse",
+    "sessionStart",
+    "stop",
+    "userPromptSubmit"
+  ],
+  "fixture_memory_shown": true,
+  "fixture_memory_used": true,
+  "successful_lean_git": true,
+  "commands": [
+    {
+      "success": true,
+      "footnote_run": true,
+      "git_log": true
+    }
+  ],
+  "lean_git_runs": 1,
+  "tokens": {
+    "totalTokens": 45911,
+    "inputTokens": 45829,
+    "cachedInputTokens": 36608,
+    "cacheWriteInputTokens": 0,
+    "outputTokens": 82,
+    "reasoningOutputTokens": 0
+  }
+}

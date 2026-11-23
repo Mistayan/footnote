@@ -15,6 +15,7 @@ Written 2026-11-11. Nothing here is a claim of superiority; it is how we find ou
 | `fetch.py`, `datasets.lock.json` | Public datasets (BEIR SciFact and NFCorpus, MTEB-French Syntec and Alloprof, LongMemEval-S, a French+English union `mix-fr-en`), SHA-256 locked, official dev sets or a fixed hash split |
 | `anchors_fetch.py`, `anchors.json` | Published MTEB and BEIR reference scores with the results-repo commit |
 | `engines.py`, `run.py`, `run_lme.py`, `run_suite.py` | Product engines (CLI as shipped) and the receipt-writing runners |
+| [`codex_hook_activation.py`](codex_hook_activation.py) | Live check that Codex trusts Footnote, the model uses its Memory context, and its Lean rewrite executes |
 | `lab/` | Lab engine (resident ONNX encoders, own BM25, chunkers, fusion, cross-encoder rerank), model registry with hash lock, `check_model.py` validation gate |
 | `sweep.py`, `sweeps/*.jsonl` | Tuning runs on dev splits (append-only rows) |
 | `INDEX.md`, `archive/` | Index of all reports; moved raw logs and stale progress notes |
