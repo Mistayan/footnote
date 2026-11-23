@@ -624,18 +624,41 @@ html.mini-win, html.mini-win body { background: var(--bg); }
 .picker-current { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--mute); overflow: hidden; white-space: nowrap; }
 @supports (corner-shape: squircle) { .drive-btn, .picker-row, .picker-path button { corner-shape: squircle; border-radius: 14px; } .picker { corner-shape: squircle; border-radius: 30px; } }
 
-/* Code: every registered graph as a card (23 Nov 2026). */
-.graph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
-.graph-card { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; text-align: left; color: var(--mute); font: inherit; cursor: pointer;
-  border: 1px solid var(--line); transition: border-color var(--fast) var(--ease), translate 220ms var(--ease-out); }
-.graph-card:hover { border-color: color-mix(in srgb, var(--acc) 55%, transparent); translate: 0 -2px; }
+/* Code: every registered graph as a card (23 Nov 2026). Head row (glyph, name and path, chevron), then four stats on one baseline split by hairlines. Hover: lift, accent rim lit under the pointer, chevron steps in. */
+.graph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.graph-card { position: relative; isolation: isolate; display: grid; gap: 16px; padding: 18px 20px 16px; text-align: left; color: var(--mute);
+  font: inherit; cursor: pointer; border: 1px solid var(--line); overflow: hidden;
+  transition: border-color 220ms var(--ease-out), translate 280ms var(--spring), box-shadow 280ms var(--ease-out);
+  animation: gc-rise 320ms var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes gc-rise { from { opacity: .35; translate: 0 10px; } }
+/* rim light and a faint wash, both centred on the pointer; invisible until hover */
+.graph-card::before, .graph-card::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  opacity: 0; transition: opacity 220ms var(--ease-out); z-index: -1; }
+.graph-card::before { padding: 1px; background: radial-gradient(240px circle at var(--x, 50%) var(--y, 0), var(--acc), transparent 65%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; z-index: 1; }
+.graph-card::after { background: radial-gradient(320px circle at var(--x, 50%) var(--y, 0), color-mix(in srgb, var(--acc) 9%, transparent), transparent 70%); }
+.graph-card:hover { translate: 0 -2px; border-color: color-mix(in srgb, var(--acc) 22%, var(--line)); box-shadow: 0 14px 28px -18px var(--shade); }
+.graph-card:hover::before, .graph-card:hover::after, .graph-card:focus-visible::after { opacity: 1; }
+.graph-card:active { translate: 0 0; transition-duration: 120ms; }
 .graph-card:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
-.graph-card b { color: var(--text); font: 600 17px var(--f-title); }
-.graph-card .path { font-size: var(--t-xs); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.graph-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-.graph-kpis > span { display: flex; flex-direction: column; gap: 2px; color: var(--text); font: 500 15px var(--f-mono); }
-.graph-kpis > span svg { color: var(--dim); }
-.graph-kpis small { color: var(--dim); font: var(--t-xs) var(--f-ui); }
+.gc-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; }
+.gc-glyph { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 12%, transparent); border: 1px solid color-mix(in srgb, var(--acc) 24%, transparent); }
+.gc-id { display: grid; gap: 2px; min-width: 0; }
+.gc-id b { color: var(--text); font: 600 16px / 1.25 var(--f-title); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-id .path { font-size: var(--t-xs); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-go { color: var(--dim); transition: translate 280ms var(--spring), color 220ms var(--ease-out); }
+.graph-card:hover .gc-go { color: var(--acc); translate: 3px 0; }
+.gc-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding-top: 14px; border-top: 1px solid var(--line); }
+.gc-kpis > span { display: grid; gap: 4px; padding: 0 12px; border-left: 1px solid var(--line); min-width: 0; }
+.gc-kpis > span:first-child { padding-left: 0; border-left: 0; }
+.gc-kpis b { color: var(--text); font: 600 20px / 1.1 var(--f-title); font-variant-numeric: tabular-nums; }
+.gc-kpis small { display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font: var(--t-xs) var(--f-ui); white-space: nowrap; }
+.gc-kpis small svg { flex: none; }
+@media (prefers-reduced-motion: reduce) {
+  .graph-card { animation: none; }
+  .graph-card:hover, .graph-card:hover .gc-go { translate: none; }
+}
 .back-btn { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Footnote Enterprise: bottom of the sidebar, a soft accent wash; it invites a look and never shouts. */

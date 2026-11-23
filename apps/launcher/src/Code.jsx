@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { footnote, num } from "./data.js";
 import CodeMap from "./CodeMap.jsx";
 import { Select, Tabs } from "./ui.jsx";
-import { Boxes, ChevronLeft, FileCode2, FolderGit2, GitFork, Waypoints } from "lucide-react";
+import { Boxes, ChevronLeft, ChevronRight, FileCode2, FolderGit2, GitFork, Waypoints } from "lucide-react";
 
 // Code, by zoom level (DESIGN.md section 11): the architecture map of a project and its blocks' files (CodeMap.jsx), then
 // one symbol's callers and callees.
@@ -47,13 +47,20 @@ function Graphs({ graphs, open }) {
   return (
     <div className="body">
       <div className="graph-grid">
-        {graphs.map((p) => <GraphCard key={p.path} p={p} open={() => open(p.path)} />)}
+        {graphs.map((p, i) => <GraphCard key={p.path} p={p} i={i} open={() => open(p.path)} />)}
       </div>
     </div>
   );
 }
 
-function GraphCard({ p, open }) {
+// The rim light follows a fine pointer in the card's own coordinates (design-bank "bordure éclairée").
+const spot = (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  e.currentTarget.style.setProperty("--x", `${e.clientX - r.left}px`);
+  e.currentTarget.style.setProperty("--y", `${e.clientY - r.top}px`);
+};
+
+function GraphCard({ p, i, open }) {
   const { data, error } = useRead(["code-map", "--root", p.path]);
   const blocks = data?.blocks.filter((b) => b.symbols > 0) ?? [];
   const sum = (k) => blocks.reduce((n, b) => n + (b[k] ?? 0), 0);
@@ -64,15 +71,25 @@ function GraphCard({ p, open }) {
     [Waypoints, "links", data?.links.length ?? 0],
   ];
   return (
-    <button type="button" className="graph-card surface sq" onClick={open} aria-label={`Open the code map of ${p.name}`}>
-      <b>{p.name}</b>
-      <span className="path mono">{p.path}</span>
-      {error ? <span className="warn small">{clipErr(error)}</span> : (
-        <span className="graph-kpis">
-          {kpis.map(([Icon, label, v]) => (
-            <span key={label} title={label}><Icon size={12} strokeWidth={1.9} />{data ? num(v) : "–"}<small>{label}</small></span>
-          ))}
+    <button type="button" className="graph-card surface sq" style={{ "--i": i }} onClick={open} onPointerMove={spot}
+      aria-label={`Open the code map of ${p.name}`}>
+      <span className="gc-head">
+        <span className="gc-glyph" aria-hidden="true"><FolderGit2 size={16} strokeWidth={1.9} /></span>
+        <span className="gc-id">
+          <b>{p.name}</b>
+          <span className="path mono" title={p.path}>{p.path}</span>
         </span>
+        <ChevronRight className="gc-go" size={16} strokeWidth={2} aria-hidden="true" />
+      </span>
+      {error ? <span className="warn small">{clipErr(error)}</span> : (
+          <span className="gc-kpis">
+            {kpis.map(([Icon, label, v]) => (
+              <span key={label}>
+                <b>{data ? num(v) : "–"}</b>
+                <small><Icon size={12} strokeWidth={1.9} aria-hidden="true" />{label}</small>
+              </span>
+            ))}
+          </span>
       )}
     </button>
   );
