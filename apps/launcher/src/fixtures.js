@@ -25,7 +25,6 @@ const status = {
         { agent: "claude-code", hooks: true, mcp_server: true },
         { agent: "codex", hooks: true, hooks_untrusted: true, mcp_server: true },
         { agent: "deepseek-harness", hooks: false, mcp_server: true },
-        { agent: "gemini-cli", hooks: false, mcp_server: false },
       ],
     },
   },

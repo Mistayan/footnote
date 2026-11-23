@@ -106,7 +106,7 @@ fn hook_lean_rewrites_supported_bash_and_passes_through_pipes() {
 }
 
 #[test]
-fn hook_lean_rewrites_antigravity_tool_call_and_gemini_cli_before_tool() {
+fn hook_lean_rewrites_antigravity_tool_calls() {
     let state = TempDir::new().unwrap();
     let bin_dir = assert_cmd::cargo::cargo_bin!("footnote")
         .parent()
@@ -190,46 +190,6 @@ fn hook_lean_rewrites_antigravity_tool_call_and_gemini_cli_before_tool() {
     assert_eq!(
         serde_json::from_slice::<Value>(&agy_pass.stdout).unwrap(),
         json!({"decision": "allow"})
-    );
-
-    // 2. Gemini CLI BeforeTool sends `tool_name: "run_shell_command"`, `tool_input: { command }`
-    //    and expects `{ "hookSpecificOutput": { "tool_input": { "command": ... } } }`.
-    let gemini_payload = json!({
-        "hook_event_name": "BeforeTool",
-        "tool_name": "run_shell_command",
-        "tool_input": { "command": "git status" }
-    });
-    let gemini_out = cargo_bin_cmd!("footnote")
-        .env("FOOTNOTE_STATE_DIR", state.path())
-        .env("PATH", &bin_dir)
-        .args(["hook", "lean"])
-        .write_stdin(gemini_payload.to_string())
-        .output()
-        .unwrap();
-    assert!(gemini_out.status.success(), "{gemini_out:?}");
-    let gemini_v: Value = serde_json::from_slice(&gemini_out.stdout).unwrap();
-    assert_eq!(
-        gemini_v["hookSpecificOutput"]["tool_input"]["command"], "footnote run -- git status",
-        "{gemini_v}"
-    );
-
-    // Gemini CLI passthrough must also emit valid empty JSON `{}`.
-    let gemini_pipe = json!({
-        "hook_event_name": "BeforeTool",
-        "tool_name": "run_shell_command",
-        "tool_input": { "command": "rg foo src | sort" }
-    });
-    let gemini_pass = cargo_bin_cmd!("footnote")
-        .env("FOOTNOTE_STATE_DIR", state.path())
-        .env("PATH", &bin_dir)
-        .args(["hook", "lean"])
-        .write_stdin(gemini_pipe.to_string())
-        .output()
-        .unwrap();
-    assert!(gemini_pass.status.success(), "{gemini_pass:?}");
-    assert_eq!(
-        serde_json::from_slice::<Value>(&gemini_pass.stdout).unwrap(),
-        json!({})
     );
 }
 
@@ -361,6 +321,18 @@ fn install_lean_remove_rtk_and_uninstall_lean_preserves_memory_hooks() {
         .path()
         .join(".t3/userdata/providers/antigravity/abc123/config");
     fs::create_dir_all(&t3_cfg).unwrap();
+    let gemini_settings = home.path().join(".gemini/settings.json");
+    let old_settings = json!({
+        "hooks": {
+            "BeforeTool": [{"matcher": "run_shell_command", "hooks": [
+                {"type": "command", "command": "footnote hook lean", "timeout": 5000},
+                {"type": "command", "command": "keep.sh", "timeout": 5000}
+            ]}],
+            "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "footnote hook"}]}]
+        }
+    });
+    let original = old_settings.to_string();
+    fs::write(&gemini_settings, &original).unwrap();
 
     // Seed Claude settings with an existing Footnote Memory hook AND an RTK hook.
     let claude_settings = home.path().join(".claude/settings.json");
@@ -441,19 +413,7 @@ fn install_lean_remove_rtk_and_uninstall_lean_preserves_memory_hooks() {
             hooks_path.display()
         );
     }
-    // Gemini CLI must use `BeforeTool` with `matcher: "run_shell_command"` and ms timeout (5000).
-    let gemini_settings: Value = serde_json::from_str(
-        &fs::read_to_string(home.path().join(".gemini/settings.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        gemini_settings["hooks"]["BeforeTool"][0]["matcher"], "run_shell_command",
-        "{gemini_settings}"
-    );
-    assert_eq!(
-        gemini_settings["hooks"]["BeforeTool"][0]["hooks"][0]["timeout"], 5000,
-        "{gemini_settings}"
-    );
+    assert_eq!(fs::read_to_string(&gemini_settings).unwrap(), original);
 
     // 3. Second install is idempotent ("already registered").
     let ins2 = cargo_bin_cmd!("footnote")
@@ -483,6 +443,14 @@ fn install_lean_remove_rtk_and_uninstall_lean_preserves_memory_hooks() {
         .output()
         .unwrap();
     assert!(un.status.success(), "{un:?}");
+    let mut expected = old_settings;
+    expected["hooks"]["BeforeTool"][0]["hooks"]
+        .as_array_mut()
+        .unwrap()
+        .remove(0);
+    let actual: Value =
+        serde_json::from_str(&fs::read_to_string(&gemini_settings).unwrap()).unwrap();
+    assert_eq!(actual, expected);
     let after_un = fs::read_to_string(&claude_settings).unwrap();
     assert!(
         !after_un.contains("hook lean"),

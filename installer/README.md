@@ -12,7 +12,7 @@ current user in `%LOCALAPPDATA%\Programs\footnote`. It needs no administrator ri
   - **Create a desktop shortcut**: off by default.
   - **Add footnote to PATH**: on by default, so terminals and agents can run `footnote`.
   - **Connect the coding agents found on this computer now**: off by default. Runs `footnote install` (Memory and Lean hooks,
-    MCP server) for Claude Code, Codex, Gemini CLI and the others it finds. You can do it later from a terminal.
+    MCP server) for Claude Code, Codex, Antigravity CLI (`agy`) and the others it finds. You can do it later from a terminal.
 - Upgrading over a running Footnote is safe: a `footnote.exe` your agents still use is renamed aside
   (`footnote.exe.replaced-<time>`), the way `footnote update` does it, instead of being closed.
 

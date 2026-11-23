@@ -6,7 +6,7 @@
       <p class="sub">Less for your agent to read, every turn.</p>
       <p class="lead">Lean trims noisy shell output before your coding agent reads it and keeps every line that says what failed. It also measures what your MCP servers, rules and skills add to every turn. It is early: the numbers below come from one benchmark.</p>
       <div class="cta"><a class="btn primary" href="#start">Turn on Lean</a><a class="btn" href="#numbers">Read the numbers</a></div>
-      <p class="hint">Claude Code · Codex · Gemini CLI · runs on your machine</p>
+      <p class="hint">Claude Code · Codex · Antigravity CLI · runs on your machine</p>
     </div>
     <span class="lens glass big start" id="plens" aria-hidden="true"><svg class="mk"><use href="#m-lean"/></svg></span>
   </div>
@@ -20,7 +20,7 @@
   <section id="how" class="wrap">
     <h2 class="t">How it works</h2>
     <ul class="facts">
-      <li><b>Shell filter.</b> <code>footnote install --lean</code> adds a hook to Claude Code, Codex and Gemini CLI that routes noisy commands through <code>footnote run</code>: builds, tests, git, linters and search. Output that would not get smaller passes through untouched.</li>
+      <li><b>Shell filter.</b> <code>footnote install --lean</code> adds a hook to Claude Code, Codex and Antigravity CLI that routes noisy commands through <code>footnote run</code>: builds, tests, git, linters and search. Output that would not get smaller passes through untouched.</li>
       <li><b>Nothing is lost.</b> The full output is kept on your machine. <code>footnote output &lt;id&gt;</code> brings it back. Output that looks like a credential is never stored.</li>
       <li><b>Prefix audit.</b> <code>footnote audit-prefix --probe-mcp</code> measures the tool schemas of each MCP server, your instruction files and your skill headers: what every turn carries before you type. It only reads, and prints no contents or secrets.</li>
       <li><b>Handoff.</b> With Footnote Memory, a session past 140,000 tokens, or resumed after 55 idle minutes with more than 60,000 tokens in context (the prompt cache has gone cold), is asked to save a one-paragraph handoff so you can start fresh without losing the thread.</li>

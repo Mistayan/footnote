@@ -1,6 +1,6 @@
 # Footnote — Setup & Testing How-To (Linux & Windows)
 
-This guide is written for **both humans and AI coding agents** (Claude Code, Codex CLI, Gemini CLI, Antigravity, Cursor, Windsurf, Zed, Cline, Hermes). Point an LLM at this file and ask it to set up or verify Footnote on Linux or Windows.
+This guide is written for **both humans and AI coding agents** (Claude Code, Codex CLI, Antigravity CLI, Cursor, Windsurf, Zed, Cline, Hermes). Point an LLM at this file and ask it to set up or verify Footnote on Linux or Windows.
 
 ---
 
@@ -117,7 +117,9 @@ Always preview first with `--dry-run`, then apply without `--dry-run`.
 
 ### A. Footnote Memory (Persistent Cross-Session Agent Memory)
 
-Registers `footnote-memory` MCP server, session/prompt hooks (`footnote hook`), and `/remember` across detected agents (Claude Code, Codex CLI, Gemini CLI, Antigravity `agy`, Grok, DeepSeek Harness). Claude Code profiles kept with `CLAUDE_CONFIG_DIR` get the same setup in their own `settings.json` and `.claude.json`: the variable's folder, and any other `~/.claude*` folder holding both `projects/` and `.claude.json`, so a profile is found even when the installer runs without the variable. `footnote status` lists each one as `claude-code (<folder>)`. On each prompt, recall also checks code-anchored memories for any file paths or symbols named in the prompt (prioritizing past `fix` records), and logs recall hits, misses, and skips in `memory-hook/activity.jsonl` (ids and reasons only, never prompt text) while `memory.activity` is on.
+Registers `footnote-memory` MCP server, session/prompt hooks (`footnote hook`), and `/remember` across detected agents (Claude Code, Codex CLI, Antigravity `agy`, Grok, DeepSeek Harness). Claude Code profiles kept with `CLAUDE_CONFIG_DIR` get the same setup in their own `settings.json` and `.claude.json`: the variable's folder, and any other `~/.claude*` folder holding both `projects/` and `.claude.json`, so a profile is found even when the installer runs without the variable. `footnote status` lists each one as `claude-code (<folder>)`. On each prompt, recall also checks code-anchored memories for any file paths or symbols named in the prompt (prioritizing past `fix` records), and logs recall hits, misses, and skips in `memory-hook/activity.jsonl` (ids and reasons only, never prompt text) while `memory.activity` is on.
+
+If you previously used standalone Gemini CLI, run `footnote uninstall --memory --lean` and then reinstall Footnote to clean up its old entries. Antigravity CLI uses `~/.gemini/config`.
 
 ```bash
 footnote install --memory --dry-run
@@ -412,5 +414,5 @@ When opening an issue or PR fix after testing on Linux or Windows, include:
 
 1. OS + architecture + shell (e.g. `Ubuntu 24.04 x86_64 / bash`, `Windows 11 x64 / pwsh 7.4`)
 2. `footnote --version` and `git rev-parse --short HEAD`
-3. Agent harness tested (Claude Code, Codex CLI, Gemini CLI, Antigravity, Cursor, etc.)
+3. Agent harness tested (Claude Code, Codex CLI, Antigravity CLI, Cursor, etc.)
 4. Exact command run, exit code, and sanitized output (never paste credentials or private paths)

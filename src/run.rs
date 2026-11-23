@@ -2805,7 +2805,7 @@ fn log_lean_retrieve(handle: &str, returned_bytes: usize) {
         fs::create_dir_all(&dir).and_then(|()| crate::state::append_line(&path, &row.to_string()));
 }
 
-/// Handle a `PreToolUse` (Claude Code, Codex, Antigravity) or `BeforeTool` (Gemini CLI) hook event JSON payload:
+/// Handle a PreToolUse hook event from Claude Code, Codex or Antigravity:
 /// rewrite eligible shell commands to `footnote run -- <cmd>` using each CLI's native wire format.
 /// Returns `None` when the event is not a rewritable shell call (passthrough untouched).
 #[must_use]
@@ -2814,13 +2814,12 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
         .as_str()
         .or_else(|| event["hookEventName"].as_str())
         .unwrap_or("");
-    if !ev_name.is_empty() && !matches!(ev_name, "PreToolUse" | "BeforeTool") {
+    if !ev_name.is_empty() && ev_name != "PreToolUse" {
         return None;
     }
     let is_agy = event.get("toolCall").is_some()
         || event.get("conversationId").is_some()
         || event.get("hookEventName").is_some();
-    let is_gemini_cli = ev_name == "BeforeTool";
 
     let tool = event["tool_name"]
         .as_str()
@@ -2828,7 +2827,7 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
         .or_else(|| event["toolCall"]["name"].as_str())
         .unwrap_or("");
     #[cfg(feature = "code")]
-    if tool == "Read" && !is_agy && !is_gemini_cli {
+    if tool == "Read" && !is_agy {
         return outline_instead(event).map(|reason| {
             json!({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -2882,16 +2881,6 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
         return Some(json!({
             "decision": "allow",
             "overwrite": overwrite,
-        }));
-    }
-    if is_gemini_cli {
-        // Gemini CLI BeforeTool contract: override args via `hookSpecificOutput.tool_input`.
-        let mut tool_input = serde_json::Map::new();
-        tool_input.insert(cmd_key.to_string(), json!(rewritten));
-        return Some(json!({
-            "hookSpecificOutput": {
-                "tool_input": tool_input,
-            }
         }));
     }
     let mut updated = input.clone();
@@ -2961,7 +2950,7 @@ fn outline_instead(event: &Value) -> Option<String> {
     ))
 }
 
-/// Standalone `footnote hook lean` entrypoint: fast, SQLite-free PreToolUse/BeforeTool command rewriter.
+/// Standalone `footnote hook lean` entrypoint: fast, SQLite-free PreToolUse command rewriter.
 /// Never fails closed against the user's shell; any parse or I/O error passes through silently.
 pub fn run_lean_hook() {
     const MAX_HOOK_EVENT: u64 = 2 * 1024 * 1024;
@@ -2981,7 +2970,6 @@ pub fn run_lean_hook() {
     let is_agy = event.get("toolCall").is_some()
         || event.get("conversationId").is_some()
         || event.get("hookEventName").is_some();
-    let is_gemini_cli = event["hook_event_name"].as_str() == Some("BeforeTool");
 
     // Respect explicit company/user opt-out if usage.lean_enabled is set to false.
     let enabled = crate::state::state_dir().ok().is_none_or(|state| {
@@ -2994,8 +2982,6 @@ pub fn run_lean_hook() {
     } else if is_agy {
         // Antigravity PreToolUse requires an explicit `decision`; `{}` denies the tool call.
         println!("{{\"decision\":\"allow\"}}");
-    } else if is_gemini_cli {
-        println!("{{}}");
     }
 }
 

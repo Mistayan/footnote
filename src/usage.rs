@@ -844,8 +844,7 @@ pub fn usage(days: u16) -> Result<Value> {
     Ok(json!({
         "days": days,
         "agents_not_measured": [
-            "grok: keeps no token counts on this computer (only a general log)",
-            "gemini-cli: standalone Gemini CLI session format is not indexed yet (Antigravity transcripts are measured)"
+            "grok: keeps no token counts on this computer (only a general log)"
         ],
         "note": "dates in UTC; counts only, no prompt or answer text is kept; api_price_usd is what the priced requests would cost at list API prices, not what a subscription pays, and cost_cache_read, cost_cache_write, cost_input and cost_output split it by bucket; unpriced_requests are of models without a price yet",
         "prices": PRICES,

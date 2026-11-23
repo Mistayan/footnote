@@ -1,6 +1,6 @@
 # Footnote in Docker — Setup & Operations (Windows, Linux, macOS)
 
-Docker support is for **one person**: your agents (Claude Code, Codex, Gemini CLI, Antigravity), their parallel sessions and MCP hosts use one memory database, as they do on a host. Run Footnote in a hardened Linux container when:
+Docker support is for **one person**: your agents (Claude Code, Codex, Antigravity), their parallel sessions and MCP hosts use one memory database, as they do on a host. Run Footnote in a hardened Linux container when:
 
 - **Windows blocks local builds**: Smart App Control or a managed WDAC / AppLocker policy stops `cargo build` at the first build script (`os error 4551`) and blocks an unsigned `footnote.exe`. Self-signing does not get past it, and turning Smart App Control off cannot be undone without reinstalling Windows: use the container instead of weakening the policy.
 - **You want one warm daemon** for all your agents: it keeps the embedding models loaded, and the memory hooks reach it through `docker exec`.
@@ -114,7 +114,7 @@ If `footnote-state` (or `FOOTNOTE_STATE_VOLUME`) was already created by `docker 
 
 ### 3.2 Register Your Agents Automatically
 
-Once the daemon runs, one command registers it with every agent found for your user: the `footnote-memory` MCP server and the memory hooks, with the absolute path of `docker`. It detects **Claude Code, Codex, Gemini CLI and Antigravity** (also Antigravity's T3 Code provider folders and `$GEMINI_HOME`), and writes the same hooks as `footnote install --memory` on a host:
+Once the daemon runs, one command registers it with every agent found for your user: the `footnote-memory` MCP server and the memory hooks, with the absolute path of `docker`. It detects **Claude Code, Codex and Antigravity CLI (`agy`)** (also Antigravity's T3 Code provider folders and `$GEMINI_HOME`), and writes the same hooks as `footnote install --memory` on a host:
 
 ```powershell
 # Windows (Windows PowerShell 5.1 or pwsh)
@@ -132,7 +132,6 @@ bash scripts/docker-agents.sh
 |---|---|---|---|
 | Claude Code | `claude` on `PATH`, or `~/.claude` (`$CLAUDE_CONFIG_DIR`) | `claude mcp add --scope user` (its own command; `~/.claude.json` is never edited by the script) | `~/.claude/settings.json`: SessionStart 15 s, UserPromptSubmit 10 s, Stop 5 s |
 | Codex | `codex` on `PATH`, or `$CODEX_HOME` / `~/.codex` | `[mcp_servers.footnote-memory]` in `config.toml` | `hooks.json`: SessionStart 15 s, UserPromptSubmit 10 s, Stop 5 s |
-| Gemini CLI | `gemini` on `PATH`, or `~/.gemini/settings.json` | `mcpServers` in `~/.gemini/settings.json` | same file, `matcher: "*"`: SessionStart 15 000 ms, BeforeAgent 10 000 ms, AfterAgent 5 000 ms |
 | Antigravity | `~/.gemini/config` (`antigravity`, `antigravity-cli`), `~/.t3/userdata/providers/antigravity/<id>/config`, `$GEMINI_HOME/config` | `mcpServers` in `<config>/mcp_config.json` | `<config>/hooks.json`, entry `"footnote-memory"`: SessionStart 15, PreInvocation 10, Stop 5 |
 
 - **Safe to run again:** an existing `footnote-memory` entry is kept, and a Footnote memory hook already there (this script's or the native `footnote hook`) is not doubled. `-Force` / `--force` replaces them.
@@ -155,7 +154,6 @@ Use the **absolute path of `docker`** for GUI hosts, which do not inherit the sh
 |---|---|
 | Claude Code | `claude mcp add footnote-memory --scope user -- docker exec -i footnote footnote --db /state/memory.db mcp` |
 | Codex | `codex mcp add footnote-memory -- docker exec -i footnote footnote --db /state/memory.db mcp` |
-| Gemini CLI | `mcpServers` entry below in `~/.gemini/settings.json` |
 | Antigravity | `mcpServers` entry below in `~/.gemini/config/mcp_config.json` |
 | Cursor, Windsurf, Cline and other `mcpServers` hosts | `mcpServers` entry below in the host's MCP settings file |
 
@@ -178,18 +176,6 @@ Memory hooks for Claude Code (`~/.claude/settings.json`; Codex's `hooks.json` ta
     "SessionStart": [{"hooks": [{"type": "command", "command": "/ABSOLUTE/PATH/TO/docker exec -i footnote footnote hook", "timeout": 15}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/ABSOLUTE/PATH/TO/docker exec -i footnote footnote hook", "timeout": 10}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "/ABSOLUTE/PATH/TO/docker exec -i footnote footnote hook", "timeout": 5}]}]
-  }
-}
-```
-
-Gemini CLI (`~/.gemini/settings.json`, alongside `mcpServers`; timeouts in ms):
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "/ABSOLUTE/PATH/TO/docker exec -i footnote footnote hook", "timeout": 15000}]}],
-    "BeforeAgent": [{"matcher": "*", "hooks": [{"type": "command", "command": "/ABSOLUTE/PATH/TO/docker exec -i footnote footnote hook", "timeout": 10000}]}],
-    "AfterAgent": [{"matcher": "*", "hooks": [{"type": "command", "command": "/ABSOLUTE/PATH/TO/docker exec -i footnote footnote hook", "timeout": 5000}]}]
   }
 }
 ```

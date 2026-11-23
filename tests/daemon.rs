@@ -125,7 +125,7 @@ fn install_registers_detected_agents() {
     let db = fixture(&t);
     let home = t.path().join("home");
     fs::create_dir_all(home.join(".codex")).unwrap();
-    fs::create_dir_all(home.join(".gemini")).unwrap();
+    fs::create_dir_all(home.join(".gemini/config")).unwrap();
 
     let out = bin()
         .env("USERPROFILE", &home)
@@ -141,10 +141,12 @@ fn install_registers_detected_agents() {
     assert!(codex.contains("[mcp_servers.footnote]"), "{codex}");
     assert!(codex.contains("mcp"), "{codex}");
 
-    let gemini: Value =
-        serde_json::from_str(&fs::read_to_string(home.join(".gemini/settings.json")).unwrap())
-            .unwrap();
-    assert_eq!(gemini["mcpServers"]["footnote"]["args"][2], "mcp");
+    let agy: Value = serde_json::from_str(
+        &fs::read_to_string(home.join(".gemini/config/mcp_config.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(agy["mcpServers"]["footnote"]["args"][2], "mcp");
+    assert!(!home.join(".gemini/settings.json").exists());
 }
 
 /// The memory hook's per-prompt recall through a daemon started on demand, which leaves by itself once idle.

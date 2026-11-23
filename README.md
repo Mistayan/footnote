@@ -5,7 +5,7 @@
 **Local memory, docs search, code graph, and token-lean tooling for AI coding agents.**<br>
 **One Apache-2.0 Rust binary. Every answer carries a footnote.**
 
-Works with Claude Code, Codex CLI, Gemini CLI, Antigravity (including T3 Code), Grok, DeepSeek Harness, or any MCP stdio host.
+Works with Claude Code, Codex CLI, Antigravity CLI (`agy`, including T3 Code), Grok, DeepSeek Harness, or any MCP stdio host.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-A8281C)](LICENSE)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-1B1915)](Cargo.toml)
@@ -40,7 +40,7 @@ Instead of bolting four separate MCP servers, Python runtimes, and cloud account
 | Module | What you get |
 |---|---|
 | **Library** | Hybrid search (Tantivy BM25 + local int8 ONNX embeddings) over your Markdown, text, PDFs, and a machine-wide crawled docs cache (`footnote docs add`). Every hit is bound to file, line, SHA-256, and freshness (`current` / `stale`). |
-| **Memory** | Persistent per-machine agent memory (preferences, decisions, fixes, session handoffs) wired via lifecycle hooks across Claude Code, Codex, Gemini CLI, Antigravity, Grok, and DeepSeek Harness. No second LLM reads your chat — your agent saves its own memories locally. |
+| **Memory** | Persistent per-machine agent memory (preferences, decisions, fixes, session handoffs) wired via lifecycle hooks across Claude Code, Codex, Antigravity, Grok, and DeepSeek Harness. No second LLM reads your chat — your agent saves its own memories locally. |
 | **Code** | Compiler-grade (SCIP via `rust-analyzer`, `scip-typescript`, `scip-python`) with tree-sitter fallback: definitions, callers/callees, impact radius, architecture map (`code-map`), file outlines, project stack/readiness (`stack`, `frame`), and native ripgrep (`footnote grep`) with enclosing-symbol spans. |
 | **Lean** | Preservation-first shell output compaction (`footnote run`, `footnote hook lean`) with reversible raw output handles (`footnote output <id>`), Turn-1 prompt/MCP bloat audit (`footnote audit-prefix`), and local token/cost/savings accounting (`footnote usage`, `footnote gain`). |
 
@@ -122,7 +122,7 @@ footnote docs add https://flask.palletsprojects.com/en/stable/ --site flask
 
 ### Connect your agent
 
-`footnote install` auto-detects and configures Claude Code, Codex CLI, Gemini CLI, Antigravity (`~/.gemini/config` and T3 Code isolated providers), Grok, and DeepSeek Harness — never overwriting existing entries and backing up every file it touches.
+`footnote install` auto-detects and configures Claude Code, Codex CLI, Antigravity CLI (`agy`, `~/.gemini/config` and T3 Code isolated providers), Grok, and DeepSeek Harness — never overwriting existing entries and backing up every file it touches.
 
 For any other MCP host (Cursor, Windsurf, Zed, VS Code, Cline, Hermes):
 
@@ -181,7 +181,7 @@ Footnote assumes retrieved text is **untrusted data** that may contain prompt in
 
 **Available today:**
 - Single-binary CLI + MCP server (`Library`, `Memory`, `Code`, `Lean`) on Windows x64 and Linux x64.
-- Automatic hook & MCP registration for Claude Code, Codex CLI, Gemini CLI, Antigravity (including T3 Code), Grok, and DeepSeek Harness.
+- Automatic hook & MCP registration for Claude Code, Codex CLI, Antigravity CLI (`agy`, including T3 Code), Grok, and DeepSeek Harness.
 - Token/cost & missed-command telemetry (`footnote usage`, `footnote gain`) for Claude Code, Codex, DeepSeek Harness, and Antigravity.
 
 **Work in progress / known limits:**

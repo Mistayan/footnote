@@ -304,7 +304,26 @@ fn antigravity_memory_install_status_and_uninstall_preserve_existing_config() {
     )
     .unwrap();
 
+    let gemini_settings = home.join(".gemini/settings.json");
+    let old_settings = json!({
+        "mcpServers": {
+            "keep": {"command": "keep"},
+            "footnote": {"command": "footnote", "args": ["--db", "library.db", "mcp"]},
+            "footnote-memory": {"command": "footnote", "args": ["--db", "memory.db", "mcp"]}
+        },
+        "hooks": {
+            "BeforeAgent": [{"matcher": "*", "hooks": [
+                {"type": "command", "command": "footnote hook", "timeout": 10000},
+                {"type": "command", "command": "keep.sh"}
+            ]}]
+        },
+        "other": true
+    });
+    let original = old_settings.to_string();
+    fs::write(&gemini_settings, &original).unwrap();
+
     let first = install(&home, &state, &python, false);
+    assert_eq!(fs::read_to_string(&gemini_settings).unwrap(), original);
     assert!(
         first["targets"]
             .as_array()
@@ -348,27 +367,6 @@ fn antigravity_memory_install_status_and_uninstall_preserve_existing_config() {
         .stdout
         .clone();
     let status: Value = serde_json::from_slice(&status_out).unwrap();
-    let gem = read(&home.join(".gemini/settings.json"));
-    assert_eq!(gem["mcpServers"]["footnote-memory"]["args"][2], "mcp");
-    for (ev, ms) in [
-        ("SessionStart", 15000),
-        ("BeforeAgent", 10000),
-        ("AfterAgent", 5000),
-    ] {
-        assert_eq!(gem["hooks"][ev][0]["matcher"], "*", "{ev}: {gem}");
-        assert_eq!(
-            gem["hooks"][ev][0]["hooks"][0]["timeout"], ms,
-            "{ev}: {gem}"
-        );
-        assert!(
-            gem["hooks"][ev][0]["hooks"][0]["command"]
-                .as_str()
-                .unwrap()
-                .ends_with(" hook"),
-            "{ev}: {gem}"
-        );
-    }
-
     let agy = status["products"]["memory"]["agents"]
         .as_array()
         .unwrap()
@@ -379,15 +377,12 @@ fn antigravity_memory_install_status_and_uninstall_preserve_existing_config() {
         (agy["mcp_server"].as_bool(), agy["hooks"].as_bool()),
         (Some(true), Some(true))
     );
-    let gem_st = status["products"]["memory"]["agents"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|a| a["agent"] == "gemini-cli")
-        .unwrap();
-    assert_eq!(
-        (gem_st["mcp_server"].as_bool(), gem_st["hooks"].as_bool()),
-        (Some(true), Some(true))
+    assert!(
+        status["products"]["memory"]["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["agent"] != "gemini-cli")
     );
 
     // Second run is idempotent.
@@ -423,15 +418,13 @@ fn antigravity_memory_install_status_and_uninstall_preserve_existing_config() {
             .join(".gemini/config/skills/remember/SKILL.md")
             .exists()
     );
-    // Gemini CLI (`~/.gemini/settings.json`): SessionStart, BeforeAgent, AfterAgent hooks were also removed cleanly.
-    let gem_after = read(&home.join(".gemini/settings.json"));
-    assert!(gem_after["mcpServers"].get("footnote-memory").is_none());
-    assert!(
-        gem_after
-            .get("hooks")
-            .and_then(Value::as_object)
-            .is_none_or(|h| h.is_empty()),
-        "{gem_after}"
+    assert_eq!(
+        read(&gemini_settings),
+        json!({
+            "mcpServers": {"keep": {"command": "keep"}},
+            "hooks": {"BeforeAgent": [{"matcher": "*", "hooks": [{"type": "command", "command": "keep.sh"}]}]},
+            "other": true
+        })
     );
 }
 

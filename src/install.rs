@@ -288,7 +288,7 @@ fn register_daemon(db: &Path, dry_run: bool) -> Value {
     }
 }
 
-/// Register the corpus in Claude Code, Codex CLI and Gemini CLI when present.
+/// Register the corpus in detected agents.
 pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
     let Some(db) = db.as_deref() else {
         bail!("--db is required: install registers a specific corpus");
@@ -309,7 +309,6 @@ pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
 
     let claude = home.join(".claude.json");
     let codex = home.join(".codex/config.toml");
-    let gemini = home.join(".gemini/settings.json");
 
     let mut targets: Vec<(String, PathBuf, bool)> = vec![
         (
@@ -321,11 +320,6 @@ pub fn run(db: &Option<PathBuf>, dry_run: bool) -> Result<Value> {
             "codex".into(),
             codex.clone(),
             codex.parent().is_some_and(Path::exists),
-        ),
-        (
-            "gemini-cli".into(),
-            gemini.clone(),
-            gemini.parent().is_some_and(Path::exists),
         ),
         // Grok lists only its own config.toml servers (Codex keys).
         (
@@ -510,52 +504,6 @@ fn add_hooks(
                 list.push(
                     json!({"hooks": [{"type": "command", "command": command, "timeout": timeout}]}),
                 );
-                changed = true;
-            }
-        }
-        Ok(changed)
-    })
-}
-
-#[cfg(feature = "memory")]
-/// Add the memory hook command to every listed event of Gemini CLI's `~/.gemini/settings.json`
-/// (`matcher: "*"` and millisecond timeouts), once.
-fn add_gemini_memory_hooks(
-    path: &Path,
-    events: &[(&str, u64)],
-    command: &str,
-    dry_run: bool,
-) -> Result<&'static str> {
-    merge_json(path, dry_run, |root| {
-        let hooks = root
-            .entry("hooks".to_string())
-            .or_insert_with(|| json!({}))
-            .as_object_mut()
-            .with_context(|| format!("{}: hooks is not an object", path.display()))?;
-        let mut changed = false;
-        for (event, timeout) in events {
-            let list = hooks
-                .entry(event.to_string())
-                .or_insert_with(|| json!([]))
-                .as_array_mut()
-                .with_context(|| format!("{}: hooks.{event} is not an array", path.display()))?;
-            let mut found = false;
-            for group in list.iter_mut() {
-                for hook in group["hooks"].as_array_mut().into_iter().flatten() {
-                    if hook["command"].as_str().is_some_and(is_memory_hook) {
-                        found = true;
-                        if hook["command"] != command {
-                            hook["command"] = json!(command);
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            if !found {
-                list.push(json!({
-                    "matcher": "*",
-                    "hooks": [{"type": "command", "command": command, "timeout": timeout}]
-                }));
                 changed = true;
             }
         }
@@ -780,19 +728,6 @@ fn remove_rtk_entries(home: &Path, dry_run: bool) -> Result<Vec<Value>> {
         &codex_rules,
         edit_text(&codex_rules, dry_run, without_legacy_rtk_rule),
     )?;
-    let gemini_settings = home.join(".gemini/settings.json");
-    push(
-        "gemini-cli",
-        "rtk hook",
-        &gemini_settings,
-        remove_matching_hooks(&gemini_settings, is_rtk_hook, dry_run),
-    )?;
-    push(
-        "gemini-cli",
-        "rtk mcp server",
-        &gemini_settings,
-        remove_mcp_entry(&gemini_settings, "rtk", dry_run),
-    )?;
     let mut agy_dirs = antigravity_config_dirs(home);
     if agy_dirs.is_empty() {
         agy_dirs.push(("antigravity".into(), home.join(".gemini/config")));
@@ -897,44 +832,6 @@ pub fn lean(dry_run: bool, remove_rtk: bool) -> Result<Value> {
                 "PreToolUse",
                 "Bash",
                 5,
-                &command,
-                is_lean_hook,
-                dry_run,
-            ),
-        )?;
-    }
-    let gemini = home.join(".gemini");
-    if gemini.exists() {
-        let hooks = gemini.join("settings.json");
-        // Migrate away from earlier broken Claude-style PreToolUse/Bash entries in Gemini CLI settings.
-        if hooks.exists() {
-            let _ = merge_json(&hooks, dry_run, |root| {
-                let mut changed = false;
-                if let Some(events) = root.get_mut("hooks").and_then(Value::as_object_mut) {
-                    if let Some(list) = events.get_mut("PreToolUse").and_then(Value::as_array_mut) {
-                        for group in list.iter_mut() {
-                            if let Some(hs) = group.get_mut("hooks").and_then(Value::as_array_mut) {
-                                let before = hs.len();
-                                hs.retain(|h| !h["command"].as_str().is_some_and(is_lean_hook));
-                                changed |= hs.len() != before;
-                            }
-                        }
-                        list.retain(|g| g["hooks"].as_array().is_none_or(|h| !h.is_empty()));
-                    }
-                    events.retain(|_, list| list.as_array().is_none_or(|l| !l.is_empty()));
-                }
-                Ok(changed)
-            });
-        }
-        add(
-            "gemini-cli",
-            "lean BeforeTool hook",
-            &hooks,
-            add_matcher_hook(
-                &hooks,
-                "BeforeTool",
-                "run_shell_command",
-                5000,
                 &command,
                 is_lean_hook,
                 dry_run,
@@ -1118,6 +1015,7 @@ pub fn uninstall_lean(dry_run: bool) -> Result<Value> {
         &codex,
         remove_matching_hooks(&codex, is_lean_hook, dry_run),
     )?;
+    // Uninstall compatibility for one release after retiring Gemini CLI (#563).
     let gemini = home.join(".gemini/settings.json");
     add(
         "gemini-cli",
@@ -1314,27 +1212,6 @@ pub fn memory(dry_run: bool) -> Result<Value> {
             "hooks bridge + mcp server",
             &patch,
             append_once(&patch, &marker, &block, dry_run),
-        )?;
-    }
-    let gemini = home.join(".gemini/settings.json");
-    if gemini.parent().is_some_and(Path::exists) {
-        add(
-            "gemini-cli",
-            "mcp server",
-            &gemini,
-            add_server(&gemini, MEMORY_SERVER, &entry, dry_run),
-        )?;
-        // Gemini CLI uses BeforeAgent / AfterAgent / SessionStart with wildcard matcher and ms timeouts.
-        let gemini_events = [
-            ("SessionStart", 15_000),
-            ("BeforeAgent", 10_000),
-            ("AfterAgent", 5_000),
-        ];
-        add(
-            "gemini-cli",
-            "hooks",
-            &gemini,
-            add_gemini_memory_hooks(&gemini, &gemini_events, &command, dry_run),
         )?;
     }
     for (agent, cfg) in antigravity_config_dirs(&home) {
@@ -1555,8 +1432,37 @@ pub fn uninstall_memory(dry_run: bool) -> Result<Value> {
         &patch,
         status,
     )?;
+    // Uninstall compatibility for one release after retiring Gemini CLI (#563).
     let gemini = home.join(".gemini/settings.json");
     add("gemini-cli", "mcp server", &gemini, remove_server(&gemini))?;
+    let corpus_status = if gemini.exists() {
+        merge_json(&gemini, dry_run, |root| {
+            let Some(servers) = root.get_mut("mcpServers").and_then(Value::as_object_mut) else {
+                return Ok(false);
+            };
+            let ours = servers.get(SERVER).is_some_and(|entry| {
+                let executable = entry["command"]
+                    .as_str()
+                    .and_then(|command| command.rsplit(['/', '\\']).next());
+                matches!(executable, Some("footnote" | "footnote.exe"))
+                    && entry["args"].as_array().is_some_and(|args| {
+                        args.len() == 3
+                            && args[0] == "--db"
+                            && args[1].is_string()
+                            && args[2] == "mcp"
+                    })
+            });
+            Ok(ours && servers.remove(SERVER).is_some())
+        })?
+    } else {
+        "not present"
+    };
+    add(
+        "gemini-cli",
+        "corpus mcp server",
+        &gemini,
+        Ok(corpus_status),
+    )?;
     add("gemini-cli", "hooks", &gemini, remove_hooks(&gemini))?;
     let mut agy_dirs = antigravity_config_dirs(&home);
     if agy_dirs.is_empty() {
@@ -1706,12 +1612,6 @@ pub fn memory_registrations() -> Result<Value> {
             "mcp_server": std::fs::read_to_string(home.join(".dsh/profiles/desktop/cordis.patch.yml"))
                 .is_ok_and(|t| t.contains(&format!("id: {MEMORY_SERVER}-mcp"))),
             "hooks": has_hooks(&home.join(".dsh/footnote-memory-hooks.json"))}));
-    }
-    if home.join(".gemini").exists() {
-        let g = home.join(".gemini/settings.json");
-        out.push(
-            json!({"agent": "gemini-cli", "mcp_server": has_server(&g), "hooks": has_hooks(&g)}),
-        );
     }
     for (agent, cfg) in antigravity_config_dirs(&home) {
         let agy_hooks = json_file(&cfg.join("hooks.json"));

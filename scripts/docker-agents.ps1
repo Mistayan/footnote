@@ -4,7 +4,7 @@
     Register the Footnote Docker daemon with every agent found for this user: MCP server and memory hooks (#392).
 
 .DESCRIPTION
-    Detects Claude Code, Codex, Gemini CLI and Antigravity (also its T3 Code provider folders and $GEMINI_HOME), and
+    Detects Claude Code, Codex and Antigravity (also its T3 Code provider folders and $GEMINI_HOME), and
     points each of them at the long-lived Compose daemon of this user:
 
         MCP server:   <absolute path of docker> exec -i <container> footnote --db /state/memory.db mcp
@@ -67,7 +67,6 @@ $mcpArgs = @('exec', '-i', $Container, 'footnote', '--db', $Database, 'mcp')
 $hookExe = if ($docker.Contains(' ')) { "`"$docker`"" } else { $docker }
 $hookCommand = "$hookExe exec -i $Container footnote hook"
 $claudeEvents = [ordered]@{ SessionStart = 15; UserPromptSubmit = 10; Stop = 5 }
-$geminiEvents = [ordered]@{ SessionStart = 15000; BeforeAgent = 10000; AfterAgent = 5000 }
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $results = New-Object System.Collections.Generic.List[object]
 
@@ -273,7 +272,7 @@ function Set-JsonServer([string]$Agent, [string]$Path) {
 
 # The memory hook in each listed event of a Claude-format `hooks` object (Claude Code, Codex) or of Gemini CLI's
 # settings (`matcher: "*"`, millisecond timeouts).
-function Set-EventHooks([string]$Agent, [string]$Path, [System.Collections.IDictionary]$Events, [switch]$Gemini) {
+function Set-EventHooks([string]$Agent, [string]$Path, [System.Collections.IDictionary]$Events) {
     $stamp = Get-FileStamp $Path
     $root = Read-JsonObject $Agent $Path 'memory hooks'
     if ($null -eq $root) { return }
@@ -333,8 +332,7 @@ function Set-EventHooks([string]$Agent, [string]$Path, [System.Collections.IDict
         }
         if (-not $found -and -not $Remove) {
             $hook = [pscustomobject][ordered]@{ type = 'command'; command = $hookCommand; timeout = $Events[$event] }
-            $group = if ($Gemini) { [pscustomobject][ordered]@{ matcher = '*'; hooks = @($hook) } }
-                     else { [pscustomobject][ordered]@{ hooks = @($hook) } }
+            $group = [pscustomobject][ordered]@{ hooks = @($hook) }
             [void]$groups.Add($group)
             $changed = $true
             $added = $true
@@ -569,17 +567,18 @@ if ((Get-Command codex -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPat
     Set-CodexServer (Join-Path $codexHome 'config.toml')
     Set-EventHooks 'codex' (Join-Path $codexHome 'hooks.json') $claudeEvents
 }
-if ((Get-Command gemini -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $geminiSettings)) {
+# Keep -Remove for old Docker registrations for one release after retiring Gemini CLI (#563).
+if ($Remove -and (Test-Path -LiteralPath $geminiSettings -PathType Leaf)) {
     $found = $true
     Set-JsonServer 'gemini-cli' $geminiSettings
-    Set-EventHooks 'gemini-cli' $geminiSettings $geminiEvents -Gemini
+    Set-EventHooks 'gemini-cli' $geminiSettings ([ordered]@{ SessionStart = 15000; BeforeAgent = 10000; AfterAgent = 5000 })
 }
 foreach ($agy in (Get-AntigravityConfigDirs)) {
     $found = $true
     Set-JsonServer $agy.Agent (Join-Path $agy.Path 'mcp_config.json')
     Set-AgyHooks $agy.Agent (Join-Path $agy.Path 'hooks.json')
 }
-if (-not $found) { Write-Warning 'no agent found (Claude Code, Codex, Gemini CLI, Antigravity): nothing to do' }
+if (-not $found) { Write-Warning 'no agent found (Claude Code, Codex, Antigravity): nothing to do' }
 
 # One line per entry, the status before the path: a long path (T3 Code folders) must not squeeze the status.
 $agentWidth = [Math]::Max(5, (@($results | ForEach-Object { $_.Agent.Length }) + 0 | Measure-Object -Maximum).Maximum)

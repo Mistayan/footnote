@@ -318,8 +318,7 @@ fn parse_reply(reply: &str, allowed: &HashSet<i64>) -> Result<Vec<(i64, String)>
 }
 
 /// The agent CLI to use: the one given or saved, else Claude Code (Haiku) or Codex when registered with Footnote Memory.
-// shortcut: Claude Code and Codex only, found as `claude` / `codex` executables on PATH (an npm `.cmd` shim is not);
-// add Gemini CLI when someone runs Memory with it.
+// shortcut: Claude Code and Codex only, found as `claude` / `codex` executables on PATH (an npm `.cmd` shim is not).
 fn pick(agent: Option<&str>, model: Option<&str>) -> Result<(String, String)> {
     let agent = match agent {
         Some(a) => a.to_string(),

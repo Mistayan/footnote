@@ -236,7 +236,7 @@ echo "${exec_out}" | grep -q "${MARKER}" || {
   exit 1
 }
 
-echo "[9/10] Verify scripts/docker-agents.sh (MCP, hooks, Gemini CLI, JSONC, --home isolation, Docker-only --remove)"
+echo "[9/10] Verify scripts/docker-agents.sh (MCP, hooks, legacy Gemini cleanup, JSONC, --home isolation, Docker-only --remove)"
 agents_home="${SCRATCH}/home"
 other_home="${SCRATCH}/other-home"
 stub_bin="${SCRATCH}/bin"
@@ -318,14 +318,7 @@ for f in (".claude/settings.json", ".codex/hooks.json"):
     hooks = load(f)["hooks"]
     got = {ev: [(h["command"], h["timeout"]) for g in hooks[ev] for h in g["hooks"]] for ev in hooks}
     assert got == {"SessionStart": [(hook, 15)], "UserPromptSubmit": [(hook, 10)], "Stop": [(hook, 5)]}, (f, got)
-gem = load(".gemini/settings.json")
-assert gem["mcpServers"]["footnote-memory"] == {"command": docker, "args": mcp}, gem
-gem_hooks = {ev: [(g.get("matcher"), h["command"], h["timeout"]) for g in gem["hooks"][ev] for h in g["hooks"]] for ev in gem["hooks"]}
-assert gem_hooks == {
-    "SessionStart": [("*", hook, 15000)],
-    "BeforeAgent": [("*", hook, 10000)],
-    "AfterAgent": [("*", hook, 5000)],
-}, gem_hooks
+assert open(f"{home}/.gemini/settings.json", encoding="utf-8").read() == "{}\n"
 assert load(".claude/settings.json")["permissions"] == {"allow": ["Read(src/**)"]}
 assert open(jsonc, encoding="utf-8").read() == '// keep this comment\n{"mcpServers": {}}\n'
 PY
@@ -343,8 +336,23 @@ calls_after="$(wc -l <"${stub_bin}/claude-calls.log" | tr -d ' ')"
 [ "${calls_before}" = "${calls_after}" ] || { echo "--home invoked claude mcp unexpectedly" >&2; exit 1; }
 echo "${home_out}" | grep -q "skipped: --home cannot guarantee" || { echo "--home did not explain claude mcp skip: ${home_out}" >&2; exit 1; }
 
-# --remove deletes Docker MCP entries and Docker hooks.
+# --remove also takes out settings left by older Gemini CLI registrations.
+if have_python; then
+  python3 - "${agents_home}/.gemini/settings.json" "${registered_docker}" "${DAEMON_NAME}" "${hook_command}" <<'PY'
+import json, sys
+path, docker, container, hook = sys.argv[1:]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump({
+        "mcpServers": {"footnote-memory": {"command": docker, "args": ["exec", "-i", container, "footnote", "--db", "/state/memory.db", "mcp"]}},
+        "hooks": {"BeforeAgent": [{"matcher": "*", "hooks": [{"type": "command", "command": hook, "timeout": 10000}]}]},
+    }, f)
+PY
+fi
 agents --remove >/dev/null
+if have_python && grep -q 'footnote-memory' "${agents_home}/.gemini/settings.json"; then
+  echo "--remove left the Gemini CLI Docker MCP entry" >&2
+  exit 1
+fi
 [ ! -f "${stub_bin}/claude-entry.txt" ] || { echo "--remove left the Claude Code Docker MCP entry" >&2; exit 1; }
 if grep -q 'footnote-memory' "${codex_toml}"; then echo "--remove left the Codex entry" >&2; exit 1; fi
 if have_python && grep -q 'footnote hook' "${agents_home}/.claude/settings.json" "${agents_home}/.codex/hooks.json" \

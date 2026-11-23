@@ -104,7 +104,6 @@ export const AGENTS = {
   codex: "Codex",
   grok: "Grok",
   "deepseek-harness": "DeepSeek Harness",
-  "gemini-cli": "Gemini CLI",
   antigravity: "Antigravity",
 };
 

@@ -281,7 +281,7 @@ enum Action {
         /// Install Footnote Memory only (memory database, MCP server, memory hooks, and /remember).
         #[arg(long)]
         memory: bool,
-        /// Install Footnote Lean PreToolUse/BeforeTool shell-rewriter hooks only (#351).
+        /// Install Footnote Lean PreToolUse shell-rewriter hooks only (#351).
         #[arg(long)]
         lean: bool,
         /// Disconnect RTK hooks and MCP entries and remove the obsolete Codex RTK rule.

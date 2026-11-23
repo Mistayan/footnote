@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Register the Footnote Docker daemon with every agent found for this user: MCP server and memory hooks (#392).
 #
-# Detects Claude Code, Codex, Gemini CLI and Antigravity (also its T3 Code provider folders and $GEMINI_HOME), and points
+# Detects Claude Code, Codex and Antigravity (also its T3 Code provider folders and $GEMINI_HOME), and points
 # each of them at the long-lived Compose daemon of this user:
 #     MCP server:   <absolute path of docker> exec -i <container> footnote --db /state/memory.db mcp
 #     memory hooks: <absolute path of docker> exec -i <container> footnote hook
@@ -335,7 +335,7 @@ for ev, timeout in events.items():
         kept_groups.append(g)
     if not found and not remove:
         entry = {"type": "command", "command": hook, "timeout": timeout}
-        kept_groups.append({"matcher": "*", "hooks": [entry]} if fmt == "gemini" else {"hooks": [entry]})
+        kept_groups.append({"hooks": [entry]})
         changed = added = True
     if kept_groups:
         hooks[ev] = kept_groups
@@ -547,7 +547,8 @@ if command -v codex >/dev/null 2>&1 || [ -e "${CODEX_DIR}" ]; then
   codex_server "${CODEX_DIR}/config.toml"
   json_edit codex "${CODEX_DIR}/hooks.json" hooks claude
 fi
-if command -v gemini >/dev/null 2>&1 || [ -f "${GEMINI_SETTINGS}" ]; then
+# Keep --remove for old Docker registrations for one release after retiring Gemini CLI (#563).
+if [ "${REMOVE}" = 1 ] && [ -f "${GEMINI_SETTINGS}" ]; then
   found=1
   json_edit gemini-cli "${GEMINI_SETTINGS}" mcp
   json_edit gemini-cli "${GEMINI_SETTINGS}" hooks gemini
@@ -558,7 +559,7 @@ while IFS='|' read -r label cfg; do
   json_edit "${label}" "${cfg}/mcp_config.json" mcp
   json_edit "${label}" "${cfg}/hooks.json" agy
 done < <(antigravity_dirs)
-[ "${found}" = 1 ] || echo "docker-agents: no agent found (Claude Code, Codex, Gemini CLI, Antigravity): nothing to do" >&2
+[ "${found}" = 1 ] || echo "docker-agents: no agent found (Claude Code, Codex, Antigravity): nothing to do" >&2
 
 if [ "${#RESULTS[@]}" -gt 0 ]; then
   # One line per entry, the status before the path: a long path (T3 Code folders) must not hide the status.
