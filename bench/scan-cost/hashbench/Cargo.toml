@@ -1,0 +1,16 @@
+# Standalone (not a workspace member, own lock file): BLAKE3 against SHA-256 for issue #549. Bench only; nothing ships.
+[package]
+name = "hashbench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+sha2 = "=0.10.9"   # the engine's version
+blake3 = { version = "=1.8.7", features = ["rayon"] }
+walkdir = "=2.5.0"
+
+[profile.release]
+codegen-units = 1

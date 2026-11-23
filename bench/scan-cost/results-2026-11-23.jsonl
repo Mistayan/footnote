@@ -1,0 +1,43 @@
+{"phase": "seed", "bytes": 21033806361, "cmd": "seed", "files": 50000, "ms": 13582, "t": "2026-11-23T18:52:25"}
+{"phase": "warm-up", "cpu_pct": 7.1, "flagged": false, "attempt": 0, "t": "2026-11-23T18:52:39"}
+{"phase": "warm-up", "arm": "default", "cmd": "run", "ms": 26364.938899999997, "result": {"deleted": 0, "failed": 0, "failures": [], "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:53:06"}
+{"phase": "warm-up", "arm": "default", "cmd": "run", "ms": 25482.1393, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:53:31"}
+{"phase": "warm-up", "arm": "no-verify", "cmd": "run", "ms": 23303.6772, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:53:55"}
+{"phase": "warm-up", "arm": "full", "cmd": "run", "ms": 23788.7762, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:54:18"}
+{"phase": "round 1", "cpu_pct": 4.9, "flagged": false, "attempt": 0, "t": "2026-11-23T18:54:30"}
+{"phase": "round 1", "arm": "default", "cmd": "run", "ms": 22794.5903, "result": {"deleted": 0, "failed": 0, "failures": [], "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:54:53"}
+{"phase": "round 1", "arm": "default", "cmd": "run", "ms": 3187.6739000000002, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 3125, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:54:56"}
+{"phase": "round 1", "arm": "no-verify", "cmd": "run", "ms": 1783.3826, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 0, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:54:58"}
+{"phase": "round 1", "arm": "full", "cmd": "run", "ms": 23334.2359, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:55:22"}
+{"phase": "round 2", "cpu_pct": 7.0, "flagged": false, "attempt": 0, "t": "2026-11-23T18:55:34"}
+{"phase": "round 2", "arm": "default", "cmd": "run", "ms": 3287.8215, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 3125, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:55:37"}
+{"phase": "round 2", "arm": "no-verify", "cmd": "run", "ms": 1812.4669, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 0, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:55:39"}
+{"phase": "round 2", "arm": "full", "cmd": "run", "ms": 24891.960300000002, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:56:04"}
+{"phase": "round 2", "arm": "default", "cmd": "run", "ms": 22824.8461, "result": {"deleted": 0, "failed": 0, "failures": [], "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:56:26"}
+{"phase": "round 3", "cpu_pct": 7.0, "flagged": false, "attempt": 0, "t": "2026-11-23T18:56:38"}
+{"phase": "round 3", "arm": "no-verify", "cmd": "run", "ms": 1779.059, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 0, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:56:40"}
+{"phase": "round 3", "arm": "full", "cmd": "run", "ms": 24527.339600000003, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:57:05"}
+{"phase": "round 3", "arm": "default", "cmd": "run", "ms": 21892.8248, "result": {"deleted": 0, "failed": 0, "failures": [], "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:57:27"}
+{"phase": "round 3", "arm": "default", "cmd": "run", "ms": 3296.7482999999997, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 3125, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:57:30"}
+{"phase": "round 4", "cpu_pct": 27.6, "flagged": false, "attempt": 1, "t": "2026-11-23T18:58:54"}
+{"phase": "round 4", "arm": "full", "cmd": "run", "ms": 31678.2152, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:59:26"}
+{"phase": "round 4", "arm": "default", "cmd": "run", "ms": 26999.6152, "result": {"deleted": 0, "failed": 0, "failures": [], "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:59:53"}
+{"phase": "round 4", "arm": "default", "cmd": "run", "ms": 4424.2688, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 3125, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T18:59:57"}
+{"phase": "round 4", "arm": "no-verify", "cmd": "run", "ms": 2697.3487, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 0, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T19:00:00"}
+{"phase": "round 5", "cpu_pct": 8.8, "flagged": false, "attempt": 0, "t": "2026-11-23T19:00:12"}
+{"phase": "round 5", "arm": "default", "cmd": "run", "ms": 25991.8384, "result": {"deleted": 0, "failed": 0, "failures": [], "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T19:00:38"}
+{"phase": "round 5", "arm": "default", "cmd": "run", "ms": 5485.7402, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 3125, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T19:00:43"}
+{"phase": "round 5", "arm": "no-verify", "cmd": "run", "ms": 2997.124, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 0, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T19:00:46"}
+{"phase": "round 5", "arm": "full", "cmd": "run", "ms": 28397.6518, "result": {"deleted": 0, "failed": 0, "failures": [], "hashed": 50000, "indexed": 0, "unchanged": 50000}, "t": "2026-11-23T19:01:15"}
+{"phase": "split", "cpu_pct": 6.9, "flagged": false, "attempt": 0, "t": "2026-11-23T19:01:27"}
+{"phase": "split", "i": 1, "bytes": 21033806361, "cmd": "split", "db_ms": 431.6087, "files": 50000, "hash_ms": 5084.6066, "read_ms": 19012.181399999998, "total_ms": 26647.5856, "unchanged": 50000, "walk_ms": 2119.1889, "t": "2026-11-23T19:01:54"}
+{"phase": "split", "i": 2, "bytes": 21033806361, "cmd": "split", "db_ms": 468.2557, "files": 50000, "hash_ms": 4930.5906, "read_ms": 19136.704999999998, "total_ms": 26649.5504, "unchanged": 50000, "walk_ms": 2113.9991, "t": "2026-11-23T19:02:20"}
+{"phase": "split", "i": 3, "bytes": 21033806361, "cmd": "split", "db_ms": 428.975, "files": 50000, "hash_ms": 4671.0597, "read_ms": 18153.1292, "total_ms": 25210.7579, "unchanged": 50000, "walk_ms": 1957.5939999999998, "t": "2026-11-23T19:02:45"}
+{"phase": "split", "i": 4, "bytes": 21033806361, "cmd": "split", "db_ms": 475.2587, "files": 50000, "hash_ms": 4665.96, "read_ms": 18924.5186, "total_ms": 26220.8542, "unchanged": 50000, "walk_ms": 2155.1169, "t": "2026-11-23T19:03:12"}
+{"phase": "split", "i": 5, "bytes": 21033806361, "cmd": "split", "db_ms": 468.2914, "files": 50000, "hash_ms": 4644.9211000000005, "read_ms": 15508.081199999999, "total_ms": 22301.3239, "unchanged": 50000, "walk_ms": 1680.0302, "t": "2026-11-23T19:03:34"}
+{"phase": "hashbench", "cpu_pct": 21.8, "flagged": false, "attempt": 0, "t": "2026-11-23T19:03:46"}
+{"phase": "hashbench", "run": 1, "files": 50000, "bytes": 21033806361, "sha256_ms": 4403.8, "blake3_ms": 3340.6, "blake3_rayon_ms": 3018.4, "sha256_gib_s": 4.45, "blake3_gib_s": 5.86, "blake3_rayon_gib_s": 6.49, "threads": 24, "check": 221, "t": "2026-11-23T19:04:43"}
+{"phase": "hashbench", "run": 2, "files": 50000, "bytes": 21033806361, "sha256_ms": 4364.6, "blake3_ms": 3253.4, "blake3_rayon_ms": 3096.6, "sha256_gib_s": 4.49, "blake3_gib_s": 6.02, "blake3_rayon_gib_s": 6.33, "threads": 24, "check": 221, "t": "2026-11-23T19:04:43"}
+{"phase": "hashbench", "run": 3, "files": 50000, "bytes": 21033806361, "sha256_ms": 4403.8, "blake3_ms": 3309.8, "blake3_rayon_ms": 7341.3, "sha256_gib_s": 4.45, "blake3_gib_s": 5.92, "blake3_rayon_gib_s": 2.67, "threads": 24, "check": 221, "t": "2026-11-23T19:04:43"}
+{"phase": "coldread", "cpu_pct": 4.3, "flagged": false, "attempt": 1, "t": "2026-11-23T19:06:08"}
+{"phase": "coldread", "bytes": 21033806361, "cmd": "coldread", "files": 50000, "mib_s": 288.98895127592255, "ms": 69412.3454, "t": "2026-11-23T19:07:17"}
