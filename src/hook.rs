@@ -1579,24 +1579,29 @@ fn recall(s: &Settings, db: &Path, project: &str, query: &str, limit: usize) -> 
             db.to_path_buf(),
             json!({"query": query, "project": project, "limit": limit, "model": s.models, "infer_tags": s.infer_tags}),
         );
+        // `None`: no daemon accepted the connection. Connecting happens in the worker too, so nothing can hold up the prompt.
         std::thread::spawn(move || {
-            let _ = send.send(crate::daemon::call(
-                &resident_db,
-                "footnote_memory_recall",
-                &args,
-            ));
+            let _ =
+                send.send(crate::daemon::connect(&resident_db).ok().map(|stream| {
+                    crate::daemon::call_over(&stream, "footnote_memory_recall", &args)
+                }));
         });
         // A stalled daemon must not hold up the user's prompt. Its worker ends when this hook process exits.
-        if let Ok(Ok(value)) = recv.recv_timeout(Duration::from_secs(2)) {
-            return Ok(value);
+        match recv.recv_timeout(Duration::from_secs(2)) {
+            Ok(Some(Ok(value))) => return Ok(value),
+            // No daemon: start one for the next prompts; this one is answered by keyword.
+            Ok(None) => spawn_background(
+                Command::new(std::env::current_exe()?)
+                    .arg("--db")
+                    .arg(db)
+                    .args(["serve", "--mcp", "--daemon", "--idle-seconds"])
+                    .arg(s.idle_seconds.to_string()),
+            )?,
+            // A daemon is there but late (still loading its models after a start, or busy) or it failed this call: answer
+            // by keyword and leave it alone. Another daemon would take its socket over (on Unix the new listener replaces
+            // the socket file) and leave this one holding its models with no new connection.
+            Ok(Some(Err(_))) | Err(_) => {}
         }
-        spawn_background(
-            Command::new(std::env::current_exe()?)
-                .arg("--db")
-                .arg(db)
-                .args(["serve", "--mcp", "--daemon", "--idle-seconds"])
-                .arg(s.idle_seconds.to_string()),
-        )?;
     }
     let c = crate::app::open(db, false)?;
     let tags = if s.infer_tags {
