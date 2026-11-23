@@ -126,6 +126,8 @@ footnote install --memory --dry-run
 footnote install --memory
 ```
 
+To repair one agent, use `footnote install --memory --agent codex`. Use the agent ID shown by `footnote status` for the exact profile you want to reconnect.
+
 Optional skill suggestions (off by default): index the skills of one theme (at most 100), then switch the option on. On each prompt the hook adds at most 2 skills (name, path, one line), and only when one holds 40% of the prompt's topic words.
 
 ```bash

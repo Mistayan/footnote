@@ -19,6 +19,81 @@ fn read(p: &Path) -> Value {
 }
 
 #[test]
+fn targeted_memory_install_preserves_other_agents_and_distinguishes_t3_profiles() {
+    let t = tempfile::tempdir().unwrap();
+    let home = t.path().join("home");
+    let state = t.path().join("state");
+    let profile = |name: &str| {
+        home.join(".t3/userdata/providers/antigravity")
+            .join(name)
+            .join("config")
+    };
+    for dir in [
+        home.join(".claude"),
+        home.join(".codex"),
+        profile("one"),
+        profile("two"),
+    ] {
+        fs::create_dir_all(dir).unwrap();
+    }
+    let claude = home.join(".claude/settings.json");
+    fs::write(&claude, " { } ").unwrap();
+    let lean_hooks = json!({"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"footnote hook lean"}]}]}});
+    let codex_hooks = home.join(".codex/hooks.json");
+    fs::write(&codex_hooks, lean_hooks.to_string()).unwrap();
+    let command = || {
+        let mut c = Command::new(assert_cmd::cargo::cargo_bin!("footnote"));
+        c.env("USERPROFILE", &home)
+            .env("HOME", &home)
+            .env("FOOTNOTE_STATE_DIR", &state);
+        c
+    };
+    command()
+        .args(["install", "--memory", "--agent", "unknown"])
+        .assert()
+        .failure();
+    assert!(!state.exists());
+    let result: Value = serde_json::from_slice(
+        &command()
+            .args(["install", "--memory", "--agent", "codex"])
+            .assert()
+            .success()
+            .get_output()
+            .stdout,
+    )
+    .unwrap();
+    assert_eq!(result["targets"].as_array().unwrap().len(), 3);
+    assert!(
+        result["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["agent"] == "codex")
+    );
+    assert_eq!(
+        read(&codex_hooks)["hooks"]["PreToolUse"],
+        lean_hooks["hooks"]["PreToolUse"]
+    );
+    assert!(home.join(".codex/config.toml").exists());
+    assert_eq!(fs::read_to_string(&claude).unwrap(), " { } ");
+    assert!(!home.join(".claude.json").exists());
+    assert!(!profile("one").join("hooks.json").exists());
+    assert!(!profile("two").join("hooks.json").exists());
+
+    command()
+        .args([
+            "install",
+            "--memory",
+            "--agent",
+            "antigravity (t3-code: two)",
+        ])
+        .assert()
+        .success();
+    assert!(!profile("one").join("hooks.json").exists());
+    assert!(profile("two").join("hooks.json").exists());
+}
+
+#[test]
 fn memory_install_registers_every_detected_agent_once_and_keeps_existing_config() {
     let t = tempfile::tempdir().unwrap();
     let (home, state) = (t.path().join("home"), t.path().join("state"));

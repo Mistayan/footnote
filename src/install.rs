@@ -396,12 +396,18 @@ fn antigravity_config_dirs(home: &Path) -> Vec<(String, PathBuf)> {
         let mut dirs: Vec<PathBuf> = entries
             .filter_map(std::result::Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.is_dir())
+            .filter(|p| p.join("config").is_dir() || p.join("antigravity-acp").is_dir())
             .collect();
         dirs.sort();
+        let multiple = dirs.len() > 1;
         for dir in dirs {
             let cfg = dir.join("config");
-            if cfg.is_dir() || dir.join("antigravity-acp").is_dir() {
+            if multiple {
+                let Some(id) = dir.file_name().and_then(|name| name.to_str()) else {
+                    continue;
+                };
+                push_unique(&format!("antigravity (t3-code: {id})"), cfg);
+            } else {
                 push_unique("antigravity (t3-code)", cfg);
             }
         }
@@ -1053,8 +1059,19 @@ pub fn uninstall_lean(dry_run: bool) -> Result<Value> {
 /// `install --memory`: one agent memory database for every detected agent, its MCP server, the memory hook and a
 /// /remember command. Claude Code's files also serve Grok, which reads ~/.claude.json and ~/.claude/settings.json.
 #[cfg(feature = "memory")]
-pub fn memory(dry_run: bool) -> Result<Value> {
+pub fn memory(dry_run: bool, selected: Option<&str>) -> Result<Value> {
     let home = home()?;
+    if let Some(name) = selected {
+        let agents = memory_registrations()?;
+        let matches = agents
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|agent| agent["agent"] == name)
+            .count();
+        anyhow::ensure!(matches == 1, "unknown or ambiguous Memory agent: {name}");
+    }
+    let wants = |name: &str| selected.is_none_or(|target| target == name);
     let state = crate::state::state_dir()?;
     let db = state.join("memory.db");
     let exe = std::env::current_exe().context("locate this executable")?;
@@ -1083,37 +1100,37 @@ pub fn memory(dry_run: bool) -> Result<Value> {
     }
     let settings = state.join("memory.json");
     let defaults = json!({"footnote": portable(&exe), "db": portable(&db)});
-    add(
-        "all",
-        "settings",
-        &settings,
-        merge_json(&settings, dry_run, |root| {
-            let mut changed = false;
-            for (k, v) in defaults.as_object().into_iter().flatten() {
-                if !root.contains_key(k) {
-                    root.insert(k.clone(), v.clone());
-                    changed = true;
-                }
+    let status = merge_json(&settings, dry_run, |root| {
+        let mut changed = false;
+        for (k, v) in defaults.as_object().into_iter().flatten() {
+            if !root.contains_key(k) {
+                root.insert(k.clone(), v.clone());
+                changed = true;
             }
-            Ok(changed)
-        }),
-    )?;
+        }
+        Ok(changed)
+    })?;
+    if selected.is_none() {
+        add("all", "settings", &settings, Ok(status))?;
+    }
 
     let claude = home.join(".claude");
     let grok = home.join(".grok");
-    if claude.exists() || grok.exists() {
-        let agent = match (claude.exists(), grok.exists()) {
+    if (claude.exists() && wants("claude-code")) || (grok.exists() && wants("grok")) {
+        let agent = selected.unwrap_or(match (claude.exists(), grok.exists()) {
             (true, true) => "claude-code + grok",
             (true, false) => "claude-code",
             _ => "grok (through Claude Code files)",
-        };
-        let mcp = home.join(".claude.json");
-        add(
-            agent,
-            "mcp server",
-            &mcp,
-            add_server(&mcp, MEMORY_SERVER, &entry, dry_run),
-        )?;
+        });
+        if selected != Some("grok") {
+            let mcp = home.join(".claude.json");
+            add(
+                agent,
+                "mcp server",
+                &mcp,
+                add_server(&mcp, MEMORY_SERVER, &entry, dry_run),
+            )?;
+        }
         let hooks = claude.join("settings.json");
         add(
             agent,
@@ -1129,7 +1146,10 @@ pub fn memory(dry_run: bool) -> Result<Value> {
             append_once(&cmd, "Footnote", remember, dry_run),
         )?;
     }
-    for (agent, dir) in claude_profiles(&home) {
+    for (agent, dir) in claude_profiles(&home)
+        .into_iter()
+        .filter(|(agent, _)| wants(agent))
+    {
         let mcp = dir.join(".claude.json");
         add(
             &agent,
@@ -1152,7 +1172,7 @@ pub fn memory(dry_run: bool) -> Result<Value> {
             append_once(&cmd, "Footnote", remember, dry_run),
         )?;
     }
-    if grok.exists() {
+    if grok.exists() && wants("grok") {
         // Grok lists only its own config.toml servers; same TOML keys as Codex. Its hooks come from ~/.claude/settings.json.
         let config = grok.join("config.toml");
         add(
@@ -1163,7 +1183,7 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         )?;
     }
     let codex = home.join(".codex");
-    if codex.exists() {
+    if codex.exists() && wants("codex") {
         let config = codex.join("config.toml");
         add(
             "codex",
@@ -1187,7 +1207,7 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         )?;
     }
     let patch = home.join(".dsh/profiles/desktop/cordis.patch.yml");
-    if patch.exists() {
+    if wants("deepseek-harness") && (patch.exists() || selected == Some("deepseek-harness")) {
         // DeepSeek Harness: its Claude Code hooks bridge runs a dedicated hooks file (not all of Claude's hooks),
         // and an mcp-client entry serves the memory database.
         // The bridge package itself (@deepseek-ai/dsh-hooks-claude-code, pinned to the app's version) is installed with
@@ -1214,7 +1234,10 @@ pub fn memory(dry_run: bool) -> Result<Value> {
             append_once(&patch, &marker, &block, dry_run),
         )?;
     }
-    for (agent, cfg) in antigravity_config_dirs(&home) {
+    for (agent, cfg) in antigravity_config_dirs(&home)
+        .into_iter()
+        .filter(|(agent, _)| wants(agent))
+    {
         let mcp = cfg.join("mcp_config.json");
         add(
             &agent,
@@ -1246,7 +1269,9 @@ pub fn memory(dry_run: bool) -> Result<Value> {
         "hook": command,
         "targets": report,
         "warnings": warnings,
-        "note": "restart each agent to load the hooks; Grok asks once to trust a folder before it runs hooks. The agent writes memories through MCP; hooks and embeddings run in Rust without Python.",
+        "note": if selected.is_some() { "restart the selected agent to load the hooks" } else {
+            "restart each agent to load the hooks; Grok asks once to trust a folder before it runs hooks. The agent writes memories through MCP; hooks and embeddings run in Rust without Python."
+        },
     }))
 }
 

@@ -534,8 +534,7 @@ function Card({ product, title, built, enabled, refresh, big, sub }) {
 }
 
 /** Each agent as a glass chip: green when Memory's hooks and MCP server are both connected, amber when one is missing,
- * red when both are. A chip that is not green has a repair button: `footnote install --memory` reconnects every agent found
- * (it rewrites only Footnote's own entries; `footnote uninstall --memory` takes them out again). */
+ * red when both are. The repair button reconnects the selected agent. */
 function Agents({ list, loading, refresh }) {
   const [busy, setBusy] = useState(false);
   if (loading) return <span className="skel" />;
@@ -545,10 +544,10 @@ function Agents({ list, loading, refresh }) {
         No agent connected. Run <code>footnote install --memory</code> to connect Claude Code, Codex and others.
       </p>
     );
-  const repair = async (name) => {
+  const repair = async (agent, name) => {
     setBusy(true);
     try {
-      await footnote("install", "--memory");
+      await footnote("install", "--memory", "--agent", agent);
       toast(`Reconnected ${name}. Restart it to load the hooks.`);
       await refresh?.();
     } catch (e) {
@@ -583,8 +582,8 @@ function Agents({ list, loading, refresh }) {
             ) : pict(a.hooks, Webhook, "Memory hooks")}
             {pict(a.mcp_server, Plug, "MCP server")}
             {missing.length > 0 && (
-              <Tip tip={busy ? "Reconnecting…" : `Reconnect: install the missing ${missing.join(" and ")} for every agent found`}>
-                <button type="button" className="ic-btn fix" disabled={busy} onClick={() => repair(name)}
+              <Tip tip={busy ? "Reconnecting…" : `Reconnect: install the missing ${missing.join(" and ")} for ${name}`}>
+                <button type="button" className="ic-btn fix" disabled={busy} onClick={() => repair(a.agent, name)}
                   aria-label={`Reconnect ${name}: install the missing ${missing.join(" and ")}`}>
                   {busy ? <RefreshCw size={14} strokeWidth={1.9} className="spin" /> : <Wrench size={14} strokeWidth={1.9} />}
                 </button>

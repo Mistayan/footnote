@@ -126,6 +126,15 @@ fn allowed(args: &[String]) -> bool {
         // `install_update`, never by the page), and reconnect the agents whose hooks or MCP server are missing.
         ["update", "--check"] | ["update", "--download"] => true,
         ["install", "--memory"] => true,
+        ["install", "--memory", "--agent", agent] => {
+            matches!(
+                *agent,
+                "codex" | "claude-code" | "grok" | "deepseek-harness"
+                    | "antigravity" | "antigravity (t3-code)" | "antigravity (GEMINI_HOME)"
+            ) || (plain(agent) && agent.ends_with(')')
+                && (agent.starts_with("claude-code (.claude")
+                    || agent.starts_with("antigravity (t3-code: ")))
+        }
         _ => false,
     }
 }
@@ -648,6 +657,11 @@ mod tests {
         );
         assert!(!ok("jobs --bad"));
         assert!(ok("install --memory") && !ok("install --memory --dry-run") && !ok("install --lean"));
+        assert!(ok("install --memory --agent codex"));
+        assert!(!ok("install --memory --agent unknown") && !ok("install --memory --agent --help"));
+        assert!(allowed(
+            &["install", "--memory", "--agent", "antigravity (t3-code: profile-2)"].map(String::from)
+        ));
         assert!(!ok("models remove jina-v5-nano") && !ok("uninstall --memory"));
         assert!(ok("update --check") && ok("update --download") && !ok("update --from C:/x.exe") && !ok("rollback"));
         assert!(ok("forget 12") && !ok("forget abc"));

@@ -281,6 +281,9 @@ enum Action {
         /// Install Footnote Memory only (memory database, MCP server, memory hooks, and /remember).
         #[arg(long)]
         memory: bool,
+        /// Limit Memory registration to one detected agent from footnote status.
+        #[arg(long, requires = "memory", conflicts_with_all = ["lean", "remove_rtk", "add_to_path"])]
+        agent: Option<String>,
         /// Install Footnote Lean PreToolUse shell-rewriter hooks only (#351).
         #[arg(long)]
         lean: bool,
@@ -979,10 +982,17 @@ fn execute(cli: Cli) -> Result<Value> {
         Action::Install {
             dry_run,
             memory,
+            agent,
             lean,
             remove_rtk,
             add_to_path,
         } => {
+            if let Some(name) = agent.as_deref() {
+                #[cfg(feature = "memory")]
+                return crate::install::memory(*dry_run, Some(name));
+                #[cfg(not(feature = "memory"))]
+                bail!("this build has no Footnote Memory for {name}");
+            }
             if *add_to_path && !*memory && !*lean && !*remove_rtk && cli.db.is_none() {
                 return crate::install::add_to_path(*dry_run);
             }
@@ -990,7 +1000,7 @@ fn execute(cli: Cli) -> Result<Value> {
             let mut out = if (*memory && *lean) || install_all {
                 #[cfg(feature = "memory")]
                 {
-                    let mut m = crate::install::memory(*dry_run)?;
+                    let mut m = crate::install::memory(*dry_run, None)?;
                     m["lean"] = crate::install::lean(*dry_run, *remove_rtk)?;
                     m
                 }
@@ -1008,7 +1018,7 @@ fn execute(cli: Cli) -> Result<Value> {
             } else if *memory {
                 #[cfg(feature = "memory")]
                 {
-                    crate::install::memory(*dry_run)?
+                    crate::install::memory(*dry_run, None)?
                 }
                 #[cfg(not(feature = "memory"))]
                 bail!("this build has no Footnote Memory")
