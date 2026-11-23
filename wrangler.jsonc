@@ -1,9 +1,32 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "footnote-alpha",
+  "main": "./site/worker.mjs",
   "compatibility_date": "2026-11-01",
   "assets": {
     "directory": "./site/dist",
-    "not_found_handling": "404-page"
-  }
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": [
+      "/",
+      "/library",
+      "/memory",
+      "/code",
+      "/lean",
+      "/index.md",
+      "/library.md",
+      "/memory.md",
+      "/code.md",
+      "/lean.md",
+      "/llms.txt",
+      "/llms-full.txt"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "footnote-site-views",
+      "database_id": "0ad280e0-a621-4c7c-8b6e-1c5bff12b1a6"
+    }
+  ]
 }
