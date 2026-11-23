@@ -1,6 +1,6 @@
 import unittest
 
-from concise_memory import excerpt, usage
+from concise_memory import excerpt, lookup_result, usage
 
 
 class ConciseMemoryTest(unittest.TestCase):
@@ -17,6 +17,16 @@ class ConciseMemoryTest(unittest.TestCase):
         trace = {"turns": [{"usage": {"inputTokens": 100, "cachedInputTokens": 50, "outputTokens": 20}},
                            {"usage": {"inputTokens": 250, "cachedInputTokens": 180, "outputTokens": 30}}]}
         self.assertEqual(usage(trace), {"cached_input_tokens": 180, "uncached_input_tokens": 70, "output_tokens": 30})
+
+    def test_lookup_trace_reads_compact_and_verbose_deliveries(self):
+        for text in ('untrusted source data\n[8 · fact · orchard · 2026-11-23] Decision AX-5.',
+                     '{"id":8,"text":"Decision AX-5."}'):
+            with self.subTest(text=text):
+                event = {"tool": "footnote_get", "arguments": {"id": 8}, "status": "completed",
+                         "result": {"content": [{"type": "text", "text": text}]}}
+                self.assertEqual(lookup_result(event), {"ids": [8], "returned_ids": [8], "completed": True})
+                event["result"]["isError"] = True
+                self.assertFalse(lookup_result(event)["completed"])
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ ARMS = ("current", "excerpt", "write_excerpt")
 SERVER = "footnote-fixture"
 WORD = "SYNTHETIC-LANTERN-95"
 LINE = re.compile(r"^(- \[id (\d+) .*?\] )(.*)$")
+COMPACT_HIT = re.compile(r"^\[(\d+) · [^\n]*?\] \S", re.M)
 DECISION = re.compile(r"\b(must|may|never|only|unless|eligible|do not|required|prohibited)\b", re.I)
 SAVE = (
     "Write one self-contained sentence per note that makes sense alone in a year, with absolute dates. "
@@ -235,17 +236,7 @@ async def collect_turn(receive, thread, hooks, db, turn, answers):
             elif kind == "commandExecution":
                 turn["shell_calls"] += 1
             elif db and kind == "mcpToolCall" and item.get("server") == SERVER and item.get("tool") == "footnote_get":
-                argument = item.get("arguments")
-                ids = argument.get("id") if isinstance(argument, dict) else None
-                ids = ids if isinstance(ids, list) else [ids]
-                call = {"ids": [i for i in ids if type(i) is int], "returned_ids": [], "completed": False}
-                try:
-                    if not (item.get("result") or {}).get("isError"):
-                        call["returned_ids"] = mcp_delivery(item)["ids"]
-                        call["completed"] = True
-                except (ValueError, KeyError, TypeError):
-                    pass
-                turn["lookups"].append(call)
+                turn["lookups"].append(lookup_result(item))
             elif kind in {"mcpToolCall", "dynamicToolCall", "fileChange", "webSearch"}:
                 turn["other_tools"] += 1
         elif method == "thread/tokenUsage/updated":
@@ -255,6 +246,25 @@ async def collect_turn(receive, thread, hooks, db, turn, answers):
         elif method == "turn/completed":
             turn["completed"] = params["turn"]["status"] == "completed"
             return
+
+
+def lookup_result(item):
+    argument = item.get("arguments")
+    ids = argument.get("id") if isinstance(argument, dict) else None
+    ids = ids if isinstance(ids, list) else [ids]
+    requested = [i for i in ids if type(i) is int]
+    returned = []
+    result = item.get("result") or {}
+    if item.get("status") == "completed" and not result.get("isError"):
+        try:
+            returned = mcp_delivery(item)["ids"]
+        except json.JSONDecodeError:
+            returned = [int(id_) for part in result.get("content", []) if part.get("type") == "text"
+                        for id_ in COMPACT_HIT.findall(part.get("text", ""))]
+        except (ValueError, KeyError, TypeError):
+            pass
+    return {"ids": requested, "returned_ids": returned,
+            "completed": bool(requested) and set(requested) == set(returned)}
 
 
 def payload_notes():
@@ -431,16 +441,19 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--live-codex-home", type=Path, help="Dedicated fixture-only Codex profile with trusted hooks")
+    parser.add_argument("--lookup-probe-only", action="store_true", help="Run the separate live fallback probe only")
     args = parser.parse_args()
     args.footnote = args.footnote.resolve(strict=True)
     if args.output.exists():
         parser.error("Use a new output path. Receipts are immutable.")
+    if args.lookup_probe_only and not args.live_codex_home:
+        parser.error("--lookup-probe-only requires --live-codex-home")
     if args.live_codex_home:
         args.live_codex_home = args.live_codex_home.resolve(strict=True)
         if args.live_codex_home == Path.home() / ".codex":
             parser.error("Use a fixture profile, separate from the normal Codex profile.")
     here = Path(__file__).resolve().parent
-    receipt = {"protocol": 2, "utc": datetime.now(timezone.utc).isoformat(),
+    receipt = {"protocol": 2, "lookup_trace_revision": 2, "utc": datetime.now(timezone.utc).isoformat(),
                "footnote": command([args.footnote, "--version"]).strip(), "footnote_sha256": digest(args.footnote),
                "source_sha256": {name: digest(here / name) for name in (
                    "CONCISE-MEMORY-PROTOCOL-2026-11-23.md", "concise_memory.py", "concise_memory_fixtures.py",
@@ -449,7 +462,11 @@ def main():
     if args.live_codex_home:
         receipt.update(codex=command([args.codex, "--version"]).strip(), requested_model=MODEL)
     with tempfile.TemporaryDirectory(prefix="footnote-concise-") as directory:
-        receipt.update(asyncio.run(run(args, Path(directory))))
+        root = Path(directory)
+        if args.lookup_probe_only:
+            receipt.update(mode="live_lookup_probe", lookup_probe=asyncio.run(lookup_probe(args, root)))
+        else:
+            receipt.update(asyncio.run(run(args, root)))
     with args.output.open("x", encoding="utf-8") as f:
         json.dump(receipt, f, indent=2)
         f.write("\n")
