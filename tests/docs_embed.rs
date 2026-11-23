@@ -106,6 +106,11 @@ fn keyword_search_first_then_background_embedding_resumes_after_a_dead_worker() 
         ],
     );
     assert_eq!(again["embedding"], "nothing to embed", "{again}");
+    // While the live worker embeds another library, a library in the machine-wide queue reads `queued` (#628).
+    let other = |pid: u32| job(pid).replace(&db.replace('\\', "\\\\"), "other.db");
+    fs::write(jobs.join("x.json"), other(std::process::id())).unwrap();
+    fs::write(state.join("docs/embed-queue"), format!("0\t{db}\n")).unwrap();
+    assert_eq!(row_state(&state), "queued");
 
     // 3. The worker died: the job reads interrupted, the corpus is keyword-only and still answers.
     fs::write(jobs.join("x.json"), job(4_000_000)).unwrap();

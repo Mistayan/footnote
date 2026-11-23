@@ -113,8 +113,7 @@ impl Gguf {
             // SAFETY: nothing borrows the model yet (no context was made); the pointer came from `Box::leak` above.
             drop(unsafe { Box::from_raw(ptr.as_ptr()) });
         };
-        let threads =
-            (std::thread::available_parallelism().map_or(4, |n| n.get()) / 2).max(1) as i32;
+        let threads = crate::encoder::bulk_threads() as i32;
         let params = LlamaContextParams::default()
             .with_n_ctx(NonZeroU32::new(CTX))
             .with_n_batch(CTX)

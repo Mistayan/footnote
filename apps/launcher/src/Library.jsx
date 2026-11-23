@@ -17,7 +17,8 @@ const pct = (d) => (d.total ? Math.floor((100 * d.done) / d.total) : null);
 function DocState({ d }) {
   const p = pct(d);
   if (d.state === "ready") return <span className="state-dot">Ready</span>;
-  if (d.state === "embedding")
+  if (d.state === "queued") return <span className="state-dot idle">Queued</span>;
+  if (d.state === "embedding" || String(d.state).startsWith("embedding "))
     return (
       <span className="doc-progress">
         <span className="shimmer">{p != null ? `${p} %` : "Embedding"}</span>
@@ -64,7 +65,9 @@ export default function Library({ refresh }) {
   }, [round]);
 
   // Re-read while a site embeds, so its percentage moves.
-  const embedding = (state.docs ?? []).some((d) => d.state === "embedding");
+  const embedding = (state.docs ?? []).some(
+    (d) => d.state === "embedding" || d.state === "queued" || String(d.state).startsWith("embedding "),
+  );
   useEffect(() => {
     if (!embedding) return;
     const t = setTimeout(() => setRound((r) => r + 1), 5000);

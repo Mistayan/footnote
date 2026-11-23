@@ -95,6 +95,17 @@ fn verified_file(model: &Path, m: &Manifest, name: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Threads for bulk (passage) embedding; 0 means half the logical processors. The docs embedding worker, the only one
+/// running on the machine, sets every physical core but the one it leaves free.
+pub static BULK_THREADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn bulk_threads() -> usize {
+    match BULK_THREADS.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => (std::thread::available_parallelism().map_or(4, |n| n.get()) / 2).max(2),
+        n => n,
+    }
+}
+
 /// An ONNX session over `model.onnx`, loaded from the very bytes that were hashed (no window to swap the file).
 fn onnx_session(model: &Path, m: &Manifest, threads: usize) -> Result<Session> {
     // ONNX Runtime allows one environment per process, shared by every model.
@@ -226,8 +237,7 @@ impl Encoder {
             }
         };
         let (slot, threads) = if kind == "passage" {
-            let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
-            (bulk, (cpus / 2).max(2))
+            (bulk, bulk_threads())
         } else {
             (query, 2)
         };

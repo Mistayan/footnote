@@ -111,7 +111,7 @@ pub struct Add<'a> {
 pub fn add(state: &Path, a: &Add) -> Result<Value> {
     let mut v = add_keyword(state, a)?;
     let db = PathBuf::from(v["db"].as_str().unwrap_or_default());
-    v["state"] = json!(status(&db, &jobs_now(state)).0);
+    v["state"] = json!(status(&db, &now(state)).0);
     v["embedding"] = embed_missing(state, &[db], a)?;
     Ok(v)
 }
@@ -145,7 +145,7 @@ pub fn ingest(state: &Path, urls: &[String], a: &Add, project: Option<&Path>) ->
         match add_keyword(state, &one) {
             Ok(mut v) => {
                 let db = PathBuf::from(v["db"].as_str().unwrap_or_default());
-                v["state"] = json!(status(&db, &jobs_now(state)).0);
+                v["state"] = json!(status(&db, &now(state)).0);
                 dbs.push((rank, db));
                 libraries.push(v);
             }
@@ -168,22 +168,40 @@ fn import_rank(url: &str, counts: &[((&str, String), usize)]) -> usize {
         .unwrap_or(0)
 }
 
-fn jobs_now(state: &Path) -> Vec<Value> {
-    jobs::list(state)
-        .ok()
-        .and_then(|v| v["jobs"].as_array().cloned())
-        .unwrap_or_default()
+/// The jobs and the embedding queue, read once per command.
+struct Now {
+    jobs: Vec<Value>,
+    queue: Vec<PathBuf>,
 }
 
-/// "embedding" with `(done, total)` while a live `docs.embed` job holds the database, "ready" once every chunk has a vector,
-/// otherwise "keyword-only" (a corpus whose worker died is keyword-only again, with the n/m already committed; its job shows as interrupted).
-fn status(db: &Path, jobs: &[Value]) -> (&'static str, Option<(u64, u64)>) {
+fn now(state: &Path) -> Now {
+    let jobs = jobs::list(state)
+        .ok()
+        .and_then(|v| v["jobs"].as_array().cloned())
+        .unwrap_or_default();
+    let queue = with_queue(state, |q| q.iter().map(|e| e.1.clone()).collect()).unwrap_or_default();
+    Now { jobs, queue }
+}
+
+/// "embedding" with `(done, total)` while a live `docs.embed` job holds the database, "queued" while it waits for the
+/// live worker, "ready" once every chunk has a vector, otherwise "keyword-only" (a corpus whose worker died is
+/// keyword-only again, with the n/m already committed; its job shows as interrupted).
+fn status(db: &Path, now: &Now) -> (&'static str, Option<(u64, u64)>) {
     let label = db.to_string_lossy();
-    if let Some(j) = jobs.iter().find(|j| {
-        j["kind"] == "docs.embed" && j["state"] == "running" && j["label"] == label.as_ref()
-    }) {
+    let running = |j: &&Value| j["kind"] == "docs.embed" && j["state"] == "running";
+    if let Some(j) = now
+        .jobs
+        .iter()
+        .filter(running)
+        .find(|j| j["label"] == label.as_ref())
+    {
         let n = |k: &str| j[k].as_u64().unwrap_or(0);
         return ("embedding", Some((n("done"), n("total"))));
+    }
+    // shortcut: "a docs.embed job is running" stands for "the worker is alive"; between two libraries this reads
+    // keyword-only for an instant. Upgrade if the Library list ever flickers.
+    if now.queue.iter().any(|q| q == db) && now.jobs.iter().any(|j| running(&j)) {
+        return ("queued", None);
     }
     let Ok(c) = crate::app::open(db, false) else {
         return ("keyword-only", None);
@@ -208,7 +226,7 @@ fn status(db: &Path, jobs: &[Value]) -> (&'static str, Option<(u64, u64)>) {
 /// Whether the cached corpus at `db` has every vector.
 #[cfg(feature = "code")]
 pub(crate) fn is_ready(state: &Path, db: &Path) -> bool {
-    status(db, &jobs_now(state)).0 == "ready"
+    status(db, &now(state)).0 == "ready"
 }
 
 fn chunk_count(db: &Path) -> i64 {
@@ -232,10 +250,10 @@ fn embed_ranked(state: &Path, dbs: &[(usize, PathBuf)], a: &Add) -> Result<Value
     if a.no_embed {
         return Ok(json!("skipped (--no-embed)"));
     }
-    let jobs = jobs_now(state);
+    let now = now(state);
     let mut todo: Vec<(std::cmp::Reverse<usize>, i64, &PathBuf)> = dbs
         .iter()
-        .filter(|(_, d)| status(d, &jobs).0 == "keyword-only")
+        .filter(|(_, d)| status(d, &now).0 == "keyword-only")
         .map(|(n, d)| (std::cmp::Reverse(*n), chunk_count(d), d))
         .collect();
     if todo.is_empty() {
@@ -255,12 +273,13 @@ fn embed_ranked(state: &Path, dbs: &[(usize, PathBuf)], a: &Add) -> Result<Value
         ));
     }
     todo.sort();
+    // The live worker, if any, picks these up; otherwise the one started here drains the whole queue.
+    enqueue(state, todo.iter().map(|(n, _, d)| (n.0, (*d).clone())))?;
     let mut cmd = std::process::Command::new(std::env::current_exe()?);
     cmd.args(["docs", "embed"]);
     for m in &models {
         cmd.arg("--model").arg(m);
     }
-    cmd.args(todo.iter().map(|(_, _, d)| d.as_os_str()));
     #[cfg(feature = "memory")]
     crate::hook::spawn_background(&mut cmd)?;
     #[cfg(not(feature = "memory"))]
@@ -276,33 +295,108 @@ fn embed_ranked(state: &Path, dbs: &[(usize, PathBuf)], a: &Add) -> Result<Value
     )
 }
 
-/// The detached worker: one `docs.embed` job per database, all registered up front (so they show as queued and a second
-/// `add` does not start them twice), then run in order.
-pub fn embed(state: &Path, dbs: &[PathBuf], models: &[PathBuf]) -> Result<Value> {
-    let mut queue = Vec::new();
-    for db in dbs {
-        queue.push((
-            db,
-            Job::start(state, "docs.embed", &db.to_string_lossy(), "chunks")?,
-        ));
+/// The machine-wide embedding queue (#628): one `<import rank>TAB<db>` line per library waiting for vectors.
+fn with_queue<T>(state: &Path, f: impl FnOnce(&mut Vec<(usize, PathBuf)>) -> T) -> Result<T> {
+    use std::io::{Read, Seek, Write};
+    std::fs::create_dir_all(root(state))?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(root(state).join("embed-queue"))?;
+    file.lock()?; // released when `file` drops
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    let mut q: Vec<(usize, PathBuf)> = text
+        .lines()
+        .filter_map(|l| {
+            let (rank, db) = l.split_once('\t')?;
+            Some((rank.parse().ok()?, PathBuf::from(db)))
+        })
+        .collect();
+    let before = q.clone();
+    let out = f(&mut q);
+    if q != before {
+        let body: String = q
+            .iter()
+            .map(|(r, d)| format!("{r}\t{}\n", d.display()))
+            .collect();
+        file.set_len(0)?;
+        file.rewind()?;
+        file.write_all(body.as_bytes())?;
     }
-    let mut done = Vec::new();
-    for (db, mut job) in queue {
-        let mut total = 0;
-        let r = (|| {
-            let mut c = crate::app::open(db, true)?;
-            footnote_search::semantic::rebuild_with(&mut c, models, &mut |d, t| {
-                total = t as u64;
-                job.progress(d as u64, Some(total))
-            })
-        })();
-        if r.is_ok() {
-            job.progress(total, Some(total)); // the throttled writes may stop short of the end
+    Ok(out)
+}
+
+fn enqueue(state: &Path, dbs: impl IntoIterator<Item = (usize, PathBuf)>) -> Result<()> {
+    with_queue(state, |q| {
+        for (rank, db) in dbs {
+            if !q.iter().any(|e| e.1 == db) {
+                q.push((rank, db));
+            }
         }
-        done.push(json!({"db": db, "ok": r.is_ok()}));
-        job.finish(&r);
+    })
+}
+
+/// The next library to embed: most-imported first, then the fewest chunks.
+fn pick(q: &[(usize, PathBuf)], size: impl Fn(&Path) -> i64) -> Option<PathBuf> {
+    q.iter()
+        .min_by_key(|(rank, db)| (std::cmp::Reverse(*rank), size(db)))
+        .map(|e| e.1.clone())
+}
+
+/// The detached worker: `dbs` join the queue, then whichever worker holds `embed.lock` drains it one library at a time,
+/// leaving one physical core free. A library leaves the queue once its run ends, so a crash resumes from the committed
+/// batches on the next run. A worker that finds the lock taken exits: the holder takes its libraries.
+pub fn embed(state: &Path, dbs: &[PathBuf], models: &[PathBuf]) -> Result<Value> {
+    enqueue(state, dbs.iter().map(|d| (0, d.clone())))?;
+    let lock = std::fs::File::create(root(state).join("embed.lock"))?;
+    let mut done = Vec::new();
+    let mut spared = false;
+    loop {
+        match lock.try_lock() {
+            Ok(()) => {}
+            Err(std::fs::TryLockError::WouldBlock) => break,
+            Err(std::fs::TryLockError::Error(e)) => return Err(e.into()),
+        }
+        if !spared {
+            spared = true;
+            if let Some(cores) = crate::cores::spare_one() {
+                footnote_search::encoder::BULK_THREADS
+                    .store(cores.max(1), std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        while let Some(db) = with_queue(state, |q| pick(q, chunk_count))? {
+            done.push(embed_one(state, &db, models));
+            with_queue(state, |q| q.retain(|e| e.1 != db))?;
+        }
+        lock.unlock()?;
+        // A library queued after the last pick found the lock taken and its worker left: take it now.
+        if with_queue(state, |q| q.is_empty())? {
+            break;
+        }
     }
     Ok(json!({"embedded": done}))
+}
+
+fn embed_one(state: &Path, db: &Path, models: &[PathBuf]) -> Value {
+    let Ok(mut job) = Job::start(state, "docs.embed", &db.to_string_lossy(), "chunks") else {
+        return json!({"db": db, "ok": false});
+    };
+    let mut total = 0;
+    let r = (|| {
+        let mut c = crate::app::open(db, true)?;
+        footnote_search::semantic::rebuild_with(&mut c, models, &mut |d, t| {
+            total = t as u64;
+            job.progress(d as u64, Some(total))
+        })
+    })();
+    if r.is_ok() {
+        job.progress(total, Some(total)); // the throttled writes may stop short of the end
+    }
+    job.finish(&r);
+    json!({"db": db, "ok": r.is_ok()})
 }
 
 fn add_keyword(state: &Path, a: &Add) -> Result<Value> {
@@ -486,7 +580,7 @@ fn usage(
 }
 
 pub fn list(state: &Path) -> Result<Value> {
-    let jobs = jobs_now(state);
+    let now = now(state);
     let projects = project_libs(state);
     let rows: Vec<Value> = entries(state)
         .into_iter()
@@ -501,7 +595,7 @@ pub fn list(state: &Path) -> Result<Value> {
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs());
-            let progress = status(&db, &jobs);
+            let progress = status(&db, &now);
             let state_text = match progress {
                 (s, Some((d, t))) => format!("{s} {d}/{t}"),
                 (s, None) => s.to_string(),
@@ -585,6 +679,29 @@ mod tests {
         // A library named with its language is not every project's docs in that language.
         assert_eq!(u("polars-python"), (Some("pypi".into()), vec![]));
         assert_eq!(u("duckdb"), (None, vec![]));
+    }
+
+    #[test]
+    fn the_queue_takes_the_most_imported_then_the_smallest() {
+        let q = |v: &[(usize, &str)]| {
+            v.iter()
+                .map(|(r, d)| (*r, PathBuf::from(d)))
+                .collect::<Vec<_>>()
+        };
+        let size = |d: &Path| match d.to_str() {
+            Some("big") => 900,
+            Some("mid") => 50,
+            _ => 5,
+        };
+        assert_eq!(
+            pick(&q(&[(0, "big"), (0, "mid"), (0, "small")]), size),
+            Some("small".into())
+        );
+        assert_eq!(
+            pick(&q(&[(0, "small"), (3, "big"), (1, "mid")]), size),
+            Some("big".into())
+        );
+        assert_eq!(pick(&[], size), None);
     }
 
     #[test]

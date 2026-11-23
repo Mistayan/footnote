@@ -8,6 +8,8 @@ mod audit_prefix;
 mod bundle;
 #[cfg(feature = "memory")]
 mod clean;
+#[cfg(feature = "library")]
+mod cores;
 mod daemon;
 #[cfg(feature = "library")]
 mod docs;
