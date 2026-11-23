@@ -1,0 +1,1217 @@
+{
+  "protocol": 1,
+  "utc": "2026-11-23T17:23:51.707782+00:00",
+  "footnote": "footnote 0.6.1",
+  "footnote_sha256": "d6517d41062451eeb42dccfd276a3b6ef1198febd533106da320b98ebbdcd532",
+  "source_sha256": {
+    "CONCISE-MEMORY-PROTOCOL-2026-11-23.md": "99b809d95df81effa295ebed492858bf4ce79b9d8546d11a88fce83bd1382c98",
+    "concise_memory.py": "c25984f9fc0cef6f43a7ce3b6a2d389b98ea3498df81a15af12a67d43154216e",
+    "concise_memory_fixtures.py": "a4463977b53f45ee33e6eb2b24eb5885c15fe36186aa796c6825a67d3177adc3",
+    "codex_hook_activation.py": "d1d31608822b51544194be1f028ab0e177fa649d32d4876349d9de3eef7ef8cd"
+  },
+  "mode": "live",
+  "codex": "codex-cli 0.171.0",
+  "requested_model": "gpt-6.2-sol",
+  "writers": {
+    "current": {
+      "trust": {
+        "preToolUse": "trusted",
+        "sessionStart": "trusted",
+        "stop": "trusted",
+        "userPromptSubmit": "trusted"
+      },
+      "turns": [
+        {
+          "hooks": [
+            "sessionStart",
+            "userPromptSubmit",
+            "preToolUse",
+            "stop"
+          ],
+          "lookups": [],
+          "shell_calls": 1,
+          "other_tools": 0,
+          "usage": {
+            "totalTokens": 38292,
+            "inputTokens": 37924,
+            "cachedInputTokens": 30208,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 368,
+            "reasoningOutputTokens": 0
+          },
+          "completed": true
+        }
+      ],
+      "memory_pack_verified": true,
+      "lean_git_verified": true,
+      "model": "gpt-6.2-sol",
+      "verified": true,
+      "valid_writes": true,
+      "stored_chars": 947
+    },
+    "concise": {
+      "trust": {
+        "preToolUse": "trusted",
+        "sessionStart": "trusted",
+        "stop": "trusted",
+        "userPromptSubmit": "trusted"
+      },
+      "turns": [
+        {
+          "hooks": [
+            "sessionStart",
+            "userPromptSubmit",
+            "preToolUse",
+            "stop"
+          ],
+          "lookups": [],
+          "shell_calls": 1,
+          "other_tools": 0,
+          "usage": {
+            "totalTokens": 38465,
+            "inputTokens": 38031,
+            "cachedInputTokens": 18816,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 434,
+            "reasoningOutputTokens": 63
+          },
+          "completed": true
+        }
+      ],
+      "memory_pack_verified": true,
+      "lean_git_verified": true,
+      "model": "gpt-6.2-sol",
+      "verified": true,
+      "valid_writes": true,
+      "stored_chars": 942
+    }
+  },
+  "tasks": {
+    "current": [
+      {
+        "case": "glasshouse",
+        "scope_verified": true,
+        "hit_ids": [
+          1
+        ],
+        "other_project_hit_ids": [
+          5
+        ],
+        "source_id": 1,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "job": true,
+          "seal": true,
+          "trigger": false,
+          "first_date": true,
+          "archive_ref": true
+        },
+        "context_chars": 246,
+        "context_bytes": 249,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37380,
+                "inputTokens": 37267,
+                "cachedInputTokens": 18560,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 113,
+                "reasoningOutputTokens": 0
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56253,
+                "inputTokens": 56110,
+                "cachedInputTokens": 37120,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 143,
+                "reasoningOutputTokens": 0
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": true,
+            "job": true,
+            "seal": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "first_date": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "windward",
+        "scope_verified": true,
+        "hit_ids": [
+          2
+        ],
+        "other_project_hit_ids": [
+          6
+        ],
+        "source_id": 2,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "manifest": true,
+          "approval": true,
+          "trigger": true,
+          "archive_ref": true
+        },
+        "context_chars": 223,
+        "context_bytes": 226,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37396,
+                "inputTokens": 37249,
+                "cachedInputTokens": 29696,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 147,
+                "reasoningOutputTokens": 31
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56291,
+                "inputTokens": 56120,
+                "cachedInputTokens": 48256,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 171,
+                "reasoningOutputTokens": 31
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": false,
+            "manifest": true,
+            "approval": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "greywater",
+        "scope_verified": true,
+        "hit_ids": [
+          3
+        ],
+        "other_project_hit_ids": [
+          7
+        ],
+        "source_id": 3,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "batch": true,
+          "sensor": true,
+          "trigger": true,
+          "date": true,
+          "deadline": true,
+          "bay": true,
+          "archive_ref": true
+        },
+        "context_chars": 272,
+        "context_bytes": 275,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37505,
+                "inputTokens": 37322,
+                "cachedInputTokens": 18560,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 183,
+                "reasoningOutputTokens": 41
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56535,
+                "inputTokens": 56278,
+                "cachedInputTokens": 37120,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 257,
+                "reasoningOutputTokens": 50
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": true,
+            "batch": true,
+            "sensor": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "bay": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "redwood",
+        "scope_verified": true,
+        "hit_ids": [
+          4
+        ],
+        "other_project_hit_ids": [
+          8
+        ],
+        "source_id": 4,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "cartridge": true,
+          "clearance": true,
+          "trigger": true,
+          "date": true
+        },
+        "context_chars": 268,
+        "context_bytes": 271,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37446,
+                "inputTokens": 37295,
+                "cachedInputTokens": 11392,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 151,
+                "reasoningOutputTokens": 36
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56381,
+                "inputTokens": 56204,
+                "cachedInputTokens": 29952,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 177,
+                "reasoningOutputTokens": 36
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": false,
+            "cartridge": true,
+            "clearance": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "first_date": true
+          }
+        },
+        "accepted": false
+      }
+    ],
+    "excerpt": [
+      {
+        "case": "glasshouse",
+        "scope_verified": true,
+        "hit_ids": [
+          1
+        ],
+        "other_project_hit_ids": [
+          5
+        ],
+        "source_id": 1,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "job": true,
+          "seal": true,
+          "trigger": false,
+          "first_date": true,
+          "archive_ref": true
+        },
+        "context_chars": 246,
+        "context_bytes": 249,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37380,
+                "inputTokens": 37268,
+                "cachedInputTokens": 29952,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 112,
+                "reasoningOutputTokens": 0
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56345,
+                "inputTokens": 56112,
+                "cachedInputTokens": 48512,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 233,
+                "reasoningOutputTokens": 70
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": true,
+            "job": true,
+            "seal": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "first_date": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "windward",
+        "scope_verified": true,
+        "hit_ids": [
+          2
+        ],
+        "other_project_hit_ids": [
+          6
+        ],
+        "source_id": 2,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "manifest": true,
+          "approval": true,
+          "trigger": true,
+          "archive_ref": true
+        },
+        "context_chars": 223,
+        "context_bytes": 226,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37504,
+                "inputTokens": 37253,
+                "cachedInputTokens": 18560,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 251,
+                "reasoningOutputTokens": 112
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56579,
+                "inputTokens": 56232,
+                "cachedInputTokens": 37120,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 347,
+                "reasoningOutputTokens": 163
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": false,
+            "manifest": true,
+            "approval": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "greywater",
+        "scope_verified": true,
+        "hit_ids": [
+          3
+        ],
+        "other_project_hit_ids": [
+          7
+        ],
+        "source_id": 3,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "batch": true,
+          "sensor": true,
+          "trigger": true,
+          "date": true,
+          "deadline": true,
+          "bay": true,
+          "archive_ref": true
+        },
+        "context_chars": 272,
+        "context_bytes": 275,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37540,
+                "inputTokens": 37365,
+                "cachedInputTokens": 22784,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 175,
+                "reasoningOutputTokens": 58
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56543,
+                "inputTokens": 56317,
+                "cachedInputTokens": 41344,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 226,
+                "reasoningOutputTokens": 58
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": true,
+            "batch": true,
+            "sensor": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "bay": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "redwood",
+        "scope_verified": true,
+        "hit_ids": [
+          4
+        ],
+        "other_project_hit_ids": [
+          8
+        ],
+        "source_id": 4,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "cartridge": true,
+          "clearance": true,
+          "trigger": true,
+          "date": true
+        },
+        "context_chars": 268,
+        "context_bytes": 271,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37569,
+                "inputTokens": 37324,
+                "cachedInputTokens": 36096,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 245,
+                "reasoningOutputTokens": 99
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56657,
+                "inputTokens": 56327,
+                "cachedInputTokens": 54656,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 330,
+                "reasoningOutputTokens": 122
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": false,
+            "cartridge": true,
+            "clearance": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "first_date": true
+          }
+        },
+        "accepted": false
+      }
+    ],
+    "write_excerpt": [
+      {
+        "case": "glasshouse",
+        "scope_verified": true,
+        "hit_ids": [
+          1
+        ],
+        "other_project_hit_ids": [
+          5
+        ],
+        "source_id": 1,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "job": true,
+          "seal": true,
+          "trigger": true,
+          "first_date": true,
+          "archive_ref": true
+        },
+        "context_chars": 251,
+        "context_bytes": 254,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37405,
+                "inputTokens": 37266,
+                "cachedInputTokens": 29952,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 139,
+                "reasoningOutputTokens": 22
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56323,
+                "inputTokens": 56140,
+                "cachedInputTokens": 48512,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 183,
+                "reasoningOutputTokens": 22
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": true,
+            "job": true,
+            "seal": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "first_date": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "windward",
+        "scope_verified": true,
+        "hit_ids": [
+          2
+        ],
+        "other_project_hit_ids": [
+          6
+        ],
+        "source_id": 2,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "manifest": true,
+          "approval": true,
+          "trigger": true,
+          "archive_ref": true
+        },
+        "context_chars": 223,
+        "context_bytes": 226,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37458,
+                "inputTokens": 37247,
+                "cachedInputTokens": 18304,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 211,
+                "reasoningOutputTokens": 98
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56503,
+                "inputTokens": 56183,
+                "cachedInputTokens": 18304,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 320,
+                "reasoningOutputTokens": 164
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": false,
+            "manifest": true,
+            "approval": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "greywater",
+        "scope_verified": true,
+        "hit_ids": [
+          3
+        ],
+        "other_project_hit_ids": [
+          7
+        ],
+        "source_id": 3,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "batch": true,
+          "sensor": true,
+          "trigger": true,
+          "date": true,
+          "deadline": true,
+          "bay": true,
+          "archive_ref": true
+        },
+        "context_chars": 271,
+        "context_bytes": 274,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37440,
+                "inputTokens": 37326,
+                "cachedInputTokens": 18560,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 114,
+                "reasoningOutputTokens": 0
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56430,
+                "inputTokens": 56214,
+                "cachedInputTokens": 29952,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 216,
+                "reasoningOutputTokens": 35
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": true,
+            "batch": true,
+            "sensor": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "bay": true,
+            "archive_ref": true
+          }
+        },
+        "accepted": false
+      },
+      {
+        "case": "redwood",
+        "scope_verified": true,
+        "hit_ids": [
+          4
+        ],
+        "other_project_hit_ids": [
+          8
+        ],
+        "source_id": 4,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "cartridge": true,
+          "clearance": true,
+          "trigger": true,
+          "date": true
+        },
+        "context_chars": 259,
+        "context_bytes": 262,
+        "trace": {
+          "trust": {
+            "preToolUse": "trusted",
+            "sessionStart": "trusted",
+            "stop": "trusted",
+            "userPromptSubmit": "trusted"
+          },
+          "turns": [
+            {
+              "hooks": [
+                "sessionStart",
+                "userPromptSubmit",
+                "preToolUse",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 1,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 37407,
+                "inputTokens": 37294,
+                "cachedInputTokens": 36096,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 113,
+                "reasoningOutputTokens": 0
+              },
+              "completed": true
+            },
+            {
+              "hooks": [
+                "userPromptSubmit",
+                "stop"
+              ],
+              "lookups": [],
+              "shell_calls": 0,
+              "other_tools": 0,
+              "usage": {
+                "totalTokens": 56303,
+                "inputTokens": 56164,
+                "cachedInputTokens": 54656,
+                "cacheWriteInputTokens": 0,
+                "outputTokens": 139,
+                "reasoningOutputTokens": 0
+              },
+              "completed": true
+            }
+          ],
+          "memory_pack_verified": true,
+          "lean_git_verified": true,
+          "model": "gpt-6.2-sol",
+          "verified": true
+        },
+        "grade": {
+          "initial": {
+            "scope": false,
+            "action": false,
+            "cartridge": true,
+            "clearance": true,
+            "memory_id": true
+          },
+          "follow_up": {
+            "action": true,
+            "first_date": true
+          }
+        },
+        "accepted": false
+      }
+    ]
+  },
+  "summary": {
+    "current": {
+      "accepted_tasks": 0,
+      "scheduled_tasks": 4,
+      "complete_usage": true,
+      "comparison_valid": true,
+      "critical_fields_correct": 23,
+      "critical_fields_attempted": 29,
+      "observed_cached_input_tokens": 182656,
+      "observed_uncached_input_tokens": 79980,
+      "observed_write_output_tokens": 368,
+      "observed_task_output_tokens": 748,
+      "observed_full_text_calls": 0,
+      "observed_repeated_lookup_calls": 0,
+      "observed_failed_lookup_calls": 0,
+      "scheduled_retries": 0,
+      "provider_internal_retries": null,
+      "tokens_per_accepted_task": null
+    },
+    "excerpt": {
+      "accepted_tasks": 0,
+      "scheduled_tasks": 4,
+      "complete_usage": true,
+      "comparison_valid": true,
+      "critical_fields_correct": 23,
+      "critical_fields_attempted": 29,
+      "observed_cached_input_tokens": 211840,
+      "observed_uncached_input_tokens": 51072,
+      "observed_write_output_tokens": 368,
+      "observed_task_output_tokens": 1136,
+      "observed_full_text_calls": 0,
+      "observed_repeated_lookup_calls": 0,
+      "observed_failed_lookup_calls": 0,
+      "scheduled_retries": 0,
+      "provider_internal_retries": null,
+      "tokens_per_accepted_task": null
+    },
+    "write_excerpt": {
+      "accepted_tasks": 0,
+      "scheduled_tasks": 4,
+      "complete_usage": true,
+      "comparison_valid": true,
+      "critical_fields_correct": 23,
+      "critical_fields_attempted": 29,
+      "observed_cached_input_tokens": 170240,
+      "observed_uncached_input_tokens": 92492,
+      "observed_write_output_tokens": 434,
+      "observed_task_output_tokens": 858,
+      "observed_full_text_calls": 0,
+      "observed_repeated_lookup_calls": 0,
+      "observed_failed_lookup_calls": 0,
+      "scheduled_retries": 0,
+      "provider_internal_retries": null,
+      "tokens_per_accepted_task": null
+    }
+  },
+  "eligible": [],
+  "full_text_verified": {
+    "current": true,
+    "concise": true
+  }
+}

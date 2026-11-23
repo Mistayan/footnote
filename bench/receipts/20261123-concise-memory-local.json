@@ -1,0 +1,292 @@
+{
+  "protocol": 1,
+  "utc": "2026-11-23T17:23:51.708782+00:00",
+  "footnote": "footnote 0.6.1",
+  "footnote_sha256": "d6517d41062451eeb42dccfd276a3b6ef1198febd533106da320b98ebbdcd532",
+  "source_sha256": {
+    "CONCISE-MEMORY-PROTOCOL-2026-11-23.md": "99b809d95df81effa295ebed492858bf4ce79b9d8546d11a88fce83bd1382c98",
+    "concise_memory.py": "c25984f9fc0cef6f43a7ce3b6a2d389b98ea3498df81a15af12a67d43154216e",
+    "concise_memory_fixtures.py": "a4463977b53f45ee33e6eb2b24eb5885c15fe36186aa796c6825a67d3177adc3",
+    "codex_hook_activation.py": "d1d31608822b51544194be1f028ab0e177fa649d32d4876349d9de3eef7ef8cd"
+  },
+  "mode": "local",
+  "writers": {},
+  "tasks": {
+    "current": [
+      {
+        "case": "glasshouse",
+        "scope_verified": true,
+        "hit_ids": [
+          1
+        ],
+        "other_project_hit_ids": [
+          5
+        ],
+        "source_id": 1,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": false,
+          "job": false,
+          "seal": false,
+          "trigger": false,
+          "first_date": false,
+          "archive_ref": false
+        },
+        "context_chars": 370,
+        "context_bytes": 377
+      },
+      {
+        "case": "windward",
+        "scope_verified": true,
+        "hit_ids": [
+          2
+        ],
+        "other_project_hit_ids": [
+          6
+        ],
+        "source_id": 2,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "manifest": true,
+          "approval": true,
+          "trigger": true,
+          "archive_ref": false
+        },
+        "context_chars": 370,
+        "context_bytes": 377
+      },
+      {
+        "case": "greywater",
+        "scope_verified": true,
+        "hit_ids": [
+          3
+        ],
+        "other_project_hit_ids": [
+          7
+        ],
+        "source_id": 3,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "batch": true,
+          "sensor": true,
+          "trigger": true,
+          "date": true,
+          "deadline": true,
+          "bay": true,
+          "archive_ref": true
+        },
+        "context_chars": 370,
+        "context_bytes": 377
+      },
+      {
+        "case": "redwood",
+        "scope_verified": true,
+        "hit_ids": [
+          4
+        ],
+        "other_project_hit_ids": [
+          8
+        ],
+        "source_id": 4,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": false,
+          "cartridge": false,
+          "clearance": false,
+          "trigger": false,
+          "date": false
+        },
+        "context_chars": 370,
+        "context_bytes": 377
+      }
+    ],
+    "excerpt": [
+      {
+        "case": "glasshouse",
+        "scope_verified": true,
+        "hit_ids": [
+          1
+        ],
+        "other_project_hit_ids": [
+          5
+        ],
+        "source_id": 1,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "job": true,
+          "seal": true,
+          "trigger": true,
+          "first_date": true,
+          "archive_ref": false
+        },
+        "context_chars": 290,
+        "context_bytes": 297
+      },
+      {
+        "case": "windward",
+        "scope_verified": true,
+        "hit_ids": [
+          2
+        ],
+        "other_project_hit_ids": [
+          6
+        ],
+        "source_id": 2,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "manifest": true,
+          "approval": true,
+          "trigger": true,
+          "archive_ref": false
+        },
+        "context_chars": 266,
+        "context_bytes": 273
+      },
+      {
+        "case": "greywater",
+        "scope_verified": true,
+        "hit_ids": [
+          3
+        ],
+        "other_project_hit_ids": [
+          7
+        ],
+        "source_id": 3,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "batch": true,
+          "sensor": true,
+          "trigger": true,
+          "date": true,
+          "deadline": true,
+          "bay": true,
+          "archive_ref": false
+        },
+        "context_chars": 321,
+        "context_bytes": 328
+      },
+      {
+        "case": "redwood",
+        "scope_verified": true,
+        "hit_ids": [
+          4
+        ],
+        "other_project_hit_ids": [
+          8
+        ],
+        "source_id": 4,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "cartridge": true,
+          "clearance": true,
+          "trigger": true,
+          "date": true
+        },
+        "context_chars": 312,
+        "context_bytes": 319
+      }
+    ],
+    "write_excerpt": [
+      {
+        "case": "glasshouse",
+        "scope_verified": true,
+        "hit_ids": [
+          1
+        ],
+        "other_project_hit_ids": [
+          5
+        ],
+        "source_id": 1,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "job": true,
+          "seal": true,
+          "trigger": true,
+          "first_date": true,
+          "archive_ref": false
+        },
+        "context_chars": 290,
+        "context_bytes": 297
+      },
+      {
+        "case": "windward",
+        "scope_verified": true,
+        "hit_ids": [
+          2
+        ],
+        "other_project_hit_ids": [
+          6
+        ],
+        "source_id": 2,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "manifest": true,
+          "approval": true,
+          "trigger": true,
+          "archive_ref": false
+        },
+        "context_chars": 266,
+        "context_bytes": 273
+      },
+      {
+        "case": "greywater",
+        "scope_verified": true,
+        "hit_ids": [
+          3
+        ],
+        "other_project_hit_ids": [
+          7
+        ],
+        "source_id": 3,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "batch": true,
+          "sensor": true,
+          "trigger": true,
+          "date": true,
+          "deadline": true,
+          "bay": true,
+          "archive_ref": false
+        },
+        "context_chars": 321,
+        "context_bytes": 328
+      },
+      {
+        "case": "redwood",
+        "scope_verified": true,
+        "hit_ids": [
+          4
+        ],
+        "other_project_hit_ids": [
+          8
+        ],
+        "source_id": 4,
+        "visible_exact_spans": {
+          "scope": true,
+          "action": true,
+          "cartridge": true,
+          "clearance": true,
+          "trigger": true,
+          "date": true
+        },
+        "context_chars": 312,
+        "context_bytes": 319
+      }
+    ]
+  },
+  "summary": {},
+  "eligible": [],
+  "full_text_verified": {
+    "current": true,
+    "concise": true
+  }
+}

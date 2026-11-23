@@ -15,7 +15,7 @@ import sys
 import tempfile
 from uuid import uuid4
 
-from codex_hook_activation import READY, REQUIRED, app_server, footnote_hooks, json_lines, normalized
+from codex_hook_activation import READY, REQUIRED, app_server, footnote_hooks, json_lines, mcp_delivery, normalized
 from concise_memory_fixtures import CASES, DATE, NEAR_SCOPE
 
 MODEL = "gpt-6.2-sol"
@@ -238,7 +238,14 @@ async def collect_turn(receive, thread, hooks, db, turn, answers):
                 argument = item.get("arguments")
                 ids = argument.get("id") if isinstance(argument, dict) else None
                 ids = ids if isinstance(ids, list) else [ids]
-                turn["lookups"].append({"ids": [i for i in ids if type(i) is int], "completed": item.get("status") == "completed"})
+                call = {"ids": [i for i in ids if type(i) is int], "returned_ids": [], "completed": False}
+                try:
+                    if not (item.get("result") or {}).get("isError"):
+                        call["returned_ids"] = mcp_delivery(item)["ids"]
+                        call["completed"] = True
+                except (ValueError, KeyError, TypeError):
+                    pass
+                turn["lookups"].append(call)
             elif kind in {"mcpToolCall", "dynamicToolCall", "fileChange", "webSearch"}:
                 turn["other_tools"] += 1
         elif method == "thread/tokenUsage/updated":
@@ -271,18 +278,42 @@ async def write_live(args, root, concise):
 
 async def task_live(args, root, case, context, body, db):
     schema = ", ".join([*case["initial"], "memory_id", "activation"])
-    rule = ("Use this project's decision. Report an action as hold, deny or allow. A memory ID identifies the source. "
+    choices = "allow or hold" if case["scope"] in {"glasshouse", "greywater"} else "allow or deny"
+    rule = (f"Use this project's decision. When asked for an action, use one of {choices}. "
+            "A memory ID is the integer identifying the source. Return scope as a lowercase project slug. "
             f"If essential source text is missing, use only {SERVER}'s footnote_get with that ID. "
             "Reply with raw JSON and use null for unknowns.")
     prompt = f"{case['task']}\n{rule}\n{GIT}\nKeys: {schema}.\n\nRecall replay data:\n{body}"
     follow_up = f"{case['follow_up']}\n{rule}\nDo not run shell commands. Keys: {', '.join(case['later'])}."
     trace, answers = await run_thread(args, root, [prompt, follow_up], db)
     first, later = (answers + [{}, {}])[:2]
-    grade = {"initial": {k: first.get(k) == v for k, v in {**case["initial"], "memory_id": context["source_id"]}.items()},
+    grade = {"initial": {k: type(first.get(k)) is type(v) and first.get(k) == v
+                         for k, v in {**case["initial"], "memory_id": context["source_id"]}.items()},
              "follow_up": {k: later.get(k) == v for k, v in case["later"].items()}}
     return {**context, "trace": trace, "grade": grade, "accepted": (
         trace["verified"] and context["scope_verified"] and all(value for step in grade.values() for value in step.values())
     )}
+
+
+async def lookup_probe(args, root):
+    case = CASES[0]
+    with fixture(root, case["scope"]) as (repo, state, env):
+        db = state / "memory.db"
+        records = store(args.footnote, state, db, [(case["scope"], case["note"]), (NEAR_SCOPE, case["near"])])
+        target, near = records
+        body, hits = recall(args.footnote, repo, state, env, case["query"])
+        with fixture(root, NEAR_SCOPE, db) as fixture_args:
+            _, near_hits = recall(args.footnote, *fixture_args, case["query"])
+        body = excerpt(body, records)
+        context = measure_context(case, body, hits, near_hits, target, near)
+        result = await task_live(args, root, case, context, body, db)
+    result["full_text_lookup_verified"] = (
+        not context["visible_exact_spans"]["archive_ref"] and result["accepted"] and any(
+            call["completed"] and target in call["returned_ids"]
+            for turn in result["trace"]["turns"] for call in turn["lookups"]
+        )
+    )
+    return result
 
 
 def usage(trace):
@@ -381,6 +412,7 @@ async def run(args, root):
             if (current["comparison_valid"] and summary["comparison_valid"] and cost is not None and baseline is not None
                     and summary["accepted_tasks"] == len(CASES) and cost < baseline):
                 result["eligible"].append(arm)
+        result["lookup_probe"] = await lookup_probe(args, root)
     return result
 
 
@@ -408,7 +440,7 @@ def main():
         if args.live_codex_home == Path.home() / ".codex":
             parser.error("Use a fixture profile, separate from the normal Codex profile.")
     here = Path(__file__).resolve().parent
-    receipt = {"protocol": 1, "utc": datetime.now(timezone.utc).isoformat(),
+    receipt = {"protocol": 2, "utc": datetime.now(timezone.utc).isoformat(),
                "footnote": command([args.footnote, "--version"]).strip(), "footnote_sha256": digest(args.footnote),
                "source_sha256": {name: digest(here / name) for name in (
                    "CONCISE-MEMORY-PROTOCOL-2026-11-23.md", "concise_memory.py", "concise_memory_fixtures.py",
