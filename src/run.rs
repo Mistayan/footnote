@@ -100,7 +100,13 @@ pub fn classify_command(cmd: &[String]) -> CommandFamily {
         },
         "git" => match sub.as_deref() {
             Some("grep") => CommandFamily::Search,
-            Some("status" | "diff" | "log" | "branch" | "show") => CommandFamily::Git,
+            Some(
+                "status" | "diff" | "log" | "branch" | "show" | "fetch" | "pull" | "push"
+                | "checkout" | "switch" | "merge" | "rebase" | "add" | "commit" | "worktree"
+                | "stash" | "ls-files" | "ls-tree" | "ls-remote" | "blame" | "shortlog" | "reflog"
+                | "tag" | "remote" | "clone" | "cherry-pick" | "restore" | "reset" | "rm" | "mv"
+                | "clean" | "rev-list" | "submodule",
+            ) => CommandFamily::Git,
             _ => CommandFamily::Generic,
         },
         "rg" | "grep" | "egrep" | "fgrep" | "findstr" | "ag" => CommandFamily::Search,
@@ -198,58 +204,98 @@ fn format_exe_for_shell(exe: &Path) -> String {
     }
 }
 
+/// The shell a command line is written for. It matters only for names the shell resolves itself: in PowerShell `ls`
+/// is an alias of `Get-ChildItem`, so `footnote run -- ls` would start a different program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shell {
+    Posix,
+    PowerShell,
+}
+
 /// Rewrite the parts of a shell command line that Footnote Lean filters to `footnote run -- <part>`, inside a
 /// PreToolUse hook. Returns `None` when nothing is rewritten.
 #[must_use]
 pub fn rewrite_command(cmd: &str) -> Option<String> {
-    rewrite_command_with_bin(cmd, "footnote")
+    rewrite_command_in(cmd, "footnote", Shell::Posix)
 }
 
-/// Same as `rewrite_command`, using an explicit binary invocation string (e.g. an absolute path when `footnote` is
-/// not on `PATH` in a non-interactive agent shell).
+/// Rewrite a command line written for `shell`.
 ///
 /// Agents rarely send one bare command: they write `cd X && cargo test 2>&1 | tail -5`, `Set-Location X; rg …`,
 /// `git status && git diff`. The line is split at top-level `&&`, `||`, `;` and newlines, and each part that runs a
 /// filtered program gets `footnote run -- ` in front of that program. Everything else in the line is kept byte for
-/// byte, so separators, `cd` and `$env:` statements and exit-code semantics are unchanged (#565). A part is left alone
-/// when it redirects output to a file (or stderr to the null device) or pipes into anything but `head` or
-/// `Select-Object -First`, because filtered output would change what lands there. A line with a heredoc, here-string, subshell, script block,
-/// backtick or input redirect is left whole, since its separators cannot be found safely.
+/// byte, so separators, `cd` and `$env:` statements and exit-code semantics are unchanged (#565).
+///
+/// A part is left alone when it writes stdout to a file or pipes into anything but `head`, `tail` or
+/// `Select-Object -First/-Last`, because filtered output would change what lands there. A part that sends stderr
+/// elsewhere (`2>/dev/null`) gets `--raw-stderr`, so the program's stderr still goes where the agent sent it. A part
+/// holding a group (`( )`, `{ }`, `$( )`, `@( )`) or an input redirect is left alone, and the parts around it are still
+/// rewritten. A line with a heredoc, here-string, backtick, background `&`, unbalanced group or unclosed quote is left
+/// whole, since its separators cannot be found safely, and so is a line whose loop or `if` output is piped or
+/// redirected (`done | grep x`), since that would carry the body's filtered output.
 #[must_use]
-pub fn rewrite_command_with_bin(cmd: &str, bin_cmd: &str) -> Option<String> {
+pub fn rewrite_command_in(cmd: &str, bin_cmd: &str, shell: Shell) -> Option<String> {
     if cmd.trim().is_empty() {
         return None;
     }
-    let inserts: Vec<(usize, bool)> = line_parts(cmd)?
+    let parts = line_parts(cmd)?;
+    if parts.iter().any(|p| {
+        (p.redirects_stdout || p.redirects_stderr || !p.pipes.is_empty())
+            && closes_compound(&cmd[p.start..p.end])
+    }) {
+        return None;
+    }
+    let inserts: Vec<(usize, RunFlags)> = parts
         .iter()
-        .filter_map(|part| part_rewrite_point(cmd, part))
+        .filter_map(|part| part_rewrite_point(cmd, part, shell))
         .collect();
     if inserts.is_empty() {
         return None;
     }
-    let mut out = String::with_capacity(cmd.len() + inserts.len() * 40);
+    let mut out = String::with_capacity(cmd.len() + inserts.len() * 48);
     let mut last = 0;
-    for (at, no_footer) in inserts {
+    for (at, flags) in inserts {
         out.push_str(&cmd[last..at]);
         out.push_str(bin_cmd);
-        out.push_str(if no_footer {
-            " run --no-footer -- "
-        } else {
-            " run -- "
-        });
+        out.push_str(" run ");
+        if flags.no_footer {
+            out.push_str("--no-footer ");
+        }
+        if flags.raw_stderr {
+            out.push_str("--raw-stderr ");
+        }
+        out.push_str("-- ");
         last = at;
     }
     out.push_str(&cmd[last..]);
     Some(out.trim().to_string())
 }
 
+/// The `footnote run` options a rewritten part needs.
+#[derive(Debug, Clone, Copy, Default)]
+struct RunFlags {
+    /// Output piped into `tail` or `-Last`: the closing note would take one of the last lines.
+    no_footer: bool,
+    /// Stderr sent elsewhere (`2>/dev/null`, `2>err.txt`): it must not be merged into what the agent reads.
+    raw_stderr: bool,
+}
+
+/// Whether a part starts with the word that closes a bash loop, `if` or `case`.
+fn closes_compound(part: &str) -> bool {
+    matches!(part.split_whitespace().next(), Some("done" | "fi" | "esac"))
+}
+
 /// One top-level part of a command line: the bytes between `&&`, `||`, `;` and newlines, with the offsets of its `|`
-/// pipes and whether it redirects any output (other than merging stderr into stdout with `2>&1`).
+/// pipes, where its output goes, and whether it holds a group or input redirect (`opaque`), which leaves it alone.
 struct LinePart {
     start: usize,
     end: usize,
     pipes: Vec<usize>,
-    redirects: bool,
+    /// Stdout goes to a file or to stderr (`>`, `>>`, `1>`, `>&2`, `&>`, `*>`).
+    redirects_stdout: bool,
+    /// Stderr goes somewhere other than stdout (`2>file`, `2>/dev/null`); `2>&1` is not counted.
+    redirects_stderr: bool,
+    opaque: bool,
 }
 
 impl LinePart {
@@ -258,14 +304,17 @@ impl LinePart {
             start,
             end: start,
             pipes: Vec::new(),
-            redirects: false,
+            redirects_stdout: false,
+            redirects_stderr: false,
+            opaque: false,
         }
     }
 }
 
-/// Split a command line into its top-level parts, or `None` when it holds a construct whose separators a quote-aware
-/// scan cannot find safely: heredocs and input redirects, `$(…)`, `${…}`, backticks, `(…)`, `{…}`, PowerShell
-/// `@(…)`, `@{…}` and here-strings, a background `&`, or an unclosed quote.
+/// Split a command line into its top-level parts. Separators inside a group (`( )`, `{ }`, `$( )`, `${ }`, `@( )`,
+/// `@{ }`) do not split it; the part holding the group is marked opaque. `None` when the line holds a construct whose
+/// separators a quote-aware scan cannot find safely: a heredoc or here-string, a backtick, `$(…)` inside double quotes,
+/// a background `&`, an unbalanced group, or an unclosed quote.
 fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
     let b = cmd.as_bytes();
     let n = b.len();
@@ -278,6 +327,7 @@ fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
             parts.push(done);
         }
     };
+    let mut depth = 0usize;
     let mut word_start = true;
     let mut i = 0;
     while i < n {
@@ -292,8 +342,14 @@ fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
                     match b.get(j)? {
                         b'\\' => j += 2,
                         b'"' => break,
+                        // PowerShell escapes with a backtick (`"` included), and `$(…)` may hold quotes of its own:
+                        // either way the closing quote cannot be found safely.
                         b'`' => return None,
-                        b'$' if matches!(b.get(j + 1), Some(b'(' | b'{')) => return None,
+                        b'$' if b.get(j + 1) == Some(&b'(') => return None,
+                        b'$' if b.get(j + 1) == Some(&b'{') => {
+                            part.opaque = true;
+                            j += 2;
+                        }
                         _ => j += 1,
                     }
                 }
@@ -304,38 +360,63 @@ fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
                 i += 2;
                 word_start = false;
             }
-            b'`' | b'(' | b')' | b'{' | b'}' | b'<' | b'\0' => return None,
-            b'$' if matches!(b.get(i + 1), Some(b'(' | b'{')) => return None,
-            b'@' if matches!(b.get(i + 1), Some(b'(' | b'{' | b'\'' | b'"')) => return None,
+            // A top-level backtick continues a PowerShell line or substitutes in bash.
+            b'`' | b'\0' => return None,
+            b'<' if b.get(i + 1) == Some(&b'<') => return None,
+            b'@' if matches!(b.get(i + 1), Some(b'\'' | b'"')) => return None,
+            b'<' => {
+                // Input redirect or `<(…)`: the program reads something other than the agent's stdin.
+                part.opaque = true;
+                i += 1;
+                word_start = true;
+            }
+            b'(' | b'{' => {
+                depth += 1;
+                part.opaque = true;
+                i += 1;
+                word_start = true;
+            }
+            b')' | b'}' => {
+                depth = depth.checked_sub(1)?;
+                i += 1;
+                word_start = false;
+            }
             b'#' if word_start => {
                 while i < n && b[i] != b'\n' {
                     i += 1;
                 }
             }
             b'&' if b.get(i + 1) == Some(&b'&') => {
-                close(&mut parts, &mut part, i, i + 2);
+                if depth == 0 {
+                    close(&mut parts, &mut part, i, i + 2);
+                }
                 i += 2;
                 word_start = true;
             }
             b'|' if b.get(i + 1) == Some(&b'|') => {
-                close(&mut parts, &mut part, i, i + 2);
+                if depth == 0 {
+                    close(&mut parts, &mut part, i, i + 2);
+                }
                 i += 2;
                 word_start = true;
             }
             b';' | b'\n' => {
-                close(&mut parts, &mut part, i, i + 1);
+                if depth == 0 {
+                    close(&mut parts, &mut part, i, i + 1);
+                }
                 i += 1;
                 word_start = true;
             }
             b'|' => {
-                part.pipes.push(i);
+                if depth == 0 {
+                    part.pipes.push(i);
+                }
                 i += 1;
                 word_start = true;
             }
             b'>' => {
-                // Only `2>&1` keeps the part rewritable: it merges stderr into what the agent reads anyway. Any other
-                // redirect sends output elsewhere, and `footnote run` prints the program's stderr on its own stdout, so
-                // even a `2>/dev/null` meant to hide errors would stop hiding them.
+                // `2>&1` merges stderr into what the agent reads anyway. `2>target` sends stderr away, which
+                // `--raw-stderr` keeps working. Any other redirect sends stdout away from the agent.
                 let stderr = i > 0 && b[i - 1] == b'2' && (i < 2 || b[i - 2].is_ascii_whitespace());
                 i += 1;
                 let merges_stderr =
@@ -354,25 +435,30 @@ fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
                     }
                     while i < n
                         && !b[i].is_ascii_whitespace()
-                        && !matches!(b[i], b';' | b'|' | b'&')
+                        && !matches!(b[i], b';' | b'|' | b'&' | b'(' | b')' | b'{' | b'}')
                     {
                         i += 1;
                     }
                 }
-                part.redirects |= !merges_stderr;
+                if merges_stderr {
+                } else if stderr {
+                    part.redirects_stderr = true;
+                } else {
+                    part.redirects_stdout = true;
+                }
                 word_start = false;
             }
             b'&' => {
                 if b.get(i + 1) == Some(&b'>') {
                     // `&>file`: both streams to a file.
-                    part.redirects = true;
+                    part.redirects_stdout = true;
                     i += 2;
                     word_start = false;
                     continue;
                 }
                 // PowerShell's call operator starts a stage (`& "C:\x\tool.exe" …`); anywhere else `&` backgrounds.
                 let stage_start = part.pipes.last().map_or(part.start, |p| p + 1);
-                if !cmd[stage_start..i].trim().is_empty() {
+                if depth == 0 && !cmd[stage_start..i].trim().is_empty() {
                     return None;
                 }
                 i += 1;
@@ -388,15 +474,18 @@ fn line_parts(cmd: &str) -> Option<Vec<LinePart>> {
             }
         }
     }
+    if depth != 0 {
+        return None;
+    }
     close(&mut parts, &mut part, n, n);
     Some(parts)
 }
 
-/// Where `footnote run -- ` goes in this part (the byte offset of the program that starts its pipeline) and whether
-/// its closing note must be left out, or `None` when the part runs nothing Footnote Lean filters, or its output goes
-/// somewhere a filter would change.
-fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<(usize, bool)> {
-    if part.redirects {
+/// Where `footnote run -- ` goes in this part (the byte offset of the program that starts its pipeline) and the options
+/// it needs, or `None` when the part runs nothing Footnote Lean filters, or its output goes somewhere a filter would
+/// change.
+fn part_rewrite_point(cmd: &str, part: &LinePart, shell: Shell) -> Option<(usize, RunFlags)> {
+    if part.opaque || part.redirects_stdout {
         return None;
     }
     // Every later pipeline stage must only keep the first or last lines, which a filtered stream does not change.
@@ -409,8 +498,16 @@ fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<(usize, bool)> {
     }
     let producer = &cmd[part.start..bounds[0]];
     let words = word_spans(producer)?;
-    // `FOO=1 cargo test`: the assignments stay in front so the program still sees them.
-    let first = words.iter().position(|(_, w)| !is_env_assignment(w))?;
+    // `FOO=1 cargo test`: the assignments stay in front so the program still sees them. So do the bash keywords that
+    // can start a part (`then cargo test`, `do git show $f`, `time cargo build`).
+    let first = words.iter().position(|(_, w)| {
+        !is_env_assignment(w)
+            && !(shell == Shell::Posix
+                && matches!(
+                    w.as_str(),
+                    "if" | "elif" | "then" | "else" | "do" | "while" | "until" | "time"
+                ))
+    })?;
     let argv: Vec<String> = words[first..]
         .iter()
         .map(|(_, w)| w.clone())
@@ -427,10 +524,157 @@ fn part_rewrite_point(cmd: &str, part: &LinePart) -> Option<(usize, bool)> {
     ) {
         return None;
     }
-    if classify_command(&argv) == CommandFamily::Generic {
+    if bin == "git" && git_waits_on_user(&argv) {
         return None;
     }
-    Some((part.start + words[first].0, no_footer))
+    if classify_command(&argv) == CommandFamily::Generic && !worth_wrapping(&argv, shell) {
+        return None;
+    }
+    Some((
+        part.start + words[first].0,
+        RunFlags {
+            no_footer,
+            raw_stderr: part.redirects_stderr,
+        },
+    ))
+}
+
+/// Whether a git command waits on the user: `-i`/`-p`/`-e` outside the commands where they shape output, or a commit
+/// without a message, which opens an editor. `footnote run` shows output only once the program ends.
+fn git_waits_on_user(argv: &[String]) -> bool {
+    let Some(sub) = subcommand_of(argv) else {
+        return false;
+    };
+    let sub = sub.to_ascii_lowercase();
+    let after: Vec<&str> = argv[1..]
+        .iter()
+        .skip_while(|a| !a.eq_ignore_ascii_case(&sub))
+        .skip(1)
+        .map(String::as_str)
+        .collect();
+    let interactive = after.iter().any(|a| {
+        matches!(
+            *a,
+            "-i" | "--interactive" | "-p" | "--patch" | "-e" | "--edit"
+        )
+    });
+    match sub.as_str() {
+        "log" | "show" | "diff" | "grep" | "blame" => false,
+        "commit" => {
+            interactive
+                || !after.iter().any(|a| {
+                    a.starts_with("--message")
+                        || a.starts_with("--file")
+                        || a.starts_with("--fixup")
+                        || a.starts_with("--reuse-message")
+                        || *a == "--no-edit"
+                        || (a.starts_with('-')
+                            && !a.starts_with("--")
+                            && a.contains(['m', 'F', 'C']))
+                })
+        }
+        _ => interactive,
+    }
+}
+
+/// Whether a command keeps running or follows something: a dev server, a watcher, a followed log.
+fn keeps_running(argv: &[String]) -> bool {
+    argv[1..].iter().any(|a| {
+        matches!(
+            a.to_ascii_lowercase().as_str(),
+            "dev"
+                | "serve"
+                | "start"
+                | "preview"
+                | "watch"
+                | "--watch"
+                | "-w"
+                | "-f"
+                | "--follow"
+                | "--web"
+                | "-it"
+        )
+    })
+}
+
+/// Commands outside the dedicated filters that still print enough to be worth the generic filter (long output is cut
+/// to its head, tail and error lines, with the full text kept behind a handle). Everything else is left alone.
+fn worth_wrapping(argv: &[String], shell: Shell) -> bool {
+    const BUILD_WORDS: &[&str] = &[
+        "build",
+        "test",
+        "lint",
+        "check",
+        "typecheck",
+        "type-check",
+        "deploy",
+        "install",
+        "add",
+        "generate",
+        "migrate",
+        "publish",
+        "format",
+        "fmt",
+        "audit",
+        "ci",
+    ];
+    let bin = Path::new(&argv[0])
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let sub = subcommand_of(argv).map(str::to_ascii_lowercase);
+    if keeps_running(argv) {
+        return false;
+    }
+    let names_build = || {
+        argv[1..]
+            .iter()
+            .any(|a| BUILD_WORDS.contains(&a.to_ascii_lowercase().as_str()))
+    };
+    match bin.as_str() {
+        // In PowerShell `ls` is `Get-ChildItem`; `footnote run` would start another program.
+        "ls" => shell == Shell::Posix,
+        "find" | "fd" | "tree" | "du" => true,
+        "npx" | "pnpx" | "bunx" => names_build(),
+        "npm" | "pnpm" | "yarn" | "bun" => match sub.as_deref() {
+            Some(
+                "ci" | "install" | "i" | "add" | "build" | "lint" | "audit" | "outdated" | "ls"
+                | "list",
+            ) => true,
+            Some("run" | "run-script" | "exec" | "dlx" | "x") => names_build(),
+            _ => false,
+        },
+        "cargo" => matches!(
+            sub.as_deref(),
+            Some("fmt" | "install" | "update" | "fetch" | "tree")
+        ),
+        "gh" => {
+            !matches!(
+                sub.as_deref(),
+                Some("auth" | "browse" | "codespace" | "extension" | "alias" | "config")
+            ) && !argv[1..]
+                .iter()
+                .any(|a| a == "-q" || a.starts_with("--jq") || a.starts_with("--template"))
+        }
+        "uv" => matches!(
+            sub.as_deref(),
+            Some("sync" | "lock" | "add" | "remove" | "pip")
+        ),
+        "pip" | "pip3" => matches!(sub.as_deref(), Some("install" | "list")),
+        "make" | "mvn" | "mvnw" | "gradle" | "gradlew" => true,
+        "dotnet" => matches!(
+            sub.as_deref(),
+            Some("build" | "test" | "restore" | "format")
+        ),
+        "go" => matches!(sub.as_deref(), Some("build" | "vet" | "mod")),
+        "docker" => matches!(
+            sub.as_deref(),
+            Some("build" | "ps" | "images" | "logs" | "pull")
+        ),
+        "kubectl" => matches!(sub.as_deref(), Some("get" | "describe" | "logs")),
+        _ => false,
+    }
 }
 
 /// Whether a pipeline stage only keeps the first or last lines: `head`/`tail` with at most a line count, or PowerShell
@@ -560,6 +804,9 @@ pub struct RunOptions {
     pub family_override: Option<CommandFamily>,
     /// Leave out the closing `[footnote: …]` line: the hook sets it when the output is piped into `tail`.
     pub no_footer: bool,
+    /// Leave the program's stderr on Footnote's stderr instead of merging it into the filtered output: the hook sets it
+    /// when the agent sent stderr elsewhere (`2>/dev/null`, `2>err.txt`).
+    pub raw_stderr: bool,
     pub command: Vec<String>,
 }
 
@@ -606,7 +853,7 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
         let fam = opts
             .family_override
             .unwrap_or_else(|| classify_command(&opts.command));
-        let (combined, code) = spawn_and_capture(&opts.command)?;
+        let (combined, code) = spawn_and_capture(&opts.command, opts.raw_stderr)?;
         let Some(output) = combined else {
             return Ok(code);
         };
@@ -828,17 +1075,55 @@ fn run_inner(opts: &RunOptions) -> Result<i32> {
     Ok(exit_code)
 }
 
-fn spawn_and_capture(cmd: &[String]) -> Result<(Option<String>, i32)> {
-    let mut child = Command::new(&cmd[0])
+/// The program `name` names, found the way the agent's shell finds it. On Windows `Command::new` looks in the system
+/// folders before `PATH` and tries only `.exe`, so `find` would start `C:\Windows\System32\find.exe` instead of the
+/// `find` the shell runs, and `npx`, `npm` and other `.cmd` shims would not start at all.
+fn resolve_program(name: &str) -> std::ffi::OsString {
+    #[cfg(windows)]
+    if !name.contains(['/', '\\', ':']) {
+        let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
+        let exts: Vec<String> = pathext
+            .split(';')
+            .map(str::to_ascii_lowercase)
+            .filter(|e| matches!(e.as_str(), ".com" | ".exe" | ".bat" | ".cmd"))
+            .collect();
+        let has_ext = Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| exts.iter().any(|x| x[1..].eq_ignore_ascii_case(e)));
+        for dir in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+            if has_ext {
+                if dir.join(name).is_file() {
+                    return dir.join(name).into_os_string();
+                }
+                continue;
+            }
+            for ext in &exts {
+                let p = dir.join(format!("{name}{ext}"));
+                if p.is_file() {
+                    return p.into_os_string();
+                }
+            }
+        }
+    }
+    name.into()
+}
+
+fn spawn_and_capture(cmd: &[String], raw_stderr: bool) -> Result<(Option<String>, i32)> {
+    let mut child = Command::new(resolve_program(&cmd[0]))
         .args(&cmd[1..])
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(if raw_stderr {
+            Stdio::inherit()
+        } else {
+            Stdio::piped()
+        })
         .spawn()
         .with_context(|| format!("failed to spawn `{}`", cmd[0]))?;
 
     let out = child.stdout.take().context("child stdout")?;
-    let err = child.stderr.take().context("child stderr")?;
+    let err = child.stderr.take();
     // Drain both pipes concurrently. Once the combined budget is exceeded, bypass
     // compaction and forward bytes as they arrive without persisting raw output.
     let (sender, receiver) = std::sync::mpsc::sync_channel(4);
@@ -859,8 +1144,8 @@ fn spawn_and_capture(cmd: &[String]) -> Result<(Option<String>, i32)> {
             Ok(())
         })
     };
-    let out_reader = pump(Box::new(out), false, sender.clone());
-    let err_reader = pump(Box::new(err), true, sender);
+    let err_reader = err.map(|err| pump(Box::new(err), true, sender.clone()));
+    let out_reader = pump(Box::new(out), false, sender);
     let (mut stdout_bytes, mut stderr_bytes) = (Vec::new(), Vec::new());
     let mut streaming = false;
     let mut output = std::io::stdout().lock();
@@ -895,9 +1180,11 @@ fn spawn_and_capture(cmd: &[String]) -> Result<(Option<String>, i32)> {
     out_reader
         .join()
         .map_err(|_| anyhow::anyhow!("stdout reader failed"))??;
-    err_reader
-        .join()
-        .map_err(|_| anyhow::anyhow!("stderr reader failed"))??;
+    if let Some(err_reader) = err_reader {
+        err_reader
+            .join()
+            .map_err(|_| anyhow::anyhow!("stderr reader failed"))??;
+    }
     drained?;
     if streaming {
         return Ok((None, exit_code));
@@ -2371,7 +2658,13 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
     } else {
         "footnote".to_string()
     };
-    let rewritten = rewrite_command_with_bin(cmd_str, &bin_cmd)?;
+    // Claude Code's Bash tool runs Git Bash on Windows; every other shell tool there runs PowerShell.
+    let shell = if cfg!(windows) && !tool.eq_ignore_ascii_case("bash") {
+        Shell::PowerShell
+    } else {
+        Shell::Posix
+    };
+    let rewritten = rewrite_command_in(cmd_str, &bin_cmd, shell)?;
     if is_agy {
         // Antigravity PreToolUse contract: shallow merge into `toolCall.args` via `overwrite`.
         let mut overwrite = serde_json::Map::new();
@@ -2558,7 +2851,7 @@ mod tests {
             (
                 "cargo fmt --check && cargo test --test lean_d2 && git status -s",
                 Some(
-                    "cargo fmt --check && footnote run -- cargo test --test lean_d2 && footnote run -- git status -s",
+                    "footnote run -- cargo fmt --check && footnote run -- cargo test --test lean_d2 && footnote run -- git status -s",
                 ),
             ),
             (
@@ -2581,7 +2874,7 @@ mod tests {
             (
                 "$env:RUSTC_WRAPPER = ''\ncargo fmt --all &&\ncargo test --test mcp",
                 Some(
-                    "$env:RUSTC_WRAPPER = ''\ncargo fmt --all &&\nfootnote run -- cargo test --test mcp",
+                    "$env:RUSTC_WRAPPER = ''\nfootnote run -- cargo fmt --all &&\nfootnote run -- cargo test --test mcp",
                 ),
             ),
             (
@@ -2593,7 +2886,11 @@ mod tests {
                 Some("Write-Host \"=== a; b ===\"; footnote run -- git log --oneline -3"),
             ),
             // Separators inside quotes and comments are not separators.
-            ("git commit -m \"a && cargo test\"", None),
+            ("echo \"a && cargo test\"", None),
+            (
+                "git commit -m \"a && cargo test\"",
+                Some("footnote run -- git commit -m \"a && cargo test\""),
+            ),
             ("echo 'x; cargo test'", None),
             ("# cargo test; git status\necho hi", None),
             // Output that goes somewhere a filter would change is left alone.
@@ -2625,21 +2922,85 @@ mod tests {
                 "cargo +nightly test -p core",
                 Some("footnote run -- cargo +nightly test -p core"),
             ),
-            ("git -C D:/x fetch -q origin", None),
-            // `footnote run` prints the program's stderr, so hiding it must keep working.
-            ("git diff --nope 2>/dev/null && echo ok", None),
-            ("git status 2>$null", None),
+            (
+                "git -C D:/x fetch -q origin",
+                Some("footnote run -- git -C D:/x fetch -q origin"),
+            ),
+            // Stderr sent elsewhere stays out of the filtered output and goes where the agent sent it.
+            (
+                "git diff --nope 2>/dev/null && echo ok",
+                Some("footnote run --raw-stderr -- git diff --nope 2>/dev/null && echo ok"),
+            ),
+            (
+                "git status 2>$null",
+                Some("footnote run --raw-stderr -- git status 2>$null"),
+            ),
+            (
+                "ls docs 2>/dev/null | tail -3",
+                Some("footnote run --no-footer --raw-stderr -- ls docs 2>/dev/null | tail -3"),
+            ),
+            // A part with a group is left alone; the parts around it are still rewritten.
+            (
+                "cd x && cargo build; echo \"$?\" && (cd y && cargo test); git status",
+                Some(
+                    "cd x && footnote run -- cargo build; echo \"$?\" && (cd y && cargo test); footnote run -- git status",
+                ),
+            ),
+            (
+                "if ($LASTEXITCODE -eq 0) { cargo test }\ngit push -q origin main",
+                Some(
+                    "if ($LASTEXITCODE -eq 0) { cargo test }\nfootnote run -- git push -q origin main",
+                ),
+            ),
+            (
+                "for f in a b; do git show $f; done",
+                Some("for f in a b; do footnote run -- git show $f; done"),
+            ),
+            (
+                "if cargo test; then git push; fi",
+                Some("if footnote run -- cargo test; then footnote run -- git push; fi"),
+            ),
+            (
+                "wc -l < x.txt && git status",
+                Some("wc -l < x.txt && footnote run -- git status"),
+            ),
+            // A loop whose output is piped or redirected carries its body's output there.
+            ("for f in a b; do git show $f; done | grep x", None),
+            ("for f in a b; do git show $f; done > all.txt", None),
+            // Commands that wait on the user or keep running.
+            ("git commit", None),
+            ("git rebase -i HEAD~3", None),
+            ("git add -p", None),
+            (
+                "git commit -qam \"x\" && git push",
+                Some("footnote run -- git commit -qam \"x\" && footnote run -- git push"),
+            ),
+            ("npx vite --port 5391", None),
+            ("npm run dev", None),
+            ("docker logs -f api", None),
+            (
+                "npx -y wrangler@4 deploy --dry-run 2>&1",
+                Some("footnote run -- npx -y wrangler@4 deploy --dry-run 2>&1"),
+            ),
+            (
+                "npm ci && npx tauri build",
+                Some("footnote run -- npm ci && footnote run -- npx tauri build"),
+            ),
+            ("gh api repos/o/r -q .name", None),
+            ("gh pr checks 12", Some("footnote run -- gh pr checks 12")),
             // Constructs whose separators cannot be found safely leave the whole line alone.
             ("cat <<'EOF' | cargo test\nx\nEOF", None),
             ("for f in a b; do (cd $f && cargo test); done", None),
             ("if (Test-Path x) { cargo test }", None),
+            ("case $x in a) cargo test;; esac", None),
             ("cargo test & git status", None),
             ("echo \"$(git status)\" && cargo test", None),
             ("git status `\n && cargo test", None),
             ("$out = @'\ncargo test\n'@", None),
             ("echo \"unclosed && cargo test", None),
+            ("cd x && ls -la", Some("cd x && footnote run -- ls -la")),
             // Nothing filtered at all.
-            ("cd x && ls -la", None),
+            ("cd x && pwd", None),
             ("& \"C:\\tools\\x.exe\" --help; Write-Output done", None),
         ];
         for (cmd, want) in cases {
@@ -2647,11 +3008,23 @@ mod tests {
             // Only insertions: removing every `footnote run -- ` gives back the original line.
             if let Some(w) = want {
                 let back = w
+                    .replace("footnote run --no-footer --raw-stderr -- ", "")
                     .replace("footnote run --no-footer -- ", "")
+                    .replace("footnote run --raw-stderr -- ", "")
                     .replace("footnote run -- ", "");
                 assert_eq!(back, cmd.trim(), "{cmd:?}");
             }
         }
+        // In PowerShell `ls` is `Get-ChildItem`, and bash keywords are not keywords.
+        assert_eq!(
+            rewrite_command_in("cd x; ls", "footnote", Shell::PowerShell),
+            None
+        );
+        assert_eq!(
+            rewrite_command_in("Set-Location x; git status", "footnote", Shell::PowerShell)
+                .as_deref(),
+            Some("Set-Location x; footnote run -- git status")
+        );
     }
 
     #[test]
