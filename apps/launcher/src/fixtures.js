@@ -23,7 +23,7 @@ const status = {
       built: true, enabled: true, memories: 318, saved_last_7_days: 41, recalls_last_7_days: 276, daemon_running: true,
       agents: [
         { agent: "claude-code", hooks: true, mcp_server: true },
-        { agent: "codex", hooks: true, mcp_server: true },
+        { agent: "codex", hooks: true, hooks_untrusted: true, mcp_server: true },
         { agent: "deepseek-harness", hooks: false, mcp_server: true },
         { agent: "gemini-cli", hooks: false, mcp_server: false },
       ],

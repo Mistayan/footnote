@@ -22,6 +22,11 @@ export function footnote(...args) {
   return Promise.reject("ENGINE_MISSING");
 }
 
+/** Open Codex in its own terminal window, where it asks the user to review the hooks it has not trusted yet (#573). */
+export function openCodex() {
+  return inApp ? invoke("open_codex") : Promise.resolve();
+}
+
 /** Open the support page ("issues") or mail ("email") outside the window. */
 export function openSupport(to) {
   return inApp ? invoke("open_support", { to }) : Promise.resolve();

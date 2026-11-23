@@ -243,6 +243,29 @@ fn open_outside(target: &std::ffi::OsStr) -> Result<(), String> {
     cmd.arg(target).spawn().map(drop).map_err(|e| e.to_string())
 }
 
+/// Open Codex in its own terminal window (#573): at start it lists the hooks that need review, so the user can trust
+/// Footnote's. Fixed program and folder; the page passes nothing.
+#[tauri::command]
+fn open_codex() -> Result<(), String> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .ok_or("no home folder")?;
+    #[cfg(windows)]
+    let mut cmd = {
+        // `start` gives Codex a new console window, in front.
+        let mut c = std::process::Command::new("cmd.exe");
+        c.args(["/c", "start", "Codex", "codex"]);
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let mut c = std::process::Command::new("x-terminal-emulator");
+        c.args(["-e", "codex"]);
+        c
+    };
+    cmd.current_dir(home).spawn().map(drop).map_err(|e| format!("could not start Codex: {e}"))
+}
+
 /// The support links: only these fixed addresses can be opened (decided 17 Nov; the install page added for #472).
 #[tauri::command]
 fn open_support(to: String) -> Result<(), String> {
@@ -518,6 +541,7 @@ fn main() {
             footnote,
             cancel_install,
             open_support,
+            open_codex,
             open_skill_folder,
             open_receipt,
             open_project_folder,

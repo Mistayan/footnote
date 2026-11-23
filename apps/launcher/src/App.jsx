@@ -35,7 +35,7 @@ import Skills from "./Skills.jsx";
 import Usage from "./Usage.jsx";
 import { switchTo } from "./Mini.jsx";
 import { Activity as ActivityScreen, Models, ProjectCard, Projects as ProjectsScreen } from "./Screens.jsx";
-import { AGENTS, footnote, inApp, installUpdate, load, mb, num, openSupport, shortDate } from "./data.js";
+import { AGENTS, footnote, inApp, installUpdate, load, mb, num, openCodex, openSupport, shortDate } from "./data.js";
 import { PALETTES, Scroll, Switch, Tip, Toasts, clip, toast, usePalette, useSpotlight } from "./ui.jsx";
 
 const SCREENS = {
@@ -569,13 +569,20 @@ function Agents({ list, loading, refresh }) {
       {list.map((a) => {
         const name = AGENTS[a.agent] ?? a.agent;
         const missing = [!a.hooks && "hooks", !a.mcp_server && "MCP server"].filter(Boolean);
-        const health = missing.length === 0 ? "ok" : missing.length === 1 ? "part" : "off";
+        const health = missing.length === 0 ? (a.hooks_untrusted ? "part" : "ok") : missing.length === 1 ? "part" : "off";
         return (
           <div key={a.agent} className={`agent surface sq lit ${health}`}>
             <b>{name}</b>
-            {pict(a.hooks, Webhook, "Memory hooks")}
+            {a.hooks && a.hooks_untrusted ? (
+              <Tip tip={`${name} has not trusted Footnote's hooks yet, so it skips them: no memories and no lean commands. Click to open ${name}: it lists the hooks that need review at start; trust Footnote's.`}>
+                <button type="button" className="stat idle warn" onClick={() => openCodex().catch((e) => toast(String(e), "warn"))}
+                  aria-label={`Memory hooks not trusted by ${name}. Open ${name} to review and trust them`}>
+                  <span className="stat-ic"><Webhook size={13} strokeWidth={1.9} /></span>
+                </button>
+              </Tip>
+            ) : pict(a.hooks, Webhook, "Memory hooks")}
             {pict(a.mcp_server, Plug, "MCP server")}
-            {health !== "ok" && (
+            {missing.length > 0 && (
               <Tip tip={busy ? "Reconnecting…" : `Reconnect: install the missing ${missing.join(" and ")} for every agent found`}>
                 <button type="button" className="ic-btn fix" disabled={busy} onClick={() => repair(name)}
                   aria-label={`Reconnect ${name}: install the missing ${missing.join(" and ")}`}>

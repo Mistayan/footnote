@@ -1560,6 +1560,56 @@ pub fn uninstall_memory(dry_run: bool) -> Result<Value> {
     }))
 }
 
+/// #573: Codex runs a hook only once the user has trusted it, and skips an untrusted one without a word. Footnote's hook
+/// leaves `<state>/memory-hook/<session>.json` in every session it runs in, and a Codex session file is named
+/// `rollout-<time>-<session>.jsonl`, so the newest Codex session of the last two weeks without that file means the hooks
+/// did not run. A session younger than a minute is skipped: its hook may still be starting.
+#[cfg(feature = "memory")]
+fn codex_hooks_untrusted(sessions: &Path, state: &Path) -> bool {
+    let newest = |dir: &Path| -> Option<PathBuf> {
+        std::fs::read_dir(dir)
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .max_by_key(|p| p.file_name().map(|n| n.to_os_string()))
+    };
+    // sessions/<year>/<month>/<day>/rollout-...jsonl; each level's names sort by date.
+    let Some(day) = newest(sessions)
+        .and_then(|y| newest(&y))
+        .and_then(|m| newest(&m))
+    else {
+        return false;
+    };
+    let Some((path, age)) = std::fs::read_dir(&day)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let age = e.metadata().ok()?.modified().ok()?.elapsed().ok()?;
+            Some((e.path(), age))
+        })
+        .filter(|(p, _)| p.extension().is_some_and(|x| x == "jsonl"))
+        .min_by_key(|(_, age)| *age)
+    else {
+        return false;
+    };
+    if age < std::time::Duration::from_secs(60) || age > std::time::Duration::from_secs(14 * 86_400)
+    {
+        return false;
+    }
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let Some(session) = stem.get(stem.len().saturating_sub(36)..) else {
+        return false;
+    };
+    !state
+        .join("memory-hook")
+        .join(format!("{session}.json"))
+        .exists()
+}
+
 /// Where Footnote Memory is registered, read-only (`footnote status`).
 #[cfg(feature = "memory")]
 pub fn memory_registrations() -> Result<Value> {
@@ -1603,9 +1653,17 @@ pub fn memory_registrations() -> Result<Value> {
         );
     }
     if home.join(".codex").exists() {
+        let hooks = has_hooks(&home.join(".codex/hooks.json"));
+        // With Memory off the hook writes nothing, so its absence would prove nothing.
+        let untrusted = hooks
+            && crate::state::state_dir().is_ok_and(|s| {
+                footnote_core::config::product_settings(&s, "memory")
+                    .is_ok_and(|m| m["enabled"].as_bool() != Some(false))
+                    && codex_hooks_untrusted(&home.join(".codex/sessions"), &s)
+            });
         out.push(
             json!({"agent": "codex", "mcp_server": has_table(&home.join(".codex/config.toml")),
-            "hooks": has_hooks(&home.join(".codex/hooks.json"))}),
+            "hooks": hooks, "hooks_untrusted": untrusted}),
         );
     }
     if home.join(".grok").exists() {
@@ -1644,4 +1702,43 @@ pub fn memory_registrations() -> Result<Value> {
         }));
     }
     Ok(json!(out))
+}
+
+#[cfg(all(test, feature = "memory"))]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn codex_hooks_untrusted_reads_the_newest_session() {
+        let t = tempfile::tempdir().unwrap();
+        let (sessions, state) = (t.path().join("sessions"), t.path().join("state"));
+        let day = sessions.join("2026/11/23");
+        std::fs::create_dir_all(&day).unwrap();
+        std::fs::create_dir_all(state.join("memory-hook")).unwrap();
+        let id = "01a2075e-7a4f-7c51-827d-3ce45c2879ab";
+        let rollout = day.join(format!("rollout-2026-11-23T08-46-01-{id}.jsonl"));
+        std::fs::write(&rollout, "{}").unwrap();
+        // A session still starting proves nothing yet.
+        assert!(!super::codex_hooks_untrusted(&sessions, &state));
+        let old = SystemTime::now() - Duration::from_secs(600);
+        std::fs::File::options()
+            .write(true)
+            .open(&rollout)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        assert!(
+            super::codex_hooks_untrusted(&sessions, &state),
+            "the hook left no trace"
+        );
+        std::fs::write(state.join("memory-hook").join(format!("{id}.json")), "{}").unwrap();
+        assert!(
+            !super::codex_hooks_untrusted(&sessions, &state),
+            "the hook ran"
+        );
+        assert!(!super::codex_hooks_untrusted(
+            &t.path().join("none"),
+            &state
+        ));
+    }
 }

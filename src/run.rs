@@ -199,12 +199,13 @@ pub fn footnote_on_path() -> bool {
 }
 
 /// Format an executable path cleanly for POSIX and Windows shells (quoting only if it contains whitespace).
-fn format_exe_for_shell(exe: &Path) -> String {
+fn format_exe_for_shell(exe: &Path, shell: Shell) -> String {
     let norm = exe.to_string_lossy().replace('\\', "/");
-    if norm.chars().any(char::is_whitespace) {
-        format!("\"{norm}\"")
-    } else {
-        norm
+    match (norm.chars().any(char::is_whitespace), shell) {
+        (false, _) => norm,
+        // PowerShell reads a quoted path as a string, not a command, without the call operator.
+        (true, Shell::PowerShell) => format!("& \"{norm}\""),
+        (true, Shell::Posix) => format!("\"{norm}\""),
     }
 }
 
@@ -2860,18 +2861,18 @@ pub fn pre_tool_use_hook(event: &Value) -> Option<Value> {
         let s = input.get("CommandLine").and_then(Value::as_str)?;
         ("CommandLine", s)
     };
-    let bin_cmd = if footnote_on_path() {
-        "footnote".to_string()
-    } else if let Ok(exe) = std::env::current_exe() {
-        format_exe_for_shell(&exe)
-    } else {
-        "footnote".to_string()
-    };
+    // Codex (#573) sends `turn_id`. It names its tool `Bash` but runs PowerShell on Windows, and its shell's PATH can
+    // lack `footnote` even when this hook's has it, so it always gets the full path.
+    let is_codex = event.get("turn_id").is_some();
     // Claude Code's Bash tool runs Git Bash on Windows; every other shell tool there runs PowerShell.
-    let shell = if cfg!(windows) && !tool.eq_ignore_ascii_case("bash") {
+    let shell = if cfg!(windows) && (is_codex || !tool.eq_ignore_ascii_case("bash")) {
         Shell::PowerShell
     } else {
         Shell::Posix
+    };
+    let bin_cmd = match std::env::current_exe() {
+        Ok(exe) if is_codex || !footnote_on_path() => format_exe_for_shell(&exe, shell),
+        _ => "footnote".to_string(),
     };
     let rewritten = rewrite_command_in(cmd_str, &bin_cmd, shell)?;
     if is_agy {
@@ -3001,6 +3002,39 @@ pub fn run_lean_hook() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #573: Codex's shell may not have `footnote` on PATH, so its rewrite calls this binary by its full path.
+    #[test]
+    fn codex_rewrites_call_the_binary_by_its_full_path() {
+        let event = |extra: Value| {
+            let mut e = json!({"hook_event_name": "PreToolUse", "tool_name": "Bash",
+                "tool_input": {"command": "git log -3"}, "session_id": "s"});
+            e.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            e
+        };
+        let codex = pre_tool_use_hook(&event(json!({"turn_id": "t"}))).unwrap();
+        let cmd = codex["hookSpecificOutput"]["updatedInput"]["command"]
+            .as_str()
+            .unwrap();
+        let exe = format_exe_for_shell(&std::env::current_exe().unwrap(), Shell::PowerShell);
+        assert_eq!(cmd, format!("{exe} run -- git log -3"));
+        let claude = pre_tool_use_hook(&event(json!({}))).unwrap();
+        assert!(
+            claude["hookSpecificOutput"]["updatedInput"]["command"]
+                .as_str()
+                .unwrap()
+                .ends_with("run -- git log -3")
+        );
+        assert_eq!(
+            format_exe_for_shell(
+                Path::new("C:/Program Files/footnote/footnote.exe"),
+                Shell::PowerShell
+            ),
+            "& \"C:/Program Files/footnote/footnote.exe\""
+        );
+    }
 
     #[test]
     fn classifies_all_five_core_families() {

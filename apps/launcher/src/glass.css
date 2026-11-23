@@ -205,6 +205,9 @@ button.path-pill:hover .drive { background: var(--acc); color: var(--acc-ink); }
 .stat.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
 .stat.bad .stat-ic { color: #fff; background: var(--bad); }
 .stat.warn { color: var(--warn); }
+.stat.warn .stat-ic { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+button.stat.warn:hover:not(:disabled) { color: var(--warn); border-color: var(--warn); }
+button.stat.warn:hover:not(:disabled) .stat-ic { color: var(--warn); }
 .stat.idle { padding-right: 3px; }
 button.stat:hover:not(:disabled) { color: var(--text); border-color: var(--acc); }
 button.stat:hover:not(:disabled) .stat-ic { color: var(--acc); }
