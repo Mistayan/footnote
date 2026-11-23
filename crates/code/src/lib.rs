@@ -397,12 +397,22 @@ fn precise(root: &Path, scip_file: &Path) -> Result<(String, Vec<scip::Document>
     if all.is_empty() {
         indexer(root, scip_file)?; // no marker anywhere: its message says which files Footnote looks for
     }
+    // An indexer that cannot start (not installed, or blocked by Windows Application Control: os error 4551) fails the same
+    // way in every root. It is tried once: a blocked build raises one system alert, not one per root.
+    let mut cannot_start: Vec<&str> = Vec::new();
     for sub in all {
         let dir = if sub.is_empty() {
             root.to_path_buf()
         } else {
             root.join(&sub)
         };
+        let ix = indexer(&dir, scip_file).ok();
+        if let Some(ix) = &ix
+            && cannot_start.contains(&ix.name)
+        {
+            report.push(json!({"root": sub, "error": format!("{} not run again: it could not start in an earlier root", ix.name)}));
+            continue;
+        }
         match precise_at(&dir, scip_file) {
             Ok((name, found)) => {
                 report.push(json!({"root": sub, "indexer": name, "files": found.len()}));
@@ -417,7 +427,13 @@ fn precise(root: &Path, scip_file: &Path) -> Result<(String, Vec<scip::Document>
                 }));
             }
             Err(e) => {
-                report.push(json!({"root": sub, "error": format!("{e:#}")}));
+                let msg = format!("{e:#}");
+                if let Some(ix) = ix
+                    && (msg == ix.install || msg.contains("os error 4551"))
+                {
+                    cannot_start.push(ix.name);
+                }
+                report.push(json!({"root": sub, "error": msg}));
                 first_err.get_or_insert(e);
             }
         }

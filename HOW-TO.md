@@ -60,6 +60,7 @@ Set-Location footnote
 # Tip: if sccache is configured globally and hits Windows path-length limits, clear RUSTC_WRAPPER for the build:
 $env:RUSTC_WRAPPER = ''
 cargo build --locked --release
+if ($LASTEXITCODE -ne 0) { throw "cargo build failed (exit $LASTEXITCODE); see 'Docker (when Windows blocks local builds)' below" }
 
 $binDir = "$env:LOCALAPPDATA\Programs\footnote"
 New-Item -ItemType Directory -Force -Path $binDir | Out-Null
@@ -399,7 +400,7 @@ To also remove all local data, indexes, and downloaded models, delete the state 
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `cargo build` fails with `An Application Control policy has blocked this file (os error 4551)` | Windows Smart App Control / WDAC blocks unsigned build scripts (and an unsigned `footnote.exe`); self-signing does not get past it | Use Docker ([DOCKER.md](DOCKER.md)); do not weaken the policy (turning Smart App Control off cannot be undone without reinstalling Windows) |
+| `cargo build` fails with `An Application Control policy has blocked this file (os error 4551)` | Windows Smart App Control / WDAC blocks unsigned build scripts (and an unsigned `footnote.exe`); self-signing does not get past it | Use Docker ([DOCKER.md](DOCKER.md)); do not weaken the policy (turning Smart App Control off cannot be undone without reinstalling Windows). Through Footnote Lean (`footnote run -- cargo …`), the run ends at the first block and shows that one, and the next cargo command in the same folder within 15 s is not started (the rest of a chain such as `cargo clippy; cargo test`) |
 | `install` says config file changed while updating | Agent (e.g. Claude Code) rewrote its settings file mid-write | Close the agent session and re-run `footnote install ...` |
 | MCP host fails to spawn `footnote` | Non-interactive GUI host does not inherit shell `PATH` | Use the absolute path to `footnote` / `footnote.exe` (or `docker.exe` in Docker mode) in MCP config |
 | `sccache` fails with `os error 206` on Windows | Long worktree paths exceed Windows `MAX_PATH` under `sccache` | Run `$env:RUSTC_WRAPPER = ''` before `cargo` commands |
