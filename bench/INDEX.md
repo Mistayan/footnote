@@ -56,6 +56,7 @@ Do not quote: L9, L10, L11, M3, M5, C5, T3, T6, T7 (ledger grade N) and anything
 | MEM-14 | 2026-11-13 | How does ICM work and what should be tested against it? (research note, plan) | Research note, 2026-11-12. This is an evaluation plan and a comparison of documented behavior, not a claim that Footnote is ahead. ICM's claims are vendor-reported, not independently reproduced here. | CURRENT | [ICM-COMPARISON.md:3](experiments/ICM-COMPARISON.md#L3) |
 | MEM-15 | 2026-11-13 | ICM and Footnote comparison suite (experimental, prepares controlled tests) | Status: experimental. This suite prepares controlled tests; it does not by itself fix retrieval or establish that either product wins. Existing production behavior is unchanged. | CURRENT | [ICM-SUITE.md:3](experiments/ICM-SUITE.md#L3) |
 | MEM-16 | 2026-11-22 | Do dual relevance floors, pointer packing and a binding subagent pack trim prompt tokens without losing recall? (#356) | ## Result (22 November 2026): dual floors and pointer packing stay opt-in; binding pack passes | CURRENT | [MEMORY-RECALL-PACKING-2026-11-22.md:36](experiments/MEMORY-RECALL-PACKING-2026-11-22.md#L36) |
+| MEM-17 | 2026-11-23 | Can shorter memory writes and excerpts preserve the decisions an agent needs? (#605) | In the second synthetic pilot, concise writes with excerpts qualified for a larger opt-in trial. The excerpt-only arm missed the quality gate. | CURRENT | [CONCISE-MEMORY-2026-11-23.md:3](CONCISE-MEMORY-2026-11-23.md#L3) |
 
 ### Library
 
