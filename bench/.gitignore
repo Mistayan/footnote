@@ -4,3 +4,4 @@ __pycache__/
 /.labenv/
 /.dbenv/
 /.venv-*/
+/agy-history/out/
