@@ -12,7 +12,7 @@ Works with Claude Code, Codex CLI, Antigravity CLI (`agy`, including T3 Code), G
 [![MCP](https://img.shields.io/badge/protocol-MCP%20stdio-1B1915)](#connect-your-agent)
 [![Releases](https://img.shields.io/github/v/release/bobcat88/footnote?include_prereleases&color=2F6B3A)](https://github.com/bobcat88/footnote/releases)
 
-[Install](#install) · [What it does](#what-it-does) · [Architecture](#architecture) · [Philosophy](#philosophy) · [Measured proof](#measured-proof) · [Status & limits](#status--limits) · [Setup Guide (`HOW-TO.md`)](HOW-TO.md)
+[Website](https://footnote-alpha.johanproust.workers.dev/) · [Install](#install) · [What it does](#what-it-does) · [Measured proof](#measured-proof) · [Architecture](#architecture) · [Status & limits](#status--limits) · [Setup Guide (`HOW-TO.md`)](HOW-TO.md)
 
 </div>
 
@@ -30,36 +30,6 @@ agent ▸ footnote_recall("why does the WAL checkpoint stall under write load")
 ```
 
 <sup>1</sup> *Illustrative output showing the real fields returned by the tools: `path`, `heading`, `page`, `line`, `revision`, `sha256`, `freshness`.*
-
----
-
-## What it does
-
-Instead of bolting four separate MCP servers, Python runtimes, and cloud accounts onto your coding agent, **Footnote** packs four local, independently toggleable (`footnote config`) modules into one fast Rust binary with a compact **8-tool, <5 KB** MCP schema:
-
-| Module | What you get |
-|---|---|
-| **Library** | Hybrid search (Tantivy BM25 + local int8 ONNX embeddings) over your Markdown, text, PDFs, and a machine-wide crawled docs cache (`footnote docs add`). Every hit is bound to file, line, SHA-256, and freshness (`current` / `stale`). |
-| **Memory** | Persistent per-machine agent memory (preferences, decisions, fixes, session handoffs) wired via lifecycle hooks across Claude Code, Codex, Antigravity, Grok, and DeepSeek Harness. No second LLM reads your chat — your agent saves its own memories locally. |
-| **Code** | Compiler-grade (SCIP via `rust-analyzer`, `scip-typescript`, `scip-python`) with tree-sitter fallback: definitions, callers/callees, impact radius, architecture map (`code-map`), file outlines, project stack/readiness (`stack`, `frame`), and native ripgrep (`footnote grep`) with enclosing-symbol spans. |
-| **Lean** | Preservation-first shell output compaction (`footnote run`, `footnote hook lean`) with reversible raw output handles (`footnote output <id>`), Turn-1 prompt/MCP bloat audit (`footnote audit-prefix`), and local token/cost/savings accounting (`footnote usage`, `footnote gain`). |
-
----
-
-## Architecture
-
-![Footnote One Architecture](docs/architecture/footnote-overview.png)
-
-*Source: [docs/architecture/footnote.c4](docs/architecture/footnote.c4) (LikeC4) · Editable export: [docs/architecture/footnote-overview.drawio](docs/architecture/footnote-overview.drawio)*
-
----
-
-## Philosophy
-
-1. **Verifiable over magical.** An agent that "remembers" is only trustworthy if it tells you *where* a fact came from and whether the source file changed since indexing.
-2. **Local-first, zero cloud, zero telemetry.** SQLite + Tantivy + local CPU embeddings inside the binary. Your documents are strictly **read-only** for agents; every MCP call is appended to a local HMAC-chained audit log.
-3. **Token sobriety.** Fixed prompt overhead is re-read on every turn. Footnote keeps its MCP `tools/list` under 5 KB, compacts noisy test/build/git output without hiding errors or edit anchors, and triggers session handoffs before huge contexts burn your budget.
-4. **Measured before shipped.** Changes to retrieval, chunking, or compaction only land if they beat a decision rule written down *before* running the benchmark. Failed experiments stay in the log.
 
 ---
 
@@ -115,14 +85,14 @@ footnote docs add https://flask.palletsprojects.com/en/stable/ --site flask
 ```
 
 - **What the code graph leaves out:** files your `.gitignore` ignores; any folder whose name starts with a dot (`.claude`, `.venv`, `.next`…); dependency and build folders named `target`, `node_modules`, `dist`, `build`, `out`, `vendor`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`, `.gradle`, `bin`, `obj` or `coverage`; and whatever a `.footnoteignore` file at the project root lists (`.gitignore` syntax, e.g. `skills/`). To keep a folder of scripts or skills off the map, add it there or start its name with a dot, then run `footnote code-index` again.
-- **Local notes corpus:** `footnote --db ~/.footnote/knowledge.db index --root ~/notes --allow ~/notes` followed by `rebuild-embeddings` and `footnote --db ~/.footnote/knowledge.db install`.
-- **Update & rollback:** `footnote update --from <new-binary>` atomically swaps binaries even while agents run; `footnote rollback` restores the previous one.
-- **Uninstall:** `footnote uninstall --memory --lean` cleanly removes hooks and MCP entries while keeping your databases and backups.
+- **Local notes corpus:** `footnote --db ~/.footnote/knowledge.db index --root ~/notes --allow ~/notes`, then `rebuild-embeddings` and `footnote --db ~/.footnote/knowledge.db install`.
+- **Update & rollback:** `footnote update --from <new-binary>` swaps binaries atomically while agents run. `footnote rollback` restores the previous one.
+- **Uninstall:** `footnote uninstall --memory --lean` removes hooks and MCP entries while keeping your databases and backups.
 - **Full OS & harness walkthrough:** see **[HOW-TO.md](HOW-TO.md)**.
 
 ### Connect your agent
 
-`footnote install` auto-detects and configures Claude Code, Codex CLI, Antigravity CLI (`agy`, `~/.gemini/config` and T3 Code isolated providers), Grok, and DeepSeek Harness — never overwriting existing entries and backing up every file it touches.
+`footnote install` auto-detects Claude Code, Codex CLI, Antigravity CLI (`agy`, `~/.gemini/config` and T3 Code isolated providers), Grok, and DeepSeek Harness. It never overwrites existing entries and backs up every file it touches.
 
 For any other MCP host (Cursor, Windsurf, Zed, VS Code, Cline, Hermes):
 
@@ -139,6 +109,19 @@ For any other MCP host (Cursor, Windsurf, Zed, VS Code, Cline, Hermes):
 
 ---
 
+## What it does
+
+Stacking separate MCP servers adds their tool schemas to your agent's context on every turn. **Footnote** packs four local, toggleable (`footnote config`) modules into one Rust binary with an **8-tool, <5 KB** MCP schema:
+
+| Module | What you get |
+|---|---|
+| **Library** | Hybrid search (Tantivy BM25 + local int8 ONNX embeddings) over Markdown, text, PDFs, and crawled docs (`footnote docs add`). Every hit carries file, line, SHA-256, and `current`/`stale` freshness. |
+| **Memory** | Persistent per-machine agent memory (preferences, decisions, fixes, handoffs) wired through hooks across your coding agents. No second LLM reads your chat. |
+| **Code** | Compiler-backed SCIP code graph (`rust-analyzer`, `scip-typescript`, `scip-python`) with tree-sitter fallback: definitions, callers/callees, impact radius, `code-map`, and `footnote grep`. |
+| **Lean** | Shell output compaction (`footnote run`, `footnote hook lean`) with reversible raw handles (`footnote output <id>`), Turn-1 prefix bloat audit (`footnote audit-prefix`), and local usage tracking (`footnote usage`, `footnote gain`). |
+
+---
+
 ## Measured proof
 
 All numbers come from stored receipts in [`bench/receipts`](bench/receipts) on the shipped binary, through a resident MCP session, with both local embedding models (`bekko-a8m` multilingual + `gte-small` English, int8 quantized):
@@ -149,19 +132,36 @@ All numbers come from stored receipts in [`bench/receipts`](bench/receipts) on t
 |---|---|---:|---:|
 | SciFact (300 queries) | EN | 0.665 | **0.747** |
 | NFCorpus (323 queries) | EN | 0.325 | **0.368** |
-| Alloprof (2,316 queries) | FR | – | **0.478** |
-| Syntec (100 queries) | FR | – | **0.795** |
-| Mixed EN + FR (3,039 queries, 11,462 docs) | EN + FR | – | **0.489** |
+| Alloprof (2,316 queries) | FR | - | **0.478** |
+| Syntec (100 queries) | FR | - | **0.795** |
+| Mixed EN + FR (3,039 queries, 11,462 docs) | EN + FR | - | **0.489** |
 
 - Blending two small models beat single-model hybrid by **+0.012 to +0.019 nDCG@10** on held-out sets (95% bootstrap CIs exclude zero). 15 other ideas we tried did *not* help and were rejected ([experiment log](bench/experiments/RESULTS.md)).
-- In a local single-machine head-to-head (Nov 2026) against mem0, Cognee (chunk index), and ICM, Footnote led nDCG@10 on all 5 sets (significantly better in 24/26 paired comparisons; 2 ties with mem0 on SciFact/NFCorpus), while indexing 1.7–7× slower ([full caveats & tables](bench/experiments/FINAL-RANKING.md)).
+- In a single-machine head-to-head (Nov 2026) against mem0, Cognee (chunk index), and ICM, Footnote led nDCG@10 on all 5 sets (better in 24/26 paired comparisons; 2 ties with mem0 on SciFact/NFCorpus). Index builds are 1.7x to 7x slower ([full caveats & tables](bench/experiments/FINAL-RANKING.md)).
 
 ### Speed & token compaction
 
-- **Hybrid MCP search latency:** **20 ms** p50 at 5k chunks, **45 ms** at 40k chunks (exact int8 scan), **52 ms** p50 / **79 ms** p95 at 100k chunks (BM25 shortlist of 1,000; 40k/100k rows use random vectors to benchmark speed only).
+- **Hybrid MCP search latency:** **20 ms** p50 at 5k chunks, **45 ms** at 40k chunks (exact int8 scan), and **52 ms** p50 / **79 ms** p95 at 100k chunks (BM25 shortlist of 1,000). The 40k and 100k rows use random vectors to measure speed only.
 - **Lexical engine (Tantivy vs. SQLite FTS5):** **0.38 ms** vs. 43 ms at 100k synthetic docs; **3.0 ms** vs. 423 ms at 1M docs.
-- **Crawler HTML→Markdown (`html-to-markdown-rs`):** **0.9481** hybrid nDCG@5 (40/40 Hit@3) on 40 sealed Flask + Hono docs queries, 35.5% faster than our prior readability pipeline.
-- **Shell compaction (`footnote run`):** compacts noisy `cargo test`, `cargo clippy`, `git`, `pytest`, `jest/vitest`, linters, and uniform JSON arrays while preserving every failure span, exit code, and reversible raw handle (`footnote output <id>`). Never emits more bytes than raw output; refuses to store outputs containing detected credentials.
+- **Crawler HTML-to-Markdown (`html-to-markdown-rs`):** **0.9481** hybrid nDCG@5 (40/40 Hit@3) on 40 sealed Flask + Hono docs queries, 35.5% faster than our prior readability pipeline.
+- **Shell compaction (`footnote run`):** Compacts noisy `cargo test`, `cargo clippy`, `git`, `pytest`, `jest/vitest`, linters, and uniform JSON arrays while keeping every failure span, exit code, and raw handle (`footnote output <id>`). Never emits more bytes than raw output and refuses to store outputs with detected credentials.
+
+---
+
+## Architecture
+
+![Footnote One Architecture](docs/architecture/footnote-overview.png)
+
+*Source: [docs/architecture/footnote.c4](docs/architecture/footnote.c4) (LikeC4) · Editable export: [docs/architecture/footnote-overview.drawio](docs/architecture/footnote-overview.drawio)*
+
+---
+
+## Philosophy
+
+1. **Verifiable over magical.** An agent that "remembers" is only trustworthy if it tells you *where* a fact came from and whether the source file changed since indexing.
+2. **Local-first, zero cloud, zero telemetry.** SQLite + Tantivy + local CPU embeddings inside the binary. Your documents are strictly **read-only** for agents; every MCP call is appended to a local HMAC-chained audit log.
+3. **Token sobriety.** Fixed prompt overhead is re-read on every turn. Footnote keeps its MCP `tools/list` under 5 KB, compacts noisy test/build/git output without hiding errors or edit anchors, and triggers session handoffs before huge contexts burn your budget.
+4. **Measured before shipped.** Changes to retrieval, chunking, or compaction only land if they beat a decision rule written down *before* running the benchmark. Failed experiments stay in the log.
 
 ---
 
@@ -172,7 +172,7 @@ Footnote assumes retrieved text is **untrusted data** that may contain prompt in
 - **Read-only corpora:** No MCP tool can write to your documents; memory write tools refuse any document database.
 - **Network calls:** Search, memory, code graph, and MCP tools stay offline except for:
   1. Explicit commands you run: `footnote models install`, `footnote docs add`, `footnote docs refresh`, `footnote docs install <url>`, and `footnote crawl`.
-  2. Optional live fetch-on-miss in `footnote find` (and the MCP `footnote_recall` with `all=true`): when cached docs have no strong match, it fetches up to 3 in-scope pages (honoring `robots.txt`, never sending your query text). Set `FOOTNOTE_NO_LIVE_FETCH=1` to disable completely.
+  2. Optional live fetch-on-miss in `footnote find` (and MCP `footnote_recall` with `all=true`): when cached docs have no strong match, it fetches up to 3 in-scope pages (honoring `robots.txt`, never sending your query text). Set `FOOTNOTE_NO_LIVE_FETCH=1` to disable completely.
 - **Private local state:** User-only permissions/ACLs for state, HMAC daemon handshake, and tamper-evident audit log (`footnote audit verify`). Details in [SECURITY.md](SECURITY.md).
 
 ---
