@@ -94,6 +94,8 @@ Windows **Smart App Control** or a managed **WDAC / AppLocker** policy stops `ca
 docker build -t footnote:local .
 ```
 
+Or build and run it as a Linux program inside WSL 2, with your repositories copied onto WSL's own disk: **[WSL.md](WSL.md)**.
+
 ---
 
 ## 3. Install Local Embedding Models (Zero Python)
