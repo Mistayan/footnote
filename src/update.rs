@@ -163,12 +163,84 @@ fn latest() -> Result<(String, Value, Option<Value>)> {
     Ok((tag.trim_start_matches('v').to_string(), release, asset))
 }
 
+/// The version an update is measured against: the engine's own, or the launcher's when the `footnote-launcher.exe`
+/// beside it is older. An engine updated on its own (`footnote update --from`, a release zip) leaves the launcher behind,
+/// and the launcher's update button then said "up to date" for good (23 Nov 2026: launcher 0.2.0 beside engine 0.5.0).
+/// The installer replaces both.
+fn installed() -> String {
+    effective_installed(env!("CARGO_PKG_VERSION"), launcher_version().as_deref())
+}
+
+fn effective_installed(engine: &str, launcher: Option<&str>) -> String {
+    match launcher {
+        Some(l) if newer(engine, l) => l.to_string(),
+        _ => engine.to_string(),
+    }
+}
+
+/// The product version of the launcher installed beside this engine, from its Windows version resource.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn launcher_version() -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
+    };
+    let exe = std::env::current_exe()
+        .ok()?
+        .with_file_name("footnote-launcher.exe");
+    if !exe.is_file() {
+        return None;
+    }
+    let wide: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+    let root = [u16::from(b'\\'), 0];
+    // SAFETY: `wide` and `root` are NUL-terminated, `buf` is as long as the size Windows asked for, and the fixed-info
+    // pointer is read only after Windows returned it with at least `VS_FIXEDFILEINFO`'s length.
+    unsafe {
+        let size = GetFileVersionInfoSizeW(wide.as_ptr(), std::ptr::null_mut());
+        if size == 0 {
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        if GetFileVersionInfoW(wide.as_ptr(), 0, size, buf.as_mut_ptr().cast()) == 0 {
+            return None;
+        }
+        let mut info: *mut core::ffi::c_void = std::ptr::null_mut();
+        let mut len = 0u32;
+        if VerQueryValueW(
+            buf.as_ptr().cast(),
+            root.as_ptr(),
+            &raw mut info,
+            &raw mut len,
+        ) == 0
+            || info.is_null()
+            || (len as usize) < std::mem::size_of::<VS_FIXEDFILEINFO>()
+        {
+            return None;
+        }
+        let fixed = info.cast::<VS_FIXEDFILEINFO>().read_unaligned();
+        Some(format!(
+            "{}.{}.{}",
+            fixed.dwProductVersionMS >> 16,
+            fixed.dwProductVersionMS & 0xffff,
+            fixed.dwProductVersionLS >> 16
+        ))
+    }
+}
+
+#[cfg(not(windows))]
+fn launcher_version() -> Option<String> {
+    None
+}
+
 /// `footnote update --check`: this version, the latest release, and whether it is newer.
 pub fn check() -> Result<Value> {
-    let current = env!("CARGO_PKG_VERSION");
+    let current = installed();
+    let current = current.as_str();
     let (version, release, asset) = latest()?;
     Ok(json!({
         "installed": current, "latest": version, "newer": newer(&version, current),
+        "engine": env!("CARGO_PKG_VERSION"), "launcher": launcher_version(),
         "published_at": release["published_at"], "page": release["html_url"], "notes": release["body"],
         "installer": asset.as_ref().map(|a| a["name"].clone()), "bytes": asset.as_ref().map(|a| a["size"].clone()),
     }))
@@ -177,7 +249,8 @@ pub fn check() -> Result<Value> {
 /// `footnote update --download`: fetch the latest Windows installer into `<state>/updates` and check it against the
 /// release's own `.sha256` file. Nothing runs here; the launcher starts the installer and closes itself.
 pub fn download() -> Result<Value> {
-    let current = env!("CARGO_PKG_VERSION");
+    let current = installed();
+    let current = current.as_str();
     let (version, release, asset) = latest()?;
     if !newer(&version, current) {
         return Ok(json!({"up_to_date": true, "installed": current, "latest": version}));
@@ -263,7 +336,12 @@ pub fn rollback() -> Result<Value> {
 mod tests {
     #[test]
     fn versions_compare_with_pre_releases() {
-        use super::newer;
+        use super::{effective_installed, newer};
+        // A launcher left behind by an engine-only update makes the update count as not installed yet.
+        assert_eq!(effective_installed("0.5.0", Some("0.2.0")), "0.2.0");
+        assert_eq!(effective_installed("0.5.0", Some("0.5.0")), "0.5.0");
+        assert_eq!(effective_installed("0.5.0", Some("0.6.0")), "0.5.0");
+        assert_eq!(effective_installed("0.5.0", None), "0.5.0");
         assert!(newer("0.1.0-alpha.3", "0.1.0-alpha.2"));
         assert!(newer("v0.1.0-alpha.10", "0.1.0-alpha.9"));
         assert!(newer("0.1.0", "0.1.0-alpha.3"));
