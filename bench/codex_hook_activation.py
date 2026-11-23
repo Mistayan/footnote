@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+from collections import Counter
 from datetime import date
 import hashlib
 import json
@@ -21,6 +22,15 @@ PROMPT = (
     "Run exactly one shell command: git log -3 --oneline. "
     "Then reply with the activation word from the supplied Footnote memory. "
     "If no activation word was supplied, reply MISSING. Do not read files or call MCP."
+)
+FIXTURE_SERVER = "footnote-fixture"
+BASELINE_PROMPT = (
+    "Run exactly one shell command: git log -3 --oneline. "
+    "Call the footnote-fixture MCP server's footnote_recall with query 'wafer serial', "
+    "project 'activation-fixture', mode 'lexical', limit 1, and verbose true. "
+    "Then call footnote_get on that server with id [{hidden}, {visible}] and verbose true. "
+    "Reply with only the activation word from the supplied Footnote memory and the wafer serial "
+    "from the retrieval. Do not read files or call other tools."
 )
 
 
@@ -52,7 +62,40 @@ def json_lines(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-async def session(codex, footnote, model, sandbox, repo, env, word, memory_id):
+def mcp_ids(item):
+    result = item.get("result")
+    if item["status"] != "completed" or not result:
+        return []
+    for part in result["content"]:
+        if part.get("type") == "text":
+            payload = json.loads(part["text"])
+            hits = payload if isinstance(payload, list) else payload.get("results", [payload])
+            return [hit["id"] for hit in hits if "text" in hit and isinstance(hit.get("id"), int)]
+    return []
+
+
+def baseline_counts(hook_rows, mcp_calls, used_ids):
+    by_source = {
+        "hook_pack": Counter(id_ for row in hook_rows if row["event"] == "pack" for id_ in row["ids"]),
+        "hook_recall": Counter(id_ for row in hook_rows if row["event"] == "recall" for id_ in row["ids"]),
+        "mcp_recall": Counter(id_ for tool, ids in mcp_calls if tool == "footnote_recall" for id_ in ids),
+        "mcp_get": Counter(id_ for tool, ids in mcp_calls if tool == "footnote_get" for id_ in ids),
+    }
+    shown = sum(by_source.values(), Counter())
+    return {
+        "sources": {
+            name: {
+                "items_shown": sum(ids.values()), "distinct_shown": len(ids),
+                "distinct_used_in_answer": len(ids.keys() & used_ids),
+            }
+            for name, ids in by_source.items()
+        },
+        "repeated_items": sum(shown.values()) - len(shown),
+        "memories": {id_: {"shown": n, "used_in_answer": id_ in used_ids} for id_, n in sorted(shown.items())},
+    }
+
+
+async def session(codex, footnote, model, sandbox, repo, env, word, memory_id, baseline=None):
     home = Path(env.get("CODEX_HOME") or Path.home() / ".codex")
     config = home / "config.toml"
     user = tomllib.loads(config.read_text(encoding="utf-8")) if config.exists() else {}
@@ -61,6 +104,15 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
             raise ValueError("Cannot isolate MCP servers with a nonstandard configuration key")
         options += ["-c", f"mcp_servers.{name}.enabled=false"]
+    if baseline:
+        state = Path(env["FOOTNOTE_STATE_DIR"])
+        command = json.dumps(str(footnote))
+        args = json.dumps(["--db", str(state / "memory.db"), "serve", "--mcp"])
+        state_value = json.dumps(str(state))
+        options += ["-c", (
+            f"mcp_servers.{FIXTURE_SERVER}={{command={command},args={args},"
+            f"env={{FOOTNOTE_STATE_DIR={state_value}}}}}"
+        )]
 
     app = await asyncio.create_subprocess_exec(
         codex, "app-server", "--disable", "plugins", "--disable", "memories", *options,
@@ -109,13 +161,16 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id):
             return {"accepted": False, "reason": "unexpected model", "model": started["model"]}
 
         thread_id = started["thread"]["id"]
+        prompt = BASELINE_PROMPT.format(hidden=baseline["id"], visible=memory_id) if baseline else PROMPT
         await send("turn/start", {
             "threadId": thread_id,
-            "input": [{"type": "text", "text": PROMPT, "text_elements": []}],
+            "input": [{"type": "text", "text": prompt, "text_elements": []}],
         }, 4)
         matched = set()
         commands = []
         used = False
+        hidden_used = False
+        mcp_calls = []
         usage = None
         rerouted = False
         while True:
@@ -135,6 +190,12 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id):
                 item = params["item"]
                 if item["type"] == "agentMessage":
                     used |= word in item.get("text", "")
+                    if baseline:
+                        hidden_used |= baseline["word"] in item.get("text", "")
+                elif item["type"] == "mcpToolCall":
+                    if not baseline or item.get("server") != FIXTURE_SERVER:
+                        raise ValueError("Unexpected MCP server in fixture")
+                    mcp_calls.append((item["tool"], mcp_ids(item)))
                 elif item["type"] == "commandExecution":
                     command = item.get("command", "").lower()
                     commands.append({
@@ -152,15 +213,31 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id):
 
         state = Path(env["FOOTNOTE_STATE_DIR"])
         activity = json_lines(state / "memory-hook" / "activity.jsonl")
+        hook_rows = [event for event in activity if event.get("session") == thread_id]
         shown = any(
-            event.get("event") == "pack" and event.get("session") == thread_id
-            and memory_id in event.get("ids", [])
-            for event in activity
+            event.get("event") == "pack" and memory_id in event.get("ids", [])
+            for event in hook_rows
         )
         lean = json_lines(state / "usage" / "lean.jsonl")
         shell_runs = [row for row in lean if row.get("tool") == "run" and row.get("family") == "git"]
         used_lean = len(shell_runs) == 1 and shell_runs[0].get("exit_code") == 0
         expected_command = len(commands) == 1 and all(commands[0].values())
+        metrics = {}
+        if baseline:
+            hidden = baseline["id"]
+            mcp_verified = mcp_calls == [
+                ("footnote_recall", [hidden]), ("footnote_get", [hidden, memory_id])
+            ]
+            missed = all(hidden not in event.get("ids", []) for event in hook_rows)
+            used_ids = {id_ for id_, ok in [(memory_id, used), (hidden, hidden_used)] if ok}
+            metrics["baseline"] = {
+                **baseline_counts(hook_rows, mcp_calls, used_ids),
+                "required_items_missed_by_hooks": int(missed),
+                "mcp_calls": [{"tool": tool, "ids": ids} for tool, ids in mcp_calls],
+                "tool_round_trips": len(commands) + len(mcp_calls),
+                "cached_input_tokens": usage["cachedInputTokens"] if usage else None,
+            }
+            expected_command = expected_command and mcp_verified and hidden_used and usage is not None
         return {
             "accepted": completed and not rerouted and matched == REQUIRED and shown and used
             and used_lean and expected_command,
@@ -169,7 +246,7 @@ async def session(codex, footnote, model, sandbox, repo, env, word, memory_id):
             "turn_completed": completed, "model_rerouted": rerouted,
             "hooks_completed": sorted(matched), "fixture_memory_shown": shown,
             "fixture_memory_used": used, "successful_lean_git": used_lean,
-            "commands": commands, "lean_git_runs": len(shell_runs), "tokens": usage,
+            "commands": commands, "lean_git_runs": len(shell_runs), "tokens": usage, **metrics,
         }
     finally:
         if app.returncode is None:
@@ -182,6 +259,7 @@ def main():
     parser.add_argument("--footnote", required=True, type=Path)
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--model", default="gpt-6.2-sol")
+    parser.add_argument("--baseline", action="store_true", help="Measure hook and MCP results in one Codex turn.")
     parser.add_argument("--sandbox", choices=["read-only", "workspace-write", "danger-full-access"],
                         help="Codex sandbox for the probe. Defaults to the loaded Codex policy.")
     args = parser.parse_args()
@@ -201,16 +279,29 @@ def main():
             "commit", "-qm", "Footnote activation fixture", "--allow-empty", "--no-gpg-sign",
         ], cwd=repo, check=True, capture_output=True)
         word = f"FOOTNOTE-{uuid4().hex}"
+        date_str = date.today().isoformat()
+        memories = [{
+            "kind": "fact", "scope": repo.name, "observed_at": date_str,
+            "text": f"The Footnote activation word is {word}.",
+        }]
+        hidden_word = f"WAFER-{uuid4().hex}"
+        if args.baseline:
+            memories = [{
+                "kind": "fact", "scope": repo.name, "observed_at": date_str,
+                "text": f"Build wafer serial {hidden_word}. " + "Archive padding. " * 85,
+            }, *memories, {
+                "kind": "preference", "scope": "global", "observed_at": date_str,
+                "text": "South wing inventory labels are purple. " + "Ledger padding. " * 100,
+            }]
         stored = subprocess.run([footnote, "--db", state / "memory.db", "remember"],
-            env=env, input=json.dumps([{
-                "kind": "fact", "scope": repo.name, "observed_at": date.today().isoformat(),
-                "text": f"The Footnote activation word is {word}.",
-            }]), text=True, capture_output=True, check=True,
+            env=env, input=json.dumps(memories), text=True, capture_output=True, check=True,
         )
-        memory_id = json.loads(stored.stdout)["stored"][0]["id"]
+        ids = [row["id"] for row in json.loads(stored.stdout)["stored"]]
+        memory_id = ids[int(args.baseline)]
+        baseline = {"id": ids[0], "word": hidden_word} if args.baseline else None
         try:
             result = asyncio.run(asyncio.wait_for(
-                session(args.codex, footnote, args.model, args.sandbox, repo, env, word, memory_id), 120
+                session(args.codex, footnote, args.model, args.sandbox, repo, env, word, memory_id, baseline), 120
             ))
         except TimeoutError:
             result = {"accepted": False, "reason": "Codex probe timed out"}

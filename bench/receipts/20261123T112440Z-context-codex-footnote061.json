@@ -1,0 +1,101 @@
+{
+  "protocol": 1,
+  "codex": "codex-cli 0.171.0",
+  "footnote": "footnote 0.6.1",
+  "footnote_sha256": "d6517d41062451eeb42dccfd276a3b6ef1198febd533106da320b98ebbdcd532",
+  "requested_model": "gpt-6.2-sol",
+  "accepted": true,
+  "model": "gpt-6.2-sol",
+  "trust": {
+    "preToolUse": "trusted",
+    "sessionStart": "trusted",
+    "stop": "trusted",
+    "userPromptSubmit": "trusted"
+  },
+  "model_turn_started": true,
+  "sandbox": "dangerFullAccess",
+  "turn_completed": true,
+  "model_rerouted": false,
+  "hooks_completed": [
+    "preToolUse",
+    "sessionStart",
+    "stop",
+    "userPromptSubmit"
+  ],
+  "fixture_memory_shown": true,
+  "fixture_memory_used": true,
+  "successful_lean_git": true,
+  "commands": [
+    {
+      "success": true,
+      "footnote_run": true,
+      "git_log": true
+    }
+  ],
+  "lean_git_runs": 1,
+  "tokens": {
+    "totalTokens": 74321,
+    "inputTokens": 73865,
+    "cachedInputTokens": 51072,
+    "cacheWriteInputTokens": 0,
+    "outputTokens": 456,
+    "reasoningOutputTokens": 222
+  },
+  "baseline": {
+    "sources": {
+      "hook_pack": {
+        "items_shown": 2,
+        "distinct_shown": 2,
+        "distinct_used_in_answer": 1
+      },
+      "hook_recall": {
+        "items_shown": 1,
+        "distinct_shown": 1,
+        "distinct_used_in_answer": 1
+      },
+      "mcp_recall": {
+        "items_shown": 1,
+        "distinct_shown": 1,
+        "distinct_used_in_answer": 1
+      },
+      "mcp_get": {
+        "items_shown": 2,
+        "distinct_shown": 2,
+        "distinct_used_in_answer": 2
+      }
+    },
+    "repeated_items": 3,
+    "memories": {
+      "1": {
+        "shown": 3,
+        "used_in_answer": true
+      },
+      "2": {
+        "shown": 2,
+        "used_in_answer": true
+      },
+      "3": {
+        "shown": 1,
+        "used_in_answer": false
+      }
+    },
+    "required_items_missed_by_hooks": 0,
+    "mcp_calls": [
+      {
+        "tool": "footnote_recall",
+        "ids": [
+          1
+        ]
+      },
+      {
+        "tool": "footnote_get",
+        "ids": [
+          1,
+          2
+        ]
+      }
+    ],
+    "tool_round_trips": 3,
+    "cached_input_tokens": 51072
+  }
+}
