@@ -70,8 +70,9 @@ fn days_after(d: time::Date, n: u64) -> String {
 
 /// Called at SessionStart: claim a due run (so parallel sessions start one) and start it in the background. The first
 /// session that sees this feature only schedules the first run, an interval later: nobody pays tokens on upgrade day.
+/// Skipped when `FOOTNOTE_NO_LIVE_FETCH` is set (such as the offline Docker daemon, which has no network or agent CLI).
 pub(crate) fn start_if_due(state: &Path, interval_days: u64) -> Result<()> {
-    if interval_days == 0 {
+    if interval_days == 0 || std::env::var_os("FOOTNOTE_NO_LIVE_FETCH").is_some() {
         return Ok(());
     }
     let mut st = read_state(state);

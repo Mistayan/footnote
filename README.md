@@ -187,7 +187,7 @@ Footnote assumes retrieved text is **untrusted data** that may contain prompt in
 **Work in progress / known limits:**
 - **Desktop Launcher (`apps/launcher`, Tauri 2):** ships in the Windows installer with the engine ([installer/README.md](installer/README.md)) and builds from source ([apps/launcher/README.md](apps/launcher/README.md)).
 - **macOS prebuilt releases:** not in CI yet (build from source with Cargo).
-- **Managed Windows / App Control:** unsigned local `.exe` builds can be blocked by corporate policies; Docker support is tracked in `#392`.
+- **Managed Windows / App Control:** unsigned local `.exe` builds can be blocked by corporate policies; use the hardened Docker image ([DOCKER.md](DOCKER.md)), MCP server and memory hooks included. In Docker, `footnote personal` (DPAPI) is not available.
 - **Encrypted memory store (`--features encryption`, Windows):** experimental SQLCipher store; agent transcripts on disk remain plain text.
 - **English stemmer default:** beats per-language stemming on mixed EN/FR corpora, though a pure French corpus may prefer a French stemmer.
 

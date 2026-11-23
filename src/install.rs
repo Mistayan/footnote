@@ -428,9 +428,22 @@ fn is_memory_hook(command: &str) -> bool {
     if command.contains("memory_hook.py") {
         return true; // migrate the installed Python hook in place
     }
+    fn exe_name(exe: &str) -> Option<&str> {
+        exe.trim()
+            .trim_matches(['\'', '"'])
+            .rsplit(['/', '\\'])
+            .next()
+    }
     command.trim().strip_suffix(" hook").is_some_and(|exe| {
-        let exe = exe.trim_matches(['\'', '"']).replace('\\', "/");
-        matches!(exe.rsplit('/').next(), Some("footnote" | "footnote.exe"))
+        // The Docker daemon's hook (scripts/docker-agents.*): `<docker> exec -i <container> footnote hook`. Counted as
+        // ours so install replaces it instead of adding a second memory hook, and uninstall removes it.
+        if let Some((docker, rest)) = exe.split_once(" exec -i ") {
+            let mut it = rest.split_whitespace();
+            if it.next().is_some() && it.next() == Some("footnote") && it.next().is_none() {
+                return matches!(exe_name(docker), Some("docker" | "docker.exe"));
+            }
+        }
+        matches!(exe_name(exe), Some("footnote" | "footnote.exe"))
     })
 }
 
