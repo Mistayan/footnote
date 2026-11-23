@@ -620,7 +620,7 @@ enum Action {
         #[arg(long)]
         rewrite: Option<String>,
         /// Override automatic command-family detection (`cargo-test`, `cargo-build`, `tests`, `git`, `search`, `linter`, `generic`).
-        #[arg(long, value_parser = ["cargo-test", "cargo-build", "tests", "git", "search", "linter", "generic"])]
+        #[arg(long, value_parser = ["cargo-test", "cargo-build", "tests", "git", "search", "linter", "listing", "generic"])]
         family: Option<String>,
         /// Leave out the closing `[footnote: …]` line, for output piped into `tail` (the hook adds it there).
         #[arg(long)]
