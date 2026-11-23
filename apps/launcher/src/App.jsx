@@ -165,7 +165,7 @@ export default function App() {
         ) : screen === "projects" ? (
           <ProjectsScreen projects={projects} refresh={refresh} />
         ) : screen === "models" ? (
-          <Models refresh={refresh} />
+          <Models refresh={refresh} memories={status?.products?.memory?.memories} />
         ) : screen === "memory" ? (
           <Memory refresh={refresh} />
         ) : screen === "library" ? (

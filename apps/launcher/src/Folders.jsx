@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Box, ChevronRight, Folder, FolderGit2, FolderPlus, HardDrive, House, X } from "lucide-react";
 import { browseFolders, footnote, mb } from "./data.js";
 import { Scroll, Tip, clip, toast } from "./ui.jsx";
@@ -18,10 +18,11 @@ export default function AddProject({ refresh }) {
   );
 }
 
-/** Load a GGUF model (#556): the browser shows folders and `.gguf` files; the engine checks and copies the chosen one. */
-export function ImportGguf({ done, disabled }) {
+/** Load a GGUF model (#556): the browser shows folders and `.gguf` files; the engine checks and copies the chosen one. A
+ * measured model's card opens it too, with its own `opener` and accessible `label`. */
+export function ImportGguf({ done, disabled, opener = "Load a GGUF model…", label }) {
   return (
-    <Browser title="Load a GGUF model" opener="Load a GGUF model…" disabled={disabled} gguf
+    <Browser title="Load a GGUF model" opener={opener} label={label} disabled={disabled} gguf
       note="Footnote checks that the file is an embedding model and copies it into its models folder. The original stays where it is."
       action="Load this model" acting="Checking and copying…"
       pick={async (path) => {
@@ -33,8 +34,9 @@ export function ImportGguf({ done, disabled }) {
 }
 
 /** The browser dialog. Without `gguf`, the folder you are in is the pick; with it, the `.gguf` file you select is. */
-function Browser({ title, opener, openerClass = "", disabled, gguf, note, action, acting, pick }) {
+function Browser({ title, opener, label, openerClass = "", disabled, gguf, note, action, acting, pick }) {
   const dialog = useRef(null);
+  const id = `picker-title${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [at, setAt] = useState(null); // the listing shown: { path, parent, drives, folders, files, git }
   const [chosen, setChosen] = useState(null); // with `gguf`: the selected file's path
   const [error, setError] = useState(null);
@@ -79,11 +81,10 @@ function Browser({ title, opener, openerClass = "", disabled, gguf, note, action
       }, [])
     : [];
   const files = at?.files ?? [];
-  const id = gguf ? "picker-title-gguf" : "picker-title";
 
   return (
     <>
-      <button type="button" className={`btn ${openerClass}`.trim()} onClick={open} disabled={disabled}>{opener}</button>
+      <button type="button" className={`btn ${openerClass}`.trim()} onClick={open} disabled={disabled} aria-label={label}>{opener}</button>
       <dialog ref={dialog} className="picker lglass sq" aria-labelledby={id}>
         <header className="picker-head">
           <h2 id={id}>{title}</h2>

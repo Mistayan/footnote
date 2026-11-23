@@ -20,6 +20,7 @@
 .feed { background: color-mix(in srgb, var(--side) 70%, transparent); backdrop-filter: blur(24px) saturate(1.3); scrollbar-width: none; }
 @media (prefers-reduced-transparency: reduce) {
   .lglass, .surface, .card, .side, .top, .feed, .menu, .tip, .lic-pop { backdrop-filter: none !important; background: var(--panel) !important; }
+  .picker::backdrop { backdrop-filter: none !important; background: rgb(0 0 0 / 0.6) !important; }
 }
 
 /* Squircle corners where the engine draws them; a plain radius elsewhere. */
@@ -244,18 +245,22 @@ button.stat.ignore:hover:not(:disabled) .stat-ic { color: var(--warn); }
 .cell-end { justify-self: end; display: inline-flex; align-items: center; gap: 8px; }
 /* Models (#556): one card per model, the measured numbers in the middle, licence, size and action at the foot. */
 .model-grid { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
-.model-card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.model-card { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
 .model-card.on { border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
-.mc-head { display: flex; align-items: center; gap: 10px; }
+.mc-head { display: flex; align-items: center; gap: 12px; }
 .mc-head h3 { font-size: var(--t-m); font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-head > :last-child { margin-left: auto; flex: none; }
 .mc-role { color: var(--mute); font-size: var(--t-s); }
-.mc-stats { display: grid; gap: 6px; margin: 0; }
+.mc-role .chip { margin-right: 4px; font-family: var(--f-mono); }
+.mc-tag { font-weight: 500; }
+.models-legend { display: grid; gap: 4px; }
+.mc-repo { display: block; margin-top: 2px; overflow-wrap: anywhere; }
+.mc-stats { display: grid; gap: 8px; margin: 4px 0; }
 .mc-stats > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 10px; }
 .mc-stats dt { color: var(--dim); font-size: var(--t-s); }
 .mc-stats dd { margin: 0; display: inline-flex; align-items: baseline; gap: 8px; justify-self: end; }
 .mc-stats .receipt { font-size: var(--t-m); font-variant-numeric: tabular-nums; }
-.mc-foot { display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 4px; flex-wrap: wrap; }
+.mc-foot { display: flex; align-items: center; gap: 12px; margin-top: auto; padding-top: 4px; flex-wrap: wrap; }
 .mc-size { margin-left: auto; }
 .picker-note { padding: 0 18px; }
 .picker-row.on { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--text); }

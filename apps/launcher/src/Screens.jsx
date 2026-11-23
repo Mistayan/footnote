@@ -22,6 +22,7 @@ import { sessionName, takenLine, waitingTip } from "./asks.js";
 import AddProject, { ImportGguf } from "./Folders.jsx";
 import { KindIcon } from "./Memory.jsx";
 import { PathPill, Scroll, Select, Tabs, Tip, clip, toast } from "./ui.jsx";
+import { modelCards } from "./models.js";
 
 // The workspace screens: Projects, Models and Activity. Each reads its own engine command.
 
@@ -347,7 +348,7 @@ function License({ license }) {
   );
 }
 
-export function Models({ refresh }) {
+export function Models({ refresh, memories }) {
   const [round, setRound] = useState(0);
   const { data, error } = useRead(["models", "list"], round);
   const [busy, setBusy] = useState(null); // { name, progress: {done, total}, error, cancelled }
@@ -392,14 +393,18 @@ export function Models({ refresh }) {
     setBusy((b) => b && { ...b, cancelled: true });
     cancelInstall();
   };
+  const imported = () => { setSwitchNote(null); setRound((n) => n + 1); refresh?.(); };
   if (error) return <div className="body"><Failed error={error} /></div>;
   if (!data) return <div className="body"><span className="skel big" /><span className="skel" /></div>;
   const active = data.models.filter((m) => m.installed && m.used_by_memory);
   const defaultPairInstalled = ["bekko-a8m", "gte-small"].every((n) => data.models.some((m) => m.name === n && m.installed));
   const isDefaultPair = active.length === 2 && active.some((m) => m.name === "bekko-a8m") && active.some((m) => m.name === "gte-small");
   const onDisk = data.models.reduce((n, m) => n + (m.installed ? m.bytes ?? 0 : 0), 0);
-  const rank = (m) => (m.used_by_memory ? -1 : RANK.indexOf(m.name) < 0 ? RANK.length : RANK.indexOf(m.name));
-  const models = [...data.models].sort((a, b) => rank(a) - rank(b));
+  const cards = modelCards(data.models);
+  const llama = data.llama !== false;
+  const reembed = typeof memories === "number"
+    ? `Use re-embeds your ${num(memories)} ${memories === 1 ? "memory" : "memories"} in the background at the next session start.`
+    : "Use re-embeds your memories in the background at the next session start.";
   return (
     <div className="body">
       <section className="hero solo lglass sq">
@@ -424,71 +429,91 @@ export function Models({ refresh }) {
         </div>
       </section>
       {switchNote && <p className={switchNote.startsWith("Error:") ? "warn small" : "ok small"} role="status">{switchNote}</p>}
-      {data.llama === false && (
-        <p className="dimmed small">This build of Footnote has no llama.cpp, so it cannot run GGUF models (marked below). Release builds include it.</p>
-      )}
-      <ul className="model-grid" aria-label="Models">
-        {models.map((m) => {
-          const blocked = (m.imported || GGUF.has(m.name)) && data.llama === false;
-          const facts = MEASURED[m.name];
+      <div className="models-legend">
+        <p className={llama ? "small" : "warn small"}>
+          {llama
+            ? "This build loads both kinds of model: ONNX, and GGUF through llama.cpp."
+            : "This build loads ONNX models only. GGUF models need a build with llama.cpp; release builds include it."}
+        </p>
+        <p className="small dimmed">
+          Ordered by what Footnote measured: nDCG@10 on held-out queries (Mixed: French and English, French: Alloprof,
+          English: SciFact). Each number opens its report.
+        </p>
+      </div>
+      <ul className="model-grid" aria-label="Models, best measured first">
+        {cards.map((c) => {
+          const m = c.model;
+          const blocked = c.gguf && !llama;
+          const state = m?.installed ? (m.used_by_memory ? "active" : "installed") : c.candidate ? "import" : "install";
           return (
-            <li key={m.name} className={`model-card card sq lit${m.used_by_memory ? " on" : ""}`} aria-label={m.name}>
+            <li key={c.key} className={`model-card card sq lit${state === "active" ? " on" : ""}`} aria-label={`${c.name}, ${STATE[state]}`}>
               <header className="mc-head">
-                <h3 className="mono">{m.name}</h3>
-                {m.installed ? (
-                  m.used_by_memory ? <span className="state-dot">Active</span> : <span className="state-dot idle">Installed</span>
-                ) : <span className="dimmed small">Not installed</span>}
+                <h3 className="mono">{c.name}</h3>
+                {state === "active" ? <span className="state-dot">Active</span>
+                  : state === "installed" ? <span className="state-dot idle">Installed</span>
+                  : <span className="dimmed small">{STATE[state]}</span>}
               </header>
-              <p className="mc-role">{m.imported ? "Imported GGUF" : m.role}</p>
-              {facts?.verdict ? (
+              <p className="mc-role">
+                <span className="chip">{c.gguf ? "GGUF" : "ONNX"}</span> {c.role}
+              </p>
+              {c.facts?.tag && <p className={`mc-tag small${c.facts.best ? " ok" : " dimmed"}`}>{c.facts.tag}</p>}
+              {c.facts?.verdict ? (
                 <p className="small dimmed">
-                  {facts.verdict}{" "}
-                  <button type="button" className="receipt" onClick={() => openReceipt(facts.receipt)}
-                    aria-label={`Open the measurement ${facts.receipt.split("/").pop()}`}>
-                    the measurement <span aria-hidden="true">↗</span>
-                  </button>
+                  {c.facts.verdict}{" "}
+                  <Receipt path={c.facts.receipt} label={`Open the measurement ${c.facts.receipt.split("/").pop()}`}>the measurement</Receipt>
                 </p>
-              ) : facts ? (
+              ) : c.facts?.stats ? (
                 <dl className="mc-stats">
-                  {facts.stats.map((st) => (
+                  {c.facts.stats.map((st) => (
                     <div key={st.label}>
                       <dt>{st.label}</dt>
                       <dd>
-                        <button type="button" className="receipt mono" onClick={() => openReceipt(st.receipt)}
-                          aria-label={`${st.label} ${st.value}, ${st.vs}: open the measurement`}>
+                        <Receipt path={st.receipt} label={`${st.label} ${st.value}, ${st.vs}: open ${st.receipt.split("/").pop()}`} mono>
                           {st.value}
-                        </button>
+                        </Receipt>
                         <span className={`small${st.good ? " ok" : " dimmed"}`}>{st.vs}</span>
                       </dd>
                     </div>
                   ))}
                 </dl>
               ) : (
-                <p className="small dimmed">Not measured by Footnote. No query or passage prefixes.</p>
+                <p className="small dimmed">Not measured by Footnote.</p>
+              )}
+              {m?.imported && (
+                <p className="small dimmed">
+                  {m.family ? `Uses the ${m.family} prefixes.` : "No query or passage prefixes known."}
+                  {c.facts?.measuredOn && ` Scores are from ${c.facts.measuredOn}.`}
+                </p>
+              )}
+              {state === "import" && (
+                <p className="small dimmed">
+                  Not in the catalogue. Download the file from its model card, then import it:
+                  <span className="mono mc-repo">{c.facts.repo}</span>
+                </p>
               )}
               {blocked && <p className="warn small">Needs a build with llama.cpp.</p>}
-              {m.installed && !m.used_by_memory && !blocked && <p className="dimmed small">Use re-embeds your memories in the background.</p>}
+              {state === "installed" && !blocked && <p className="small">{reembed}</p>}
               <footer className="mc-foot">
-                {m.license ? <License license={m.license} />
+                {c.license ? <License license={c.license} />
                   : <span className="dimmed small">Licence unknown: check the model card before use at work.</span>}
                 <span className="mono small dimmed mc-size">
-                  {m.installed && m.bytes ? mb(m.bytes) : m.download_bytes ? mb(m.download_bytes) : "–"}
+                  {m?.installed && m.bytes ? mb(m.bytes) : m?.download_bytes ? mb(m.download_bytes) : c.facts?.bytes ? mb(c.facts.bytes) : "–"}
                 </span>
-                {m.installed ? (
-                  !m.used_by_memory && (
-                    <button className="btn" type="button" disabled={!!switching || blocked} onClick={() => useModels([m.name])}
-                      aria-label={`Use ${m.name} for Memory`}>
-                      {switching === m.name ? "Switching…" : "Use"}
-                    </button>
-                  )
-                ) : busy?.name === m.name ? (
+                {state === "installed" ? (
+                  <button className="btn" type="button" disabled={!!switching || blocked} onClick={() => useModels([m.name])}
+                    aria-label={`Use ${m.name} for Memory`}>
+                    {switching === m.name ? "Switching…" : "Use"}
+                  </button>
+                ) : state === "import" ? (
+                  <ImportGguf disabled={blocked} done={imported} opener="Import…" label={`Import a GGUF file of ${c.name}`} />
+                ) : state === "install" && busy?.name === m.name ? (
                   <Download busy={busy} total={m.download_bytes} cancel={cancel} retry={() => install(m.name)} />
-                ) : (
+                ) : state === "install" ? (
                   <button className="btn" type="button" disabled={blocked || (!!busy && !busy.error && !busy.cancelled)}
                     onClick={() => install(m.name)} aria-label={`Install ${m.name}, ${m.download_bytes ? mb(m.download_bytes) : "size unknown"}`}>
                     Install
                   </button>
-                )}
+                ) : null}
               </footer>
             </li>
           );
@@ -496,39 +521,23 @@ export function Models({ refresh }) {
       </ul>
       <div className="bar">
         <PathPill path={data.folder} keep={2} />
-        <ImportGguf disabled={data.llama === false} done={() => { setRound((r) => r + 1); refresh?.(); }} />
+        <ImportGguf disabled={!llama} done={imported} />
         {onDisk > 0 && <span className="dimmed small" style={{ marginLeft: "auto" }}>{mb(onDisk)} on disk</span>}
       </div>
     </div>
   );
 }
 
-// The Models screen's ranking (#556): what the benchmarks measured, each number opening its report. nDCG@10 on held-out
-// splits; search p95 is a whole search as an agent sees it, on an idle machine. Order: the active models, the default
-// pair, the best measured alternative, the earlier models, then imported ones.
-const RANK = ["bekko-a8m", "gte-small", "jina-v5-nano", "e5-small", "minilm"];
-const GGUF = new Set(["jina-v5-nano"]);
-const FINAL = "bench/experiments/FINAL-RANKING.md";
-const NANO = "bench/experiments/LLAMACPP-INPROCESS.md";
-const PAIR = {
-  stats: [
-    { label: "French or mixed", value: "0.489", vs: "nDCG@10, the reference", receipt: FINAL },
-    { label: "English", value: "0.747", vs: "nDCG@10, the reference", receipt: FINAL },
-    { label: "Search p95", value: "42 ms", vs: "the two together", receipt: NANO },
-  ],
-};
-const MEASURED = {
-  "bekko-a8m": PAIR,
-  "gte-small": PAIR,
-  "jina-v5-nano": {
-    stats: [
-      { label: "French or mixed", value: "0.572", vs: "+0.083 over the pair", good: true, receipt: NANO },
-      { label: "Search p95", value: "69 ms", vs: "pair 42 ms", receipt: NANO },
-    ],
-  },
-  "e5-small": { verdict: "Did not beat the default pair when added to it.", receipt: "bench/experiments/RESULTS.md" },
-  minilm: { verdict: "Did not beat the default pair when added to it.", receipt: "bench/experiments/RESULTS.md" },
-};
+const STATE = { active: "Active", installed: "Installed", install: "Not installed", import: "Not in the catalogue" };
+
+/** A link to a measurement report in `bench/experiments`, opened on the project's site. */
+function Receipt({ path, label, mono, children }) {
+  return (
+    <button type="button" className={`receipt${mono ? " mono" : ""}`} onClick={() => openReceipt(path)} aria-label={label}>
+      {children}{!mono && <span aria-hidden="true"> ↗</span>}
+    </button>
+  );
+}
 
 const KEEP = [[300, "5 min"], [1800, "30 min"], [7200, "2 hours"]];
 

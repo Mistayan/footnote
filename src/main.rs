@@ -14,6 +14,7 @@ mod docs;
 mod find;
 #[cfg(feature = "code")]
 mod frame;
+mod gguf;
 mod grep;
 mod hardware;
 #[cfg(feature = "memory")]

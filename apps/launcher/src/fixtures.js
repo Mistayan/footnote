@@ -4,12 +4,15 @@ const models = {
   memory_uses_from_elsewhere: [],
   llama: true,
   models: [
-    { name: "bekko-a8m", installed: true, bytes: 164462521, license: "MIT", role: "default pair, multilingual half", used_by_memory: true },
-    { name: "gte-small", installed: true, bytes: 34726087, license: "MIT", role: "default pair, English half", used_by_memory: true },
+    { name: "bekko-a8m", installed: true, bytes: 164462521, download_bytes: 164462521, license: "MIT", role: "default pair, multilingual half", used_by_memory: true },
+    { name: "gte-small", installed: true, bytes: 34726087, download_bytes: 34726087, license: "MIT", role: "default pair, English half", used_by_memory: true },
     { name: "e5-small", installed: false, download_bytes: 135390915, license: "MIT", role: "earlier model, tests and comparison", used_by_memory: false },
-    { name: "jina-v5-nano", installed: false, download_bytes: 232883776, license: "CC-BY-NC-4.0 (no commercial use)", role: "French or mixed corpora, opt-in (llama build)", used_by_memory: false },
+    { name: "jina-v5-nano", installed: false, download_bytes: 232883776, license: "CC-BY-NC-4.0 (no commercial use)", role: "French or mixed corpora, opt-in", used_by_memory: false },
     { name: "minilm", installed: false, download_bytes: 118000000, license: "Apache-2.0", role: "earlier model, tests and comparison", used_by_memory: false },
-    { name: "embeddinggemma-300m-q8_0", installed: true, imported: true, bytes: 328576000, license: null, role: "imported GGUF", used_by_memory: false },
+    { name: "embeddinggemma-300m-q8_0", installed: true, imported: true, bytes: 328576000, license: null, role: "imported GGUF", used_by_memory: false,
+      family: "embeddinggemma", prefixes: true, dimension: 768 },
+    { name: "granite-embed-311m-q8_0", installed: true, imported: true, bytes: 331200000, license: "apache-2.0", role: "imported GGUF", used_by_memory: false,
+      family: null, prefixes: false, dimension: 768 },
   ],
 };
 
@@ -289,7 +292,7 @@ export function mockFolders(path, gguf) {
 }
 
 export const fixtures = {
-  ok: { status, projects, activity, "models list": models, "models import": { imported: true, name: "embeddinggemma-300m-q8_0" }, "code-map": codeMap, "code-map --root D:/work/atlas-api --block src": codeMapSrc, "code-impact": codeImpact, code, usage, "config set": {},
+  ok: { status, projects, activity, "models list": models, "models import": { imported: true, name: "embeddinggemma-300m-q8_0", note: "`footnote models use embeddinggemma-300m-q8_0` makes Footnote Memory use it; its vectors are computed at the next session start. It uses the embeddinggemma family's query and passage prefixes. Its licence is unknown: check the model card before use at work." }, "code-map": codeMap, "code-map --root D:/work/atlas-api --block src": codeMapSrc, "code-impact": codeImpact, code, usage, "config set": {},
     options: options(), "agent-ask": { queued: true, agent: "claude", session: "3f2a1b9c-77aa-4e0b-9d51-0c2e6a1f8b47", delivery: "next-turn" }, "agent-commit": { agent: "claude", before: 4, uncommitted: 0, unpushed: 0, said: "Committed 2 commits (feat: sync retries; docs: README). Pushed main to origin. Left nothing." }, "projects add": { added: true, name: "shop-api", path: "D:/work/shop-api" }, "projects ignore": { ignored: true }, "projects unignore": { ignored: false }, "install --memory": { installed: true },
     "update --check": { installed: "0.1.0-alpha.3", latest: "0.1.0-alpha.4", newer: true, installer: "Footnote-Setup-0.1.0-alpha.4-x64.exe",
       published_at: new Date(Date.now() - 51 * 60000).toISOString(),
@@ -336,6 +339,8 @@ export const fixtures = {
     status, projects, activity, "models list": models,
     jobs: { jobs: [{ kind: "models.install", label: "jina-v5-nano model.gguf", state: "running", unit: "bytes", done: 97_000_000, total: 232_883_776 }], total: 1, hidden: 0 },
   },
+  // A build without llama.cpp (#556): GGUF cards say so and their actions are off.
+  nollama: { status, projects, activity, options: options(), "config set": {}, "models list": { ...models, llama: false } },
   // One product switched off and one left out of the build: the switch's two other states.
   off: {
     status: { ...status, products: { ...status.products, code: { built: false }, library: { built: true, enabled: false } } },
@@ -356,13 +361,13 @@ export const fixtures = {
         library: { built: true },
         memory: { built: true, enabled: true, memories: 0, saved_last_7_days: 0, recalls_last_7_days: 0, agents: [] },
       },
-      models: { ...models, models: models.models.map((m) => ({ ...m, installed: false, bytes: undefined })) },
+      models: { ...models, models: models.models.filter((m) => !m.imported).map((m) => ({ ...m, installed: false, used_by_memory: false, bytes: undefined })) },
     },
     projects: { projects: [] },
     activity: { activity_log: false, days: [], most_used: [] },
     usage: { ...usage, totals: Object.fromEntries(Object.keys(usage.totals).map((k) => [k, 0])), by_day: [], by_model: [], by_agent: [],
       measured_savings: { source: "Footnote Lean (usage/lean.jsonl)", total_saved_bytes: 0, total_saved_tokens_estimate: 0, shell: { commands: 0, before_bytes: 0, after_bytes: 0, saved_bytes: 0, saved_tokens_estimate: 0, saved_share: 0, handles_stored: 0, handles_retrieved: 0, miss_rate: 0, by_family: [], by_day: [] }, footnote: { calls: 0, saved_bytes: 0, saved_tokens_estimate: 0 } } },
-    "models list": { ...models, models: models.models.map((m) => ({ ...m, installed: false, bytes: undefined })) },
+    "models list": { ...models, models: models.models.filter((m) => !m.imported).map((m) => ({ ...m, installed: false, used_by_memory: false, bytes: undefined })) },
     options: options({ value: true, source: "user" }), "memory-review": review([]), "config set": {},
   },
 };

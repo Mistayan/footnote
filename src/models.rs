@@ -149,7 +149,7 @@ const RECIPES: &[Recipe] = &[
             "model.gguf",
             "86b6e6279e9b9e71389f02a082764a2ac2b15a50e37482c26f98d69092f12442",
         )],
-        role: "French or mixed corpora, opt-in (llama build)",
+        role: "French or mixed corpora, opt-in",
         license: "CC-BY-NC-4.0 (no commercial use)",
     },
 ];
@@ -216,9 +216,11 @@ pub fn list(state: &Path) -> Result<Value> {
             continue;
         }
         let bytes = fs::metadata(dir.join("model.gguf")).map_or(0, |m| m.len());
+        let facts = imported_facts(&dir);
         rows.push(json!({"name": name, "role": "imported GGUF", "installed": true, "imported": true, "path": dir,
             "bytes": bytes, "download_bytes": null, "used_by_memory": used.iter().any(|u| same_model(u, &dir)),
-            "source": "imported", "license": null}));
+            "source": "imported", "license": facts["license"], "family": facts["family"],
+            "dimension": facts["dimension"], "prefixes": facts["prefixes"]}));
     }
     // Models the hook uses from elsewhere (for example a development checkout) are reported too.
     let elsewhere: Vec<&String> = used
@@ -498,9 +500,81 @@ fn import_name(file: &Path) -> String {
         .collect()
 }
 
+/// Query and passage prefixes for the model families Footnote knows: the catalogue's (Jina v5, E5) and the GGUF candidates
+/// its lab measured with these prefixes (bench/experiments/LLAMACPP-MODELS.md, C1 and C2). A family matches when all its
+/// tokens are words of the file's name or the model's declared name. Any other model gets no prefixes, and its card says so.
+struct Family {
+    name: &'static str,
+    tokens: &'static [&'static str],
+    query_prefix: &'static str,
+    passage_prefix: &'static str,
+}
+
+const FAMILIES: &[Family] = &[
+    Family {
+        name: "jina-v5",
+        tokens: &["jina", "v5"],
+        query_prefix: "Query: ",
+        passage_prefix: "Document: ",
+    },
+    Family {
+        name: "e5",
+        tokens: &["e5"],
+        query_prefix: "query: ",
+        passage_prefix: "passage: ",
+    },
+    Family {
+        name: "embeddinggemma",
+        tokens: &["embeddinggemma"],
+        query_prefix: "task: search result | query: ",
+        passage_prefix: "title: none | text: ",
+    },
+    Family {
+        name: "qwen3-embedding",
+        tokens: &["qwen3", "embedding"],
+        query_prefix: "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ",
+        passage_prefix: "",
+    },
+];
+
+/// The known family of a model with these names (file stem, declared name), if any.
+fn family(names: &[&str]) -> Option<&'static Family> {
+    let words: Vec<String> = names
+        .iter()
+        .flat_map(|n| n.split(|c: char| !c.is_ascii_alphanumeric()))
+        .map(str::to_ascii_lowercase)
+        .collect();
+    FAMILIES
+        .iter()
+        .find(|f| f.tokens.iter().all(|t| words.iter().any(|w| w == t)))
+}
+
 /// Copy a GGUF embedding model into the models folder with a manifest, so `models use` can pick it (#556). The original file
-/// stays where it is.
+/// stays where it is. Refused, with the reason, by a build without llama.cpp and for a file that is not an embedding model.
 pub fn import(state: &Path, file: &Path) -> Result<Value> {
+    ensure!(
+        cfg!(feature = "llama"),
+        "this build of Footnote has no llama.cpp, so it cannot run a GGUF model; install a release build (or build with `--features llama`) first"
+    );
+    import_checked(state, file, &load_check)
+}
+
+/// The last check before copying: llama.cpp loads the weights and gives the embedding width it will produce.
+#[cfg(feature = "llama")]
+fn load_check(file: &Path) -> Result<Option<usize>> {
+    Ok(Some(footnote_search::llama::inspect(file)?.dimension))
+}
+#[cfg(not(feature = "llama"))]
+fn load_check(_: &Path) -> Result<Option<usize>> {
+    bail!("this build of Footnote has no llama.cpp")
+}
+
+/// `import` after the build check; `load` is llama.cpp's check (tests pass one that accepts a synthetic header).
+fn import_checked(
+    state: &Path,
+    file: &Path,
+    load: &dyn Fn(&Path) -> Result<Option<usize>>,
+) -> Result<Value> {
     ensure!(
         file.extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("gguf")),
@@ -513,6 +587,9 @@ pub fn import(state: &Path, file: &Path) -> Result<Value> {
             .is_file(),
         "not a file"
     );
+    let info = crate::gguf::read(file)?
+        .embedding()
+        .with_context(|| format!("{} cannot be used for search", file.display()))?;
     let name = import_name(file);
     ensure!(
         valid_name(&name),
@@ -525,20 +602,14 @@ pub fn import(state: &Path, file: &Path) -> Result<Value> {
     );
     let dir = models_dir(state).join(&name);
     ensure!(!dir.exists(), "a model named `{name}` is already installed");
-    import_gguf(file, &dir, &name)
-}
-
-#[cfg(not(feature = "llama"))]
-fn import_gguf(_: &Path, _: &Path, _: &str) -> Result<Value> {
-    bail!(
-        "this build has no llama.cpp support, so it cannot run a GGUF model; release builds have it (`--features llama`)"
-    )
-}
-
-#[cfg(feature = "llama")]
-fn import_gguf(file: &Path, dir: &Path, name: &str) -> Result<Value> {
-    let info = footnote_search::llama::inspect(file)?;
-    fs::create_dir_all(dir)?;
+    let dimension = load(file)?.unwrap_or(info.dimension);
+    let stem = file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let fam = family(&[&stem, &info.name]);
+    ignore_models(state)?;
+    fs::create_dir_all(&dir)?;
     let copied = (|| -> Result<(String, u64)> {
         let partial = dir.join("model.gguf.partial");
         let bytes = fs::copy(file, &partial)?;
@@ -548,28 +619,50 @@ fn import_gguf(file: &Path, dir: &Path, name: &str) -> Result<Value> {
     let (sha, bytes) = match copied {
         Ok(v) => v,
         Err(e) => {
-            let _ = fs::remove_dir_all(dir); // no half-imported model left behind
+            let _ = fs::remove_dir_all(&dir); // no half-imported model left behind
             return Err(e.context(format!("copy {} into the models folder", file.display())));
         }
     };
-    // shortcut: no query or passage prefixes; models trained with them rank a little worse. Add a per-family table when one is
-    // imported often.
     let manifest = json!({
-        "repository": "imported", "revision": "", "license": "", "source": file, "name": info.name,
+        "repository": "imported", "revision": "", "license": info.license, "source": file, "name": info.name,
+        "architecture": info.architecture, "family": fam.map_or("", |f| f.name),
         "runtime": "llama.cpp", "files": {"model.gguf": {"sha256": sha, "bytes": bytes}},
-        "pooling": info.pooling, "query_prefix": "", "passage_prefix": "",
-        "max_length": info.context.clamp(8, 512), "dimension": info.dimension, "quantization": "",
+        "pooling": info.pooling, "query_prefix": fam.map_or("", |f| f.query_prefix),
+        "passage_prefix": fam.map_or("", |f| f.passage_prefix),
+        "max_length": info.context.clamp(8, 512), "dimension": dimension, "quantization": "",
     });
     fs::write(
         dir.join("manifest.json"),
-        serde_json::to_string_pretty(&manifest)?
-            + "
-",
+        serde_json::to_string_pretty(&manifest)? + "\n",
     )?;
+    let prefixes = match fam {
+        Some(f) => format!(
+            "It uses the {} family's query and passage prefixes.",
+            f.name
+        ),
+        None => "No query or passage prefixes are known for it.".into(),
+    };
+    let license = if info.license.is_empty() {
+        "Its licence is unknown: check the model card before use at work.".to_string()
+    } else {
+        format!("The file declares the licence {}.", info.license)
+    };
     Ok(
-        json!({"imported": true, "name": name, "path": dir, "bytes": bytes, "dimension": info.dimension, "pooling": info.pooling,
-        "note": format!("`footnote models use {name}` makes Footnote Memory use it; its vectors are computed at the next session start. No query or passage prefixes are known for it, and its licence is the model card's.")}),
+        json!({"imported": true, "name": name, "path": dir, "bytes": bytes, "dimension": dimension, "pooling": info.pooling,
+        "family": fam.map(|f| f.name), "license": (!info.license.is_empty()).then_some(&info.license),
+        "note": format!("`footnote models use {name}` makes Footnote Memory use it; its vectors are computed at the next session start. {prefixes} {license}")}),
     )
+}
+
+/// What an imported model's manifest says about it, for `models list`.
+fn imported_facts(dir: &Path) -> Value {
+    let m: Value = fs::read_to_string(dir.join("manifest.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let text = |k: &str| m[k].as_str().filter(|s| !s.is_empty()).map(str::to_owned);
+    json!({"license": text("license"), "family": text("family"), "dimension": m["dimension"],
+        "prefixes": text("query_prefix").is_some() || text("passage_prefix").is_some()})
 }
 
 pub fn remove(state: &Path, name: &str) -> Result<Value> {
@@ -719,6 +812,172 @@ mod tests {
         );
         assert!(super::use_models(state, &["../outside".into()]).is_err());
         assert!(super::import(state, &t.path().join("notes.txt")).is_err());
+    }
+
+    fn embedding_gguf(arch: &str, name: &str, license: Option<&str>) -> Vec<u8> {
+        use crate::gguf::Meta;
+        let mut keys = vec![
+            ("general.architecture".to_string(), Meta::Str(arch.into())),
+            ("general.name".to_string(), Meta::Str(name.into())),
+            (format!("{arch}.pooling_type"), Meta::Int(3)),
+            (format!("{arch}.embedding_length"), Meta::Int(1024)),
+            (format!("{arch}.context_length"), Meta::Int(32768)),
+        ];
+        if let Some(l) = license {
+            keys.push(("general.license".into(), Meta::Str(l.into())));
+        }
+        let keys: Vec<(&str, Meta)> = keys.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+        crate::gguf::synthetic(&keys)
+    }
+
+    /// #556: a build without llama.cpp refuses an import with the reason, before reading the file.
+    #[cfg(not(feature = "llama"))]
+    #[test]
+    fn a_build_without_llama_refuses_an_import() {
+        let t = tempfile::tempdir().unwrap();
+        let file = t.path().join("tiny.gguf");
+        std::fs::write(&file, embedding_gguf("qwen3", "Tiny", None)).unwrap();
+        let err = super::import(&t.path().join("state"), &file)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("no llama.cpp"), "{err}");
+        assert!(!super::models_dir(&t.path().join("state")).exists());
+    }
+
+    /// #556: with llama.cpp, a file whose weights it cannot load is refused and nothing is left in the models folder.
+    #[cfg(feature = "llama")]
+    #[test]
+    fn llama_refuses_a_header_without_weights() {
+        let t = tempfile::tempdir().unwrap();
+        let file = t.path().join("tiny.gguf");
+        std::fs::write(&file, embedding_gguf("qwen3", "Tiny", None)).unwrap();
+        assert!(super::import(t.path(), &file).is_err());
+        assert!(!super::models_dir(t.path()).join("tiny").exists());
+    }
+
+    /// #556: a chat model or reranker is refused before anything is copied.
+    #[test]
+    fn a_gguf_that_is_not_an_embedding_model_is_refused() {
+        use crate::gguf::Meta;
+        let t = tempfile::tempdir().unwrap();
+        let chat = t.path().join("chat-7b.gguf");
+        std::fs::write(
+            &chat,
+            crate::gguf::synthetic(&[
+                ("general.architecture", Meta::Str("llama".into())),
+                ("llama.embedding_length", Meta::Int(4096)),
+            ]),
+        )
+        .unwrap();
+        let err = format!(
+            "{:#}",
+            super::import_checked(t.path(), &chat, &|_| Ok(None)).unwrap_err()
+        );
+        assert!(err.contains("not an embedding model"), "{err}");
+        let fake = t.path().join("fake.gguf");
+        std::fs::write(&fake, b"not a model").unwrap();
+        assert!(super::import_checked(t.path(), &fake, &|_| Ok(None)).is_err());
+        assert!(!super::models_dir(t.path()).join("chat-7b").exists());
+        assert!(!super::models_dir(t.path()).join("fake").exists());
+    }
+
+    /// #556: an embedding GGUF is copied (the original stays), with a manifest llama.cpp can load, the family's prefixes and
+    /// an unknown licence reported as such; a second import of the same name is refused.
+    #[test]
+    fn an_embedding_gguf_is_copied_with_its_manifest() {
+        let t = tempfile::tempdir().unwrap();
+        let state = t.path().join("state");
+        let file = t.path().join("Qwen3-Embedding-Tiny-Q8_0.gguf");
+        let bytes = embedding_gguf("qwen3", "Qwen3 Embedding Tiny", None);
+        std::fs::write(&file, &bytes).unwrap();
+        let out = super::import_checked(&state, &file, &|_| Ok(None)).unwrap();
+        assert!(file.exists(), "the original stays where it is");
+        let dir = super::models_dir(&state).join("qwen3-embedding-tiny-q8_0");
+        assert_eq!(out["name"], "qwen3-embedding-tiny-q8_0");
+        assert_eq!(std::fs::read(dir.join("model.gguf")).unwrap(), bytes);
+        let m: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("manifest.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            (
+                &m["runtime"],
+                &m["pooling"],
+                &m["dimension"],
+                &m["max_length"],
+                &m["family"]
+            ),
+            (
+                &serde_json::json!("llama.cpp"),
+                &serde_json::json!("last"),
+                &serde_json::json!(1024),
+                &serde_json::json!(512),
+                &serde_json::json!("qwen3-embedding")
+            )
+        );
+        assert_eq!(
+            m["files"]["model.gguf"]["sha256"].as_str().unwrap(),
+            super::sha256_file(&file).unwrap()
+        );
+        assert!(m["query_prefix"].as_str().unwrap().ends_with("Query: "));
+        assert!(out["note"].as_str().unwrap().contains("licence is unknown"));
+        let row = super::list(&state).unwrap()["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == "qwen3-embedding-tiny-q8_0")
+            .unwrap()
+            .clone();
+        assert_eq!(
+            (&row["license"], &row["prefixes"], &row["dimension"]),
+            (
+                &serde_json::Value::Null,
+                &serde_json::json!(true),
+                &serde_json::json!(1024)
+            )
+        );
+        let again = super::import_checked(&state, &file, &|_| Ok(None)).unwrap_err();
+        assert!(again.to_string().contains("already installed"));
+
+        // an unknown family gets no prefixes; a declared licence is kept
+        let other = t.path().join("my-embed.gguf");
+        std::fs::write(
+            &other,
+            embedding_gguf("bert", "My Embed", Some("apache-2.0")),
+        )
+        .unwrap();
+        super::import_checked(&state, &other, &|_| Ok(Some(384))).unwrap();
+        let m: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(super::models_dir(&state).join("my-embed/manifest.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            (&m["query_prefix"], &m["license"], &m["dimension"]),
+            (
+                &serde_json::json!(""),
+                &serde_json::json!("apache-2.0"),
+                &serde_json::json!(384)
+            )
+        );
+    }
+
+    #[test]
+    fn known_families_match_on_whole_words() {
+        let name = |n: &[&str]| super::family(n).map(|f| f.name);
+        assert_eq!(
+            name(&["v5-nano-retrieval-Q8_0", "Jina Embeddings V5 Text Nano"]),
+            Some("jina-v5")
+        );
+        assert_eq!(name(&["multilingual-e5-small-q8_0", ""]), Some("e5"));
+        assert_eq!(
+            name(&["embeddinggemma-300M-Q8_0", ""]),
+            Some("embeddinggemma")
+        );
+        assert_eq!(
+            name(&["Qwen3-Embedding-0.6B-Q8_0", ""]),
+            Some("qwen3-embedding")
+        );
+        assert_eq!(name(&["bge-m3-q8_0", "be5t"]), None);
     }
 
     /// Same bytes as the manifest the lab wrote for test 6, so a model's identity (the manifest hash) does not change.
